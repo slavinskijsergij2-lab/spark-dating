@@ -54,7 +54,7 @@ class Profile(Base):
     looking_for = Column(Enum(GenderEnum), nullable=True)
     city = Column(String(100), nullable=True)
     bio = Column(Text, nullable=True)
-    photo = Column(String(500), nullable=True)
+    photo = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Function 5: Intention
@@ -127,7 +127,7 @@ class ProfilePhoto(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     profile_id = Column(Integer, ForeignKey("profiles.id"), nullable=False)
-    url = Column(String(500), nullable=False)
+    url = Column(Text, nullable=False)
     position = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
 

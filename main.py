@@ -33,6 +33,11 @@ _migrations = [
     "ALTER TABLE matches ADD COLUMN{} seen_by_user1 BOOLEAN NOT NULL DEFAULT TRUE",
     "ALTER TABLE matches ADD COLUMN{} seen_by_user2 BOOLEAN NOT NULL DEFAULT FALSE",
 ]
+# Widen photo columns to TEXT so base64 data URIs fit
+_type_migrations = [
+    "ALTER TABLE profiles ALTER COLUMN photo TYPE TEXT",
+    "ALTER TABLE profile_photos ALTER COLUMN url TYPE TEXT",
+]
 for _m in _migrations:
     _sql = _m.format(" IF NOT EXISTS" if _is_pg else "")
     try:
@@ -40,6 +45,14 @@ for _m in _migrations:
             _c.execute(_text(_sql))
     except Exception:
         pass
+
+if _is_pg:
+    for _sql in _type_migrations:
+        try:
+            with engine.begin() as _c:
+                _c.execute(_text(_sql))
+        except Exception:
+            pass
 
 Path("static/uploads").mkdir(parents=True, exist_ok=True)
 

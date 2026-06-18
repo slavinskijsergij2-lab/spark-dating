@@ -1,5 +1,5 @@
-import os
-import uuid
+import base64
+import io
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, HTTPException
@@ -15,24 +15,23 @@ from app.templates import templates
 
 router = APIRouter()
 
-UPLOAD_DIR = Path("static/uploads")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_SIZE = (800, 800)
 
 VALID_INTENTIONS = {"serious", "casual", "today", "browsing"}
 
 
 def save_photo(file: UploadFile) -> str:
+    """Returns a data: URI so photos survive container restarts."""
     ext = Path(file.filename).suffix.lower()
-    if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
+    if ext not in {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}:
         raise HTTPException(400, "Только JPG/PNG/WEBP изображения")
-    filename = f"{uuid.uuid4().hex}.jpg"
-    path = UPLOAD_DIR / filename
     img = Image.open(file.file)
     img.thumbnail(MAX_SIZE, Image.LANCZOS)
     img = img.convert("RGB")
-    img.save(path, "JPEG", quality=85)
-    return f"/static/uploads/{filename}"
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=80)
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    return f"data:image/jpeg;base64,{b64}"
 
 
 @router.get("/profile/edit", response_class=HTMLResponse)
@@ -40,6 +39,8 @@ def edit_profile_page(request: Request, user: User = Depends(get_current_user), 
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()
     lang = get_lang(request, user)
     verified_flash = request.query_params.get("verified") == "1"
+    saved_flash = request.query_params.get("saved") == "1"
+    error_flash = request.query_params.get("error", "")
     extra_photos = db.query(ProfilePhoto).filter(ProfilePhoto.profile_id == profile.id).order_by(ProfilePhoto.position).all() if profile else []
     return templates.TemplateResponse("profile_edit.html", {
         "request": request,
@@ -52,6 +53,8 @@ def edit_profile_page(request: Request, user: User = Depends(get_current_user), 
         "lang": lang,
         "rtl": is_rtl(lang),
         "verified_flash": verified_flash,
+        "saved_flash": saved_flash,
+        "error": error_flash,
     })
 
 
@@ -122,7 +125,7 @@ async def edit_profile(
 
     db.commit()
 
-    redirect = RedirectResponse("/swipe", status_code=302)
+    redirect = RedirectResponse("/profile/edit?saved=1", status_code=302)
     redirect.set_cookie("lang", new_lang, max_age=60 * 60 * 24 * 365, samesite="lax")
     return redirect
 
