@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dating.db")
+DATABASE_URL = os.getenv("DATABASE_URL") or "sqlite:///./dating.db"
 
 # Railway PostgreSQL uses postgres://, SQLAlchemy needs postgresql://
 if DATABASE_URL.startswith("postgres://"):
