@@ -5,8 +5,6 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-from markupsafe import Markup  # noqa: F401 — used in _tojson
-
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -24,25 +22,23 @@ from app.templates import templates
 
 Base.metadata.create_all(bind=engine)
 
-# Inline DB migration — adds new columns to existing Railway PostgreSQL databases
-try:
-    from sqlalchemy import inspect as sa_inspect, text
-    with engine.begin() as _conn:
-        _inspector = sa_inspect(engine)
-        _user_cols = {c["name"] for c in _inspector.get_columns("users")}
-        _match_cols = {c["name"] for c in _inspector.get_columns("matches")}
-        if "last_seen" not in _user_cols:
-            _conn.execute(text("ALTER TABLE users ADD COLUMN last_seen TIMESTAMP"))
-        if "email_verified" not in _user_cols:
-            _conn.execute(text("ALTER TABLE users ADD COLUMN email_verified BOOLEAN NOT NULL DEFAULT TRUE"))
-        if "email_verify_token" not in _user_cols:
-            _conn.execute(text("ALTER TABLE users ADD COLUMN email_verify_token VARCHAR(100)"))
-        if "seen_by_user1" not in _match_cols:
-            _conn.execute(text("ALTER TABLE matches ADD COLUMN seen_by_user1 BOOLEAN NOT NULL DEFAULT TRUE"))
-        if "seen_by_user2" not in _match_cols:
-            _conn.execute(text("ALTER TABLE matches ADD COLUMN seen_by_user2 BOOLEAN NOT NULL DEFAULT FALSE"))
-except Exception as _e:
-    logging.warning("DB migration warning: %s", _e)
+# Inline DB migration — safe for PostgreSQL (IF NOT EXISTS) and SQLite (try/except)
+from sqlalchemy import text as _text
+_is_pg = str(engine.url).startswith("postgresql")
+_migrations = [
+    "ALTER TABLE users ADD COLUMN{} last_seen TIMESTAMP",
+    "ALTER TABLE users ADD COLUMN{} email_verified BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE users ADD COLUMN{} email_verify_token VARCHAR(100)",
+    "ALTER TABLE matches ADD COLUMN{} seen_by_user1 BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE matches ADD COLUMN{} seen_by_user2 BOOLEAN NOT NULL DEFAULT FALSE",
+]
+for _m in _migrations:
+    _sql = _m.format(" IF NOT EXISTS" if _is_pg else "")
+    try:
+        with engine.begin() as _c:
+            _c.execute(_text(_sql))
+    except Exception:
+        pass
 
 Path("static/uploads").mkdir(parents=True, exist_ok=True)
 
