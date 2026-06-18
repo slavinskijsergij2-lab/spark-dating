@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Spark — Знакомства{% endblock %}
+{% block content %}
+<div class="flex flex-col items-center justify-center min-h-[80vh] text-center">
+  <div class="gradient-pink w-24 h-24 rounded-full flex items-center justify-center mb-6 shadow-lg">
+    <span class="text-5xl">💘</span>
+  </div>
+  <h1 class="text-4xl font-bold text-gray-800 mb-3">Spark</h1>
+  <p class="text-lg text-gray-500 mb-8 max-w-sm">{{ t.hero_subtitle }}</p>
+  <div class="flex flex-col gap-3 w-full max-w-xs">
+    <a href="/register"
+       class="gradient-pink text-white py-3 px-8 rounded-full font-semibold text-lg shadow-lg hover:opacity-90 transition-opacity">
+      {{ t.start }}
+    </a>
+    <a href="/login"
+       class="border-2 border-pink-400 text-pink-500 py-3 px-8 rounded-full font-semibold text-lg hover:bg-pink-50 transition-colors">
+      {{ t.login }}
+    </a>
+  </div>
+  <div class="mt-12 grid grid-cols-3 gap-6 text-center">
+    <div>
+      <div class="text-3xl mb-1">😊</div>
+      <div class="text-sm text-gray-500">{{ t.feature_profiles }}</div>
+    </div>
+    <div>
+      <div class="text-3xl mb-1">💬</div>
+      <div class="text-sm text-gray-500">{{ t.feature_chat }}</div>
+    </div>
+    <div>
+      <div class="text-3xl mb-1">🔒</div>
+      <div class="text-sm text-gray-500">{{ t.feature_safety }}</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

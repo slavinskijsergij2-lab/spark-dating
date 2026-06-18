@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Spark{% endblock %}
+{% block content %}
+
+<!-- Function 5: Intention filter bar -->
+<div class="flex gap-2 mb-4 overflow-x-auto pb-1">
+  <a href="/swipe"
+     class="flex-shrink-0 text-sm px-4 py-2 rounded-full border-2 transition
+       {% if not current_intention %}border-pink-400 bg-pink-50 text-pink-600 font-semibold{% else %}border-gray-200 text-gray-500 hover:border-pink-200{% endif %}">
+    {{ t.filter_all }}
+  </a>
+  {% for item in [('serious','💍'), ('casual','😊'), ('today','🔥'), ('browsing','👀')] %}
+  <a href="/swipe?intention={{ item[0] }}"
+     class="flex-shrink-0 text-sm px-4 py-2 rounded-full border-2 transition whitespace-nowrap
+       {% if current_intention == item[0] %}border-pink-400 bg-pink-50 text-pink-600 font-semibold{% else %}border-gray-200 text-gray-500 hover:border-pink-200{% endif %}">
+    {{ item[1] }}
+    {% if item[0] == 'serious' %}{{ t.intention_serious }}
+    {% elif item[0] == 'casual' %}{{ t.intention_casual }}
+    {% elif item[0] == 'today' %}{{ t.intention_today }}
+    {% elif item[0] == 'browsing' %}{{ t.intention_browsing }}
+    {% endif %}
+  </a>
+  {% endfor %}
+</div>
+
+<div x-data="{
+  matched: false,
+  partnerName: '',
+  noMore: {{ 'true' if not candidate else 'false' }},
+
+  async swipe(action) {
+    if (this.noMore) return;
+    const resp = await fetch('/swipe/{{ candidate.id if candidate else 0 }}?action=' + action, {method: 'POST'});
+    const data = await resp.json();
+    if (data.matched) {
+      this.partnerName = '{{ profile.name if profile else '' }}';
+      this.matched = true;
+      setTimeout(() => { this.matched = false; window.location.reload(); }, 3000);
+    } else {
+      window.location.reload();
+    }
+  }
+}">
+
+  <!-- Match popup -->
+  <div x-show="matched" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div class="bg-white rounded-3xl p-10 text-center max-w-sm mx-4 shadow-2xl">
+      <div class="text-6xl mb-4">🎉</div>
+      <h2 class="text-2xl font-bold text-gray-800 mb-2">{{ t.its_a_match }}</h2>
+      <p class="text-gray-500">
+        <strong x-text="partnerName"></strong> — {{ t.match_desc }}
+      </p>
+      <a href="/matches"
+         class="inline-block mt-6 gradient-pink text-white px-8 py-3 rounded-full font-semibold hover:opacity-90 transition">
+        {{ t.write_message }}
+      </a>
+    </div>
+  </div>
+
+  <!-- No more candidates -->
+  <template x-if="noMore">
+    <div class="flex flex-col items-center justify-center min-h-[60vh] text-center">
+      <div class="text-6xl mb-4">😔</div>
+      <h2 class="text-xl font-bold text-gray-700 mb-2">{{ t.no_more_title }}</h2>
+      <p class="text-gray-400 mb-6">{{ t.no_more_desc }}</p>
+      <a href="/matches" class="gradient-pink text-white px-8 py-3 rounded-full font-semibold hover:opacity-90 transition">
+        {{ t.my_matches }}
+      </a>
+    </div>
+  </template>
+
+  <!-- Swipe card -->
+  {% if candidate and profile %}
+  <template x-if="!noMore">
+    <div>
+      <div class="bg-white rounded-3xl card-shadow overflow-hidden swipe-card">
+        <div class="relative h-96 bg-gradient-to-br from-pink-100 to-rose-100">
+          {% if profile.photo %}
+          <img src="{{ profile.photo }}" alt="{{ profile.name }}"
+               class="w-full h-full object-cover" />
+          {% else %}
+          <div class="w-full h-full flex items-center justify-center text-8xl">👤</div>
+          {% endif %}
+          <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-6">
+            <h2 class="text-white text-2xl font-bold flex items-center gap-2">
+              {{ profile.name }}, {{ profile.age }}
+              {% if candidate.is_verified %}
+              <span class="text-xs bg-green-500 text-white px-2 py-0.5 rounded-full">✓</span>
+              {% endif %}
+            </h2>
+            {% if profile.city %}
+            <p class="text-white/80 text-sm">📍 {{ profile.city }}</p>
+            {% endif %}
+            <!-- Function 5: Intention badge on card -->
+            {% if profile.intention %}
+            <div class="mt-1">
+              <span class="text-xs bg-white/20 text-white px-2 py-0.5 rounded-full backdrop-blur-sm">
+                {% if profile.intention == 'serious' %}💍 {{ t.intention_serious }}
+                {% elif profile.intention == 'casual' %}😊 {{ t.intention_casual }}
+                {% elif profile.intention == 'today' %}🔥 {{ t.intention_today }}
+                {% elif profile.intention == 'browsing' %}👀 {{ t.intention_browsing }}
+                {% endif %}
+              </span>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="p-5">
+          {% if profile.bio %}
+          <p class="text-gray-600 text-sm leading-relaxed">{{ profile.bio }}</p>
+          {% endif %}
+          <!-- Politeness rating -->
+          {% if candidate.politeness_votes and candidate.politeness_votes > 0 %}
+          <p class="text-yellow-500 text-xs mt-2">⭐ {{ "%.1f"|format(candidate.politeness_score) }}</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="flex justify-center gap-8 mt-6">
+        <button @click="swipe('dislike')"
+                class="w-16 h-16 rounded-full bg-white shadow-lg border-2 border-gray-100 flex items-center justify-center text-2xl hover:scale-110 hover:border-red-200 transition-all">
+          ✖️
+        </button>
+        <a href="/profile/{{ candidate.id }}"
+           class="w-12 h-12 rounded-full bg-white shadow-lg border-2 border-gray-100 flex items-center justify-center text-lg hover:scale-110 transition-all self-center">
+          👁
+        </a>
+        <button @click="swipe('like')"
+                class="w-16 h-16 rounded-full bg-white shadow-lg border-2 border-gray-100 flex items-center justify-center text-2xl hover:scale-110 hover:border-pink-200 transition-all">
+          💚
+        </button>
+      </div>
+    </div>
+  </template>
+  {% endif %}
+
+</div>
+{% endblock %}

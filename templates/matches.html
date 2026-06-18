@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{{ t.matches_title }} — Spark{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold text-gray-800 mb-6">💌 {{ t.matches_title }}</h1>
+
+{% if not partners %}
+<div class="flex flex-col items-center justify-center min-h-[40vh] text-center">
+  <div class="text-6xl mb-4">💔</div>
+  <h2 class="text-xl font-bold text-gray-700 mb-2">{{ t.no_matches }}</h2>
+  <p class="text-gray-400 mb-6">{{ t.no_matches_desc }}</p>
+  <a href="/swipe" class="gradient-pink text-white px-8 py-3 rounded-full font-semibold hover:opacity-90 transition">
+    {{ t.start_swiping }}
+  </a>
+</div>
+{% else %}
+<div class="flex flex-col gap-3">
+  {% for match, partner, compat in partners %}
+  {% if partner.profile %}
+  <a href="/chat/{{ match.id }}"
+     class="bg-white rounded-2xl p-4 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow border border-gray-100 hover:border-pink-200">
+    <div class="w-14 h-14 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center relative">
+      {% if partner.profile.photo %}
+      <img src="{{ partner.profile.photo }}" alt="{{ partner.profile.name }}" class="w-full h-full object-cover" />
+      {% else %}
+      <span class="text-2xl">👤</span>
+      {% endif %}
+      {% if partner.is_verified %}
+      <span class="absolute bottom-0 right-0 bg-green-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center text-[10px]">✓</span>
+      {% endif %}
+    </div>
+    <div class="flex-1 min-w-0">
+      <p class="font-semibold text-gray-800">{{ partner.profile.name }}, {{ partner.profile.age }}</p>
+      {% if partner.profile.city %}
+      <p class="text-gray-400 text-sm">📍 {{ partner.profile.city }}</p>
+      {% endif %}
+      <!-- Function 6: Compatibility -->
+      {% if compat is not none %}
+      <p class="text-pink-500 text-xs mt-0.5">
+        💞 {{ t.quiz_compatibility }}: {{ compat }}%
+      </p>
+      {% else %}
+      <a href="/quiz" class="text-xs text-purple-500 hover:underline mt-0.5 inline-block"
+         @click.stop>{{ t.quiz_take }}</a>
+      {% endif %}
+    </div>
+    <svg class="w-5 h-5 text-pink-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+    </svg>
+  </a>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

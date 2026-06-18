@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}{{ profile.name }} — Spark{% endblock %}
+{% block content %}
+<div class="bg-white rounded-3xl card-shadow overflow-hidden">
+  <div class="relative h-80 bg-gradient-to-br from-pink-100 to-rose-100">
+    {% if profile.photo %}
+    <img src="{{ profile.photo }}" alt="{{ profile.name }}" class="w-full h-full object-cover" />
+    {% else %}
+    <div class="w-full h-full flex items-center justify-center text-8xl">👤</div>
+    {% endif %}
+    <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-6">
+      <h1 class="text-white text-3xl font-bold flex items-center gap-2">
+        {{ profile.name }}, {{ profile.age }}
+        {% if target.is_verified %}
+        <span class="text-sm bg-green-500 text-white px-2 py-0.5 rounded-full font-medium">{{ t.verified_badge }}</span>
+        {% endif %}
+      </h1>
+      {% if profile.city %}
+      <p class="text-white/80">📍 {{ profile.city }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="p-6">
+    {% if profile.bio %}
+    <p class="text-gray-600 leading-relaxed mb-4">{{ profile.bio }}</p>
+    {% endif %}
+
+    <div class="flex gap-2 flex-wrap">
+      <span class="bg-pink-50 text-pink-600 px-3 py-1 rounded-full text-sm">
+        {% if profile.gender.value == 'male' %}👨 {{ t.gender_male_badge }}
+        {% elif profile.gender.value == 'female' %}👩 {{ t.gender_female_badge }}
+        {% else %}🧑 {{ t.gender_other_badge }}{% endif %}
+      </span>
+      <span class="bg-pink-50 text-pink-600 px-3 py-1 rounded-full text-sm">
+        🎂 {{ profile.age }} {{ t.years_old }}
+      </span>
+
+      <!-- Function 5: Intention badge -->
+      {% if profile.intention %}
+      <span class="bg-purple-50 text-purple-600 px-3 py-1 rounded-full text-sm">
+        {% if profile.intention == 'serious' %}💍 {{ t.intention_serious }}
+        {% elif profile.intention == 'casual' %}😊 {{ t.intention_casual }}
+        {% elif profile.intention == 'today' %}🔥 {{ t.intention_today }}
+        {% elif profile.intention == 'browsing' %}👀 {{ t.intention_browsing }}
+        {% endif %}
+      </span>
+      {% endif %}
+
+      <!-- Function 3: Politeness rating -->
+      {% if target.politeness_votes and target.politeness_votes > 0 %}
+      <span class="bg-yellow-50 text-yellow-600 px-3 py-1 rounded-full text-sm">
+        ⭐ {{ "%.1f"|format(target.politeness_score) }} ({{ target.politeness_votes }})
+      </span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="flex gap-4 mt-4">
+  <a href="/swipe" class="flex-1 text-center border-2 border-gray-200 text-gray-600 py-3 rounded-full font-semibold hover:border-gray-300 transition">
+    {{ t.back }}
+  </a>
+</div>
+{% endblock %}

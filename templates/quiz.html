@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}{{ t.quiz_title }} — Spark{% endblock %}
+{% block content %}
+<div x-data="quizApp()" x-init="init()">
+
+  <h1 class="text-2xl font-bold text-gray-800 mb-2">🧩 {{ t.quiz_title }}</h1>
+  <p class="text-gray-400 text-sm mb-6">
+    {{ t.quiz_question }} <span x-text="currentIndex + 1"></span> {{ t.quiz_of }} {{ total }}
+  </p>
+
+  <!-- Progress bar -->
+  <div class="w-full bg-gray-100 rounded-full h-2 mb-6">
+    <div class="gradient-pink h-2 rounded-full transition-all duration-300"
+         :style="'width: ' + Math.round(((currentIndex) / {{ total }}) * 100) + '%'"></div>
+  </div>
+
+  <!-- Question card -->
+  <div class="bg-white rounded-2xl card-shadow p-6 mb-6">
+    <h2 class="text-lg font-semibold text-gray-800 mb-5" x-text="currentQuestion()"></h2>
+    <div class="flex flex-col gap-3">
+      <template x-for="(opt, idx) in currentOptions()" :key="idx">
+        <button @click="selectAnswer(idx)"
+                :class="selected[currentQid()] === idx
+                  ? 'border-pink-400 bg-pink-50 ring-2 ring-pink-200 text-pink-700'
+                  : 'border-gray-200 bg-white text-gray-700 hover:border-pink-200 hover:bg-pink-50'"
+                class="text-left border-2 rounded-xl px-4 py-3 transition font-medium text-sm"
+                x-text="opt">
+        </button>
+      </template>
+    </div>
+  </div>
+
+  <!-- Navigation -->
+  <div class="flex gap-3">
+    <button x-show="currentIndex > 0"
+            @click="prev()"
+            class="flex-1 border-2 border-gray-200 text-gray-600 py-3 rounded-full font-semibold hover:border-gray-300 transition">
+      ← {{ t.back }}
+    </button>
+    <button @click="next()"
+            :disabled="selected[currentQid()] === undefined || saving"
+            class="flex-1 gradient-pink text-white py-3 rounded-full font-semibold hover:opacity-90 transition disabled:opacity-50">
+      <span x-show="!saving && currentIndex < {{ total }} - 1">{{ t.quiz_next }} →</span>
+      <span x-show="!saving && currentIndex >= {{ total }} - 1">{{ t.quiz_submit }}</span>
+      <span x-show="saving">...</span>
+    </button>
+  </div>
+
+  <!-- Done message -->
+  <div x-show="done" x-cloak class="mt-6 bg-green-50 text-green-700 border border-green-200 rounded-xl px-4 py-3 text-center">
+    🎉 {{ t.quiz_done }} <a href="/matches" class="underline font-semibold">{{ t.my_matches }}</a>
+  </div>
+
+</div>
+
+<script>
+function quizApp() {
+  const questions = {{ questions | tojson }};
+  const answeredIds = new Set({{ answered_ids | tojson }});
+  const translations = {{ t | tojson }};
+  const total = {{ total }};
+
+  return {
+    currentIndex: 0,
+    selected: {},
+    saving: false,
+    done: false,
+
+    init() {
+      // Skip already answered questions
+      while (this.currentIndex < questions.length - 1 &&
+             answeredIds.has(questions[this.currentIndex].id)) {
+        this.currentIndex++;
+      }
+    },
+
+    currentQid() {
+      return questions[this.currentIndex]?.id;
+    },
+
+    currentQuestion() {
+      const q = questions[this.currentIndex];
+      return q ? (translations[q.key] || q.key) : '';
+    },
+
+    currentOptions() {
+      const q = questions[this.currentIndex];
+      if (!q) return [];
+      return q.options.map(k => translations[k] || k);
+    },
+
+    selectAnswer(idx) {
+      this.selected[this.currentQid()] = idx;
+    },
+
+    async next() {
+      const qid = this.currentQid();
+      const answerIdx = this.selected[qid];
+      if (answerIdx === undefined || this.saving) return;
+
+      this.saving = true;
+      await fetch('/quiz/answer', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({question_id: qid, answer_index: answerIdx}),
+      });
+      answeredIds.add(qid);
+      this.saving = false;
+
+      if (this.currentIndex < questions.length - 1) {
+        this.currentIndex++;
+        // Skip already answered
+        while (this.currentIndex < questions.length - 1 &&
+               answeredIds.has(questions[this.currentIndex].id)) {
+          this.currentIndex++;
+        }
+      } else {
+        this.done = true;
+        setTimeout(() => { window.location.href = '/matches'; }, 2000);
+      }
+    },
+
+    prev() {
+      if (this.currentIndex > 0) this.currentIndex--;
+    },
+  };
+}
+</script>
+{% endblock %}

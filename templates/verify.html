@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}{{ t.verify_title }} — Spark{% endblock %}
+{% block content %}
+
+{% if user.is_verified %}
+<div class="flex flex-col items-center justify-center min-h-[50vh] text-center">
+  <div class="text-6xl mb-4">✅</div>
+  <h1 class="text-2xl font-bold text-green-600 mb-2">{{ t.verify_done }}</h1>
+  <p class="text-gray-400 mb-6">{{ t.verify_success }}</p>
+  <a href="/profile/edit" class="gradient-pink text-white px-8 py-3 rounded-full font-semibold hover:opacity-90 transition">
+    {{ t.edit_profile }}
+  </a>
+</div>
+{% else %}
+<div>
+  <h1 class="text-2xl font-bold text-gray-800 mb-2">🪪 {{ t.verify_title }}</h1>
+  <p class="text-gray-400 text-sm mb-6">{{ t.verify_instruction }}</p>
+
+  <!-- Gesture display -->
+  <div class="bg-white rounded-2xl card-shadow p-8 mb-6 text-center">
+    <div class="text-6xl mb-3">{{ gesture.split(' ')[0] }}</div>
+    <p class="text-xl font-semibold text-gray-800">{{ gesture }}</p>
+    <p class="text-gray-400 text-sm mt-2">{{ t.verify_instruction }}</p>
+  </div>
+
+  {% if error is defined and error %}
+  <div class="bg-red-50 border border-red-200 text-red-600 rounded-xl px-4 py-3 mb-4">
+    {{ error }}
+  </div>
+  {% endif %}
+
+  <!-- Upload form -->
+  <div class="bg-white rounded-2xl card-shadow p-6"
+       x-data="{
+         preview: null,
+         setPreview(e) {
+           const f = e.target.files[0];
+           if (f) this.preview = URL.createObjectURL(f);
+         }
+       }">
+    <form method="POST" action="/verify" enctype="multipart/form-data">
+
+      <!-- Photo preview -->
+      <div class="flex flex-col items-center mb-6">
+        <label class="cursor-pointer group">
+          <div class="w-40 h-40 rounded-2xl overflow-hidden bg-gray-100 flex items-center justify-center border-2 border-dashed border-gray-300 group-hover:border-pink-400 transition">
+            <template x-if="preview">
+              <img :src="preview" class="w-full h-full object-cover" />
+            </template>
+            <template x-if="!preview">
+              <div class="text-center">
+                <div class="text-4xl mb-2">📷</div>
+                <p class="text-gray-400 text-sm">{{ t.verify_upload }}</p>
+              </div>
+            </template>
+          </div>
+          <input type="file" name="photo" accept="image/*" required class="hidden" @change="setPreview" />
+          <p class="text-center text-pink-500 text-sm mt-2 group-hover:underline">{{ t.verify_upload }}</p>
+        </label>
+      </div>
+
+      <button type="submit"
+              class="w-full gradient-pink text-white py-3 rounded-full font-semibold text-lg shadow hover:opacity-90 transition">
+        {{ t.verify_submit }}
+      </button>
+    </form>
+  </div>
+
+  <div class="mt-4 text-center">
+    <a href="/profile/edit" class="text-gray-400 text-sm hover:text-gray-600">{{ t.back }}</a>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}{{ t.edit_profile }} — Spark{% endblock %}
+{% block content %}
+<div x-data="{
+  preview: '{{ profile.photo if profile and profile.photo else '' }}',
+  selectedIntention: '{{ profile.intention if profile and profile.intention else '' }}',
+  setPreview(e) {
+    const f = e.target.files[0];
+    if (f) this.preview = URL.createObjectURL(f);
+  }
+}">
+  <h1 class="text-2xl font-bold text-gray-800 mb-6">✏️ {{ t.edit_profile }}</h1>
+
+  {% if verified_flash %}
+  <div class="bg-green-50 border border-green-200 text-green-700 rounded-xl px-4 py-3 mb-4 flex items-center gap-2">
+    <span>✅</span> <span>{{ t.verify_success }}</span>
+  </div>
+  {% endif %}
+
+  <div class="bg-white rounded-2xl card-shadow p-6">
+    <form method="POST" action="/profile/edit" enctype="multipart/form-data">
+      <input type="hidden" name="intention" :value="selectedIntention" />
+
+      <!-- Photo -->
+      <div class="flex flex-col items-center mb-6">
+        <label class="cursor-pointer group">
+          <div class="w-32 h-32 rounded-full overflow-hidden bg-pink-100 flex items-center justify-center border-4 border-pink-200 group-hover:border-pink-400 transition relative">
+            <template x-if="preview">
+              <img :src="preview" class="w-full h-full object-cover" />
+            </template>
+            <template x-if="!preview">
+              <span class="text-5xl">👤</span>
+            </template>
+            {% if user.is_verified %}
+            <span class="absolute bottom-1 right-1 bg-green-500 text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">✓</span>
+            {% endif %}
+          </div>
+          <input type="file" name="photo" accept="image/*" class="hidden" @change="setPreview" />
+          <p class="text-center text-pink-500 text-sm mt-2 group-hover:underline">{{ t.upload_photo }}</p>
+        </label>
+
+        <!-- Verification button / badge -->
+        {% if user.is_verified %}
+        <span class="mt-2 text-green-600 text-sm font-medium">{{ t.verify_done }}</span>
+        {% else %}
+        <a href="/verify" class="mt-2 text-sm border border-pink-300 text-pink-600 px-4 py-1 rounded-full hover:bg-pink-50 transition">
+          {{ t.verify_btn }}
+        </a>
+        {% endif %}
+      </div>
+
+      <!-- Name -->
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-1">{{ t.name_label }} *</label>
+        <input type="text" name="name" required maxlength="100"
+               value="{{ profile.name if profile else '' }}"
+               placeholder="{{ t.name_placeholder }}"
+               class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-pink-300 transition" />
+      </div>
+
+      <!-- Age -->
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-1">{{ t.age_label }} *</label>
+        <input type="number" name="age" required min="18" max="100"
+               value="{{ profile.age if profile else '' }}"
+               placeholder="18"
+               class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-pink-300 transition" />
+      </div>
+
+      <!-- Gender -->
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-1">{{ t.gender_label }} *</label>
+        <select name="gender" required
+                class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-pink-300 transition bg-white">
+          <option value="">{{ t.gender_choose }}</option>
+          {% for g in genders %}
+          <option value="{{ g }}" {% if profile and profile.gender.value == g %}selected{% endif %}>
+            {% if g == 'male' %}{{ t.gender_male }}{% elif g == 'female' %}{{ t.gender_female }}{% else %}{{ t.gender_other }}{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Looking for -->
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-1">{{ t.looking_for_label }}</label>
+        <select name="looking_for"
+                class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-pink-300 transition bg-white">
+          <option value="">{{ t.looking_for_all }}</option>
+          {% for g in genders %}
+          <option value="{{ g }}" {% if profile and profile.looking_for and profile.looking_for.value == g %}selected{% endif %}>
+            {% if g == 'male' %}{{ t.looking_for_male }}{% elif g == 'female' %}{{ t.looking_for_female }}{% else %}{{ t.looking_for_other }}{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- City -->
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-1">{{ t.city_label }}</label>
+        <input type="text" name="city" maxlength="100"
+               value="{{ profile.city if profile and profile.city else '' }}"
+               placeholder="{{ t.city_placeholder }}"
+               class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-pink-300 transition" />
+      </div>
+
+      <!-- Bio -->
+      <div class="mb-5">
+        <label class="block text-sm font-medium text-gray-700 mb-1">{{ t.bio_label }}</label>
+        <textarea name="bio" rows="3" maxlength="500" placeholder="{{ t.bio_placeholder }}"
+                  class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-pink-300 transition resize-none">{{ profile.bio if profile and profile.bio else '' }}</textarea>
+      </div>
+
+      <!-- Intention (Function 5) -->
+      <div class="mb-5">
+        <label class="block text-sm font-medium text-gray-700 mb-2">{{ t.intention_label }}</label>
+        <div class="grid grid-cols-2 gap-2">
+          <template x-for="item in [
+            {val: 'serious', icon: '💍', label: '{{ t.intention_serious }}'},
+            {val: 'casual',  icon: '😊', label: '{{ t.intention_casual }}'},
+            {val: 'today',   icon: '🔥', label: '{{ t.intention_today }}'},
+            {val: 'browsing',icon: '👀', label: '{{ t.intention_browsing }}'}
+          ]" :key="item.val">
+            <button type="button"
+              @click="selectedIntention = (selectedIntention === item.val ? '' : item.val)"
+              :class="selectedIntention === item.val
+                ? 'border-pink-400 bg-pink-50 ring-2 ring-pink-300'
+                : 'border-gray-200 bg-white hover:border-pink-200'"
+              class="flex items-center gap-2 py-3 px-3 rounded-xl border-2 transition cursor-pointer text-left">
+              <span class="text-xl" x-text="item.icon"></span>
+              <span class="text-xs font-medium text-gray-700 leading-tight" x-text="item.label"></span>
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <!-- Language -->
+      <div class="mb-6">
+        <label class="block text-sm font-medium text-gray-700 mb-2">{{ t.language_label }}</label>
+        <div class="grid grid-cols-3 gap-2" x-data="{ selected: '{{ lang }}' }">
+          <input type="hidden" name="language" x-bind:value="selected" />
+          <template x-for="l in [
+            { code: 'ru', flag: '🇷🇺', label: 'Русский' },
+            { code: 'uk', flag: '🇺🇦', label: 'Українська' },
+            { code: 'de', flag: '🇩🇪', label: 'Deutsch' },
+            { code: 'en', flag: '🇬🇧', label: 'English' },
+            { code: 'tr', flag: '🇹🇷', label: 'Türkçe' },
+            { code: 'ar', flag: '🇸🇦', label: 'العربية' }
+          ]" :key="l.code">
+            <button type="button"
+              @click="selected = l.code"
+              :class="selected === l.code
+                ? 'border-pink-400 bg-pink-50 ring-2 ring-pink-300'
+                : 'border-gray-200 bg-white hover:border-pink-200 hover:bg-pink-50'"
+              class="flex flex-col items-center justify-center py-3 px-2 rounded-xl border-2 transition cursor-pointer">
+              <span class="text-2xl mb-1" x-text="l.flag"></span>
+              <span class="text-xs font-medium text-gray-600 text-center leading-tight" x-text="l.label"></span>
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <button type="submit"
+              class="w-full gradient-pink text-white py-3 rounded-full font-semibold text-lg shadow hover:opacity-90 transition">
+        {{ t.save_button }}
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}

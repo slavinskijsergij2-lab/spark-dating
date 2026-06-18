@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% block title %}{{ partner.profile.name }} — Spark{% endblock %}
+{% block content %}
+<div x-data="chatApp()" x-init="init()">
+
+  <!-- Header -->
+  <div class="flex items-center gap-3 mb-4">
+    <a href="/matches" class="text-gray-400 hover:text-gray-600">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+      </svg>
+    </a>
+    <div class="w-10 h-10 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center">
+      {% if partner.profile.photo %}
+      <img src="{{ partner.profile.photo }}" class="w-full h-full object-cover" />
+      {% else %}
+      <span>👤</span>
+      {% endif %}
+    </div>
+    <div class="flex-1">
+      <p class="font-semibold text-gray-800">
+        {{ partner.profile.name }}
+        {% if partner.is_verified %}<span class="text-green-500 text-xs ml-1">✓</span>{% endif %}
+      </p>
+      <p class="text-xs text-gray-400">{{ partner.profile.age }} {{ t.years_old }}{% if partner.profile.city %}, {{ partner.profile.city }}{% endif %}</p>
+    </div>
+    <!-- Rate button -->
+    <button @click="showRateModal = true"
+            class="text-xs bg-yellow-50 text-yellow-600 border border-yellow-200 px-3 py-1 rounded-full hover:bg-yellow-100 transition flex-shrink-0">
+      {{ t.rate_btn }}
+    </button>
+  </div>
+
+  <!-- Icebreakers button (only when no messages) -->
+  <template x-if="messages.length === 0">
+    <div class="mb-3">
+      <button @click="loadIcebreakers()"
+              :disabled="icebreakersLoading"
+              class="w-full text-sm border border-pink-200 text-pink-600 rounded-xl py-2 hover:bg-pink-50 transition">
+        <span x-show="!icebreakersLoading">{{ t.icebreakers_btn }}</span>
+        <span x-show="icebreakersLoading">{{ t.icebreakers_loading }}</span>
+      </button>
+    </div>
+  </template>
+
+  <!-- Icebreaker cards -->
+  <template x-if="icebreakers.length > 0">
+    <div class="mb-3 flex flex-col gap-2">
+      <p class="text-xs text-gray-400 font-medium">{{ t.icebreakers_title }}</p>
+      <template x-for="(tip, i) in icebreakers" :key="i">
+        <button @click="newMsg = tip; icebreakers = []"
+                class="text-left text-sm bg-pink-50 border border-pink-100 text-pink-700 rounded-xl px-4 py-2 hover:bg-pink-100 transition"
+                x-text="tip">
+        </button>
+      </template>
+    </div>
+  </template>
+
+  <!-- Messages -->
+  <div id="messages-container"
+       class="bg-white rounded-2xl p-4 h-[50vh] overflow-y-auto flex flex-col gap-2 shadow-sm mb-4">
+    <template x-if="messages.length === 0">
+      <div class="flex-1 flex items-center justify-center text-gray-400 text-sm">
+        {{ t.start_chat }}
+      </div>
+    </template>
+    <template x-for="m in messages" :key="m.id">
+      <div :class="m.sender_id === userId ? 'flex justify-end' : 'flex justify-start'">
+        <div :class="m.sender_id === userId
+            ? 'gradient-pink text-white rounded-2xl rounded-br-sm px-4 py-2 max-w-[75%]'
+            : 'bg-gray-100 text-gray-800 rounded-2xl rounded-bl-sm px-4 py-2 max-w-[75%]'">
+          <p class="text-sm" x-text="m.content"></p>
+          <p class="text-xs mt-1 opacity-60" x-text="m.time"></p>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <!-- Input -->
+  <div class="flex gap-2">
+    <input type="text" x-model="newMsg"
+           @keydown.enter="send()"
+           placeholder="{{ t.message_placeholder }}"
+           class="flex-1 border border-gray-200 rounded-full px-5 py-3 focus:outline-none focus:ring-2 focus:ring-pink-300 transition" />
+    <button @click="send()" :disabled="loading"
+            class="gradient-pink text-white w-12 h-12 rounded-full flex items-center justify-center hover:opacity-90 transition disabled:opacity-60 flex-shrink-0">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Rate Modal -->
+  <div x-show="showRateModal" x-cloak
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+       @click.self="showRateModal = false">
+    <div class="bg-white rounded-3xl p-8 max-w-sm w-full mx-4 shadow-2xl text-center">
+      <h3 class="text-xl font-bold text-gray-800 mb-2">{{ t.rate_title }}</h3>
+      <p class="text-gray-400 text-sm mb-6">{{ partner.profile.name }}</p>
+      <!-- Stars -->
+      <div class="flex justify-center gap-2 mb-6">
+        <template x-for="s in [1,2,3,4,5]" :key="s">
+          <button @click="selectedStars = s"
+                  :class="s <= selectedStars ? 'text-yellow-400' : 'text-gray-300'"
+                  class="text-4xl hover:scale-110 transition-transform">★</button>
+        </template>
+      </div>
+      <p x-show="rateMessage" x-text="rateMessage" class="text-sm mb-3"
+         :class="rateError ? 'text-red-500' : 'text-green-600'"></p>
+      <button @click="submitRate()"
+              :disabled="selectedStars === 0 || rateLoading"
+              class="w-full gradient-pink text-white py-3 rounded-full font-semibold hover:opacity-90 transition disabled:opacity-50">
+        {{ t.rate_submit }}
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function chatApp() {
+  return {
+    messages: [],
+    newMsg: '',
+    lastId: 0,
+    userId: {{ user.id }},
+    matchId: {{ match.id }},
+    loading: false,
+
+    // Icebreakers
+    icebreakers: [],
+    icebreakersLoading: false,
+
+    // Rate
+    showRateModal: false,
+    selectedStars: 0,
+    rateLoading: false,
+    rateMessage: '',
+    rateError: false,
+
+    init() {
+      const raw = {{ messages | tojson }};
+      this.messages = raw.map(m => ({
+        id: m.id,
+        content: m.content,
+        sender_id: m.sender_id,
+        time: m.created_at ? m.created_at.substring(11, 16) : '',
+        is_read: m.is_read,
+      }));
+      if (this.messages.length) {
+        this.lastId = this.messages[this.messages.length - 1].id;
+      }
+      this.$nextTick(() => this.scrollBottom());
+      setInterval(() => this.poll(), 3000);
+    },
+
+    async send() {
+      if (!this.newMsg.trim() || this.loading) return;
+      this.loading = true;
+      const fd = new FormData();
+      fd.append('content', this.newMsg);
+      const r = await fetch('/chat/' + this.matchId + '/send', {method: 'POST', body: fd});
+      const data = await r.json();
+      if (data.id) {
+        this.messages.push({
+          id: data.id,
+          content: data.content,
+          sender_id: data.sender_id,
+          time: data.created_at,
+          is_read: false,
+        });
+        this.lastId = data.id;
+        this.newMsg = '';
+        this.$nextTick(() => this.scrollBottom());
+      }
+      this.loading = false;
+    },
+
+    async poll() {
+      const r = await fetch('/chat/' + this.matchId + '/messages?after_id=' + this.lastId);
+      const data = await r.json();
+      if (Array.isArray(data) && data.length) {
+        data.forEach(m => this.messages.push(m));
+        this.lastId = data[data.length - 1].id;
+        this.$nextTick(() => this.scrollBottom());
+      }
+    },
+
+    async loadIcebreakers() {
+      this.icebreakersLoading = true;
+      try {
+        const r = await fetch('/chat/' + this.matchId + '/icebreakers');
+        const data = await r.json();
+        if (data.suggestions) {
+          this.icebreakers = data.suggestions;
+        }
+      } catch(e) {}
+      this.icebreakersLoading = false;
+    },
+
+    async submitRate() {
+      if (this.selectedStars === 0 || this.rateLoading) return;
+      this.rateLoading = true;
+      this.rateMessage = '';
+      try {
+        const r = await fetch('/chat/' + this.matchId + '/rate', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({stars: this.selectedStars}),
+        });
+        const data = await r.json();
+        if (r.ok) {
+          this.rateMessage = data.message || '{{ t.rate_success }}';
+          this.rateError = false;
+          setTimeout(() => { this.showRateModal = false; this.rateMessage = ''; this.selectedStars = 0; }, 1500);
+        } else {
+          this.rateMessage = data.error || '{{ t.rate_error }}';
+          this.rateError = true;
+        }
+      } catch(e) {
+        this.rateMessage = '{{ t.rate_error }}';
+        this.rateError = true;
+      }
+      this.rateLoading = false;
+    },
+
+    scrollBottom() {
+      const el = document.getElementById('messages-container');
+      if (el) el.scrollTop = el.scrollHeight;
+    },
+  };
+}
+</script>
+{% endblock %}
