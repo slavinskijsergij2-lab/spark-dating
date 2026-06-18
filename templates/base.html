@@ -36,7 +36,7 @@
           </svg>
         </a>
         <form method="POST" action="/logout" class="inline">
-          <button type="submit" class="text-gray-400 hover:text-red-500 transition-colors text-sm">
+          <button type="button" onclick="this.form.submit()" class="text-gray-400 hover:text-red-500 transition-colors text-sm">
             {% if t is defined %}{{ t.logout }}{% else %}Выйти{% endif %}
           </button>
         </form>

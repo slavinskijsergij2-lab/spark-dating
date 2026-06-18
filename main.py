@@ -1,12 +1,16 @@
 import json
+import logging
 import os
+import traceback
 from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+
+logging.basicConfig(level=logging.INFO)
 
 from app.database import Base, engine
 from app.i18n import get_lang, get_translations, is_rtl
@@ -38,6 +42,24 @@ app.include_router(profile.router)
 app.include_router(swipe.router)
 app.include_router(matches.router)
 app.include_router(features.router)
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    tb = traceback.format_exc()
+    logging.error("Unhandled exception on %s %s:\n%s", request.method, request.url.path, tb)
+    return JSONResponse(status_code=500, content={"error": str(exc), "type": type(exc).__name__})
+
+
+@app.get("/health")
+def health():
+    from app.database import engine
+    try:
+        with engine.connect() as conn:
+            conn.execute(__import__("sqlalchemy").text("SELECT 1"))
+        return {"status": "ok", "db": str(engine.url).split("@")[-1]}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "detail": str(e)})
 
 
 @app.get("/", response_class=HTMLResponse)
