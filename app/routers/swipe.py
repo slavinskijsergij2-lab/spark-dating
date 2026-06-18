@@ -75,6 +75,11 @@ def swipe_page(
     })
 
 
+@router.post("/swipe")
+def swipe_noop(user=Depends(get_current_user)):
+    return JSONResponse({"matched": False})
+
+
 @router.post("/swipe/{target_id}")
 def do_swipe(
     target_id: int,

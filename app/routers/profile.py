@@ -59,7 +59,7 @@ def edit_profile_page(request: Request, user: User = Depends(get_current_user), 
 async def edit_profile(
     request: Request,
     name: str = Form(...),
-    age: int = Form(...),
+    age: str = Form(...),
     gender: str = Form(...),
     looking_for: str = Form(None),
     city: str = Form(None),
@@ -70,10 +70,29 @@ async def edit_profile(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if age < 18 or age > 100:
-        raise HTTPException(400, "Возраст должен быть от 18 до 100")
+    lang = get_lang(request, user)
+    t = get_translations(lang)
+
+    def _err(msg: str):
+        profile = db.query(Profile).filter(Profile.user_id == user.id).first()
+        extra_photos = db.query(ProfilePhoto).filter(ProfilePhoto.profile_id == profile.id).order_by(ProfilePhoto.position).all() if profile else []
+        return templates.TemplateResponse("profile_edit.html", {
+            "request": request, "user": user, "profile": profile,
+            "extra_photos": extra_photos, "photo_limit": False,
+            "genders": [g.value for g in GenderEnum],
+            "t": t, "lang": lang, "rtl": is_rtl(lang),
+            "verified_flash": False, "error": msg,
+        }, status_code=400)
+
+    try:
+        age_int = int(float(age))
+    except (ValueError, TypeError):
+        return _err(t.get("age_invalid", "Введите корректный возраст"))
+
+    if age_int < 18 or age_int > 100:
+        return _err(t.get("age_range", "Возраст должен быть от 18 до 100"))
     if gender not in [g.value for g in GenderEnum]:
-        raise HTTPException(400, "Неверный пол")
+        return _err(t.get("gender_invalid", "Выберите пол"))
 
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()
     if not profile:
@@ -81,7 +100,7 @@ async def edit_profile(
         db.add(profile)
 
     profile.name = name.strip()
-    profile.age = age
+    profile.age = age_int
     profile.gender = GenderEnum(gender)
     profile.looking_for = GenderEnum(looking_for) if looking_for else None
     profile.city = city.strip() if city else None
