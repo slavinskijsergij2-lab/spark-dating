@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["python314", "python314Packages.pip"]
+nixPkgs = ["python312", "python312Packages.pip", "postgresql"]
 
 [phases.install]
 cmds = ["pip install -r requirements.txt"]
