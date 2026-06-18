@@ -5,10 +5,14 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
+from markupsafe import Markup  # noqa: F401 — used in _tojson
+
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 logging.basicConfig(level=logging.INFO)
 
@@ -16,15 +20,34 @@ from app.database import Base, engine
 from app.i18n import get_lang, get_translations, is_rtl
 from app.routers import auth, profile, swipe, matches
 from app.routers import features
+from app.templates import templates
 
 Base.metadata.create_all(bind=engine)
+
+# Inline DB migration — adds new columns to existing Railway PostgreSQL databases
+try:
+    from sqlalchemy import inspect as sa_inspect, text
+    with engine.begin() as _conn:
+        _inspector = sa_inspect(engine)
+        _user_cols = {c["name"] for c in _inspector.get_columns("users")}
+        _match_cols = {c["name"] for c in _inspector.get_columns("matches")}
+        if "last_seen" not in _user_cols:
+            _conn.execute(text("ALTER TABLE users ADD COLUMN last_seen TIMESTAMP"))
+        if "email_verified" not in _user_cols:
+            _conn.execute(text("ALTER TABLE users ADD COLUMN email_verified BOOLEAN NOT NULL DEFAULT TRUE"))
+        if "email_verify_token" not in _user_cols:
+            _conn.execute(text("ALTER TABLE users ADD COLUMN email_verify_token VARCHAR(100)"))
+        if "seen_by_user1" not in _match_cols:
+            _conn.execute(text("ALTER TABLE matches ADD COLUMN seen_by_user1 BOOLEAN NOT NULL DEFAULT TRUE"))
+        if "seen_by_user2" not in _match_cols:
+            _conn.execute(text("ALTER TABLE matches ADD COLUMN seen_by_user2 BOOLEAN NOT NULL DEFAULT FALSE"))
+except Exception as _e:
+    logging.warning("DB migration warning: %s", _e)
 
 Path("static/uploads").mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Spark — сайт знакомств")
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
-templates = Jinja2Templates(directory="templates")
 
 
 def _tojson(value, indent=None):
@@ -35,7 +58,32 @@ def _tojson(value, indent=None):
     return json.dumps(value, default=default, indent=indent, ensure_ascii=False)
 
 
+_ONLINE_LABELS = {
+    "ru": ("Онлайн", "{n} мин назад", "{n} ч назад"),
+    "uk": ("Онлайн", "{n} хв тому", "{n} год тому"),
+    "en": ("Online", "{n}m ago", "{n}h ago"),
+    "de": ("Online", "vor {n}m", "vor {n}h"),
+    "tr": ("Çevrimiçi", "{n}d önce", "{n}s önce"),
+    "ar": ("متصل", "منذ {n}د", "منذ {n}س"),
+}
+
+
+def _online_status(last_seen, lang="en"):
+    if not last_seen:
+        return None
+    diff = (datetime.utcnow() - last_seen).total_seconds()
+    online_lbl, mins_lbl, hrs_lbl = _ONLINE_LABELS.get(lang, _ONLINE_LABELS["en"])
+    if diff < 300:
+        return {"is_online": True, "label": online_lbl}
+    if diff < 3600:
+        return {"is_online": False, "label": mins_lbl.replace("{n}", str(int(diff / 60)))}
+    if diff < 86400:
+        return {"is_online": False, "label": hrs_lbl.replace("{n}", str(int(diff / 3600)))}
+    return None
+
+
 templates.env.filters["tojson"] = _tojson
+templates.env.globals["online_status"] = _online_status
 
 app.include_router(auth.router)
 app.include_router(profile.router)

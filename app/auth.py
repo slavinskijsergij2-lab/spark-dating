@@ -44,6 +44,12 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+    now = datetime.utcnow()
+    if not user.last_seen or (now - user.last_seen).total_seconds() > 60:
+        user.last_seen = now
+        db.commit()
+
     return user
 
 

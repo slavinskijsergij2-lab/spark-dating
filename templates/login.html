@@ -8,19 +8,54 @@
       <p class="text-gray-500 mt-2">{{ t.login_subtitle }}</p>
     </div>
 
-    <div class="bg-white rounded-2xl card-shadow p-8"
-         x-data="{ error: '', loading: false }">
-      <div x-show="error" x-cloak
-           class="bg-red-50 text-red-600 rounded-xl p-3 mb-4 text-sm" x-text="error"></div>
+    <div class="bg-white rounded-2xl card-shadow p-8">
+
+      {# Server-side login error (wrong password) #}
+      {% if error %}
+      <div class="bg-red-50 text-red-600 rounded-xl p-3 mb-4 text-sm">{{ error }}</div>
+      {% endif %}
+
+      {# Email not verified banner #}
+      {% if not_verified %}
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+        <p class="text-amber-700 text-sm font-medium mb-2">📧 {{ t.not_verified_error }}</p>
+        {% if resent %}
+        <p class="text-green-600 text-sm">{{ t.resent_ok }}</p>
+        {% else %}
+        <form method="POST" action="/resend-verification">
+          <input type="hidden" name="email" value="{{ request.query_params.get('email', '') }}" />
+          <button type="submit"
+                  class="text-sm text-amber-700 underline hover:text-amber-900 transition">
+            {{ t.resend_link }}
+          </button>
+        </form>
+        {% endif %}
+      </div>
+      {% endif %}
 
       <form method="POST" action="/login"
+            x-data="{ error: '', loading: false }"
             @submit.prevent="
               loading = true; error = '';
               const fd = new FormData($el);
               fetch('/login', {method:'POST', body: fd, redirect:'manual'})
-                .then(r => { if(r.ok || r.status===0 || r.type==='opaqueredirect') { window.location='/swipe'; } else return r.text().then(t=>{ const m=t.match(/detail&quot;:&quot;(.+?)&quot;/); error=m?m[1]:'{{ t.login_error }}'; loading=false; }); })
-                .catch(()=>{ window.location='/swipe'; })
+                .then(r => {
+                  if (r.ok || r.status===0 || r.type==='opaqueredirect') {
+                    window.location = '/swipe';
+                  } else {
+                    return r.text().then(txt => {
+                      const doc = new DOMParser().parseFromString(txt, 'text/html');
+                      const errEl = doc.querySelector('.bg-red-50');
+                      error = (errEl ? errEl.textContent.trim() : '') || '{{ t.login_error }}';
+                      loading = false;
+                    });
+                  }
+                })
+                .catch(() => { error = '{{ t.login_error }}'; loading = false; })
             ">
+        <div x-show="error" x-cloak
+             class="bg-red-50 text-red-600 rounded-xl p-3 mb-4 text-sm" x-text="error"></div>
+
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-700 mb-1">{{ t.email }}</label>
           <input type="email" name="email" required placeholder="your@email.com"

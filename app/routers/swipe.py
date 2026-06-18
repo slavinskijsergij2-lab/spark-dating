@@ -1,16 +1,15 @@
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, not_
 
 from app.auth import get_current_user
 from app.database import get_db
 from app.i18n import get_lang, get_translations, is_rtl
-from app.models.models import Like, Match, Profile, User, GenderEnum
+from app.models.models import Like, Match, Profile, ProfilePhoto, User, GenderEnum
+from app.templates import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
 
 VALID_INTENTIONS = {"serious", "casual", "today", "browsing"}
 
@@ -58,13 +57,20 @@ def swipe_page(
 
     candidate = find_next_candidate(user, db, intention=intention)
     lang = get_lang(request, user)
+    extra_photos = []
+    if candidate and candidate.profile:
+        extra_photos = db.query(ProfilePhoto).filter(
+            ProfilePhoto.profile_id == candidate.profile.id
+        ).order_by(ProfilePhoto.position).all()
     return templates.TemplateResponse("swipe.html", {
         "request": request,
         "user": user,
         "candidate": candidate,
         "profile": candidate.profile if candidate else None,
+        "extra_photos": extra_photos,
         "t": get_translations(lang),
         "rtl": is_rtl(lang),
+        "lang": lang,
         "current_intention": intention or "",
     })
 

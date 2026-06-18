@@ -33,7 +33,7 @@
     const resp = await fetch('/swipe/{{ candidate.id if candidate else 0 }}?action=' + action, {method: 'POST'});
     const data = await resp.json();
     if (data.matched) {
-      this.partnerName = '{{ profile.name if profile else '' }}';
+      this.partnerName = {{ (profile.name if profile else '') | tojson }};
       this.matched = true;
       setTimeout(() => { this.matched = false; window.location.reload(); }, 3000);
     } else {
@@ -75,20 +75,47 @@
   <template x-if="!noMore">
     <div>
       <div class="bg-white rounded-3xl card-shadow overflow-hidden swipe-card">
-        <div class="relative h-96 bg-gradient-to-br from-pink-100 to-rose-100">
-          {% if profile.photo %}
-          <img src="{{ profile.photo }}" alt="{{ profile.name }}"
-               class="w-full h-full object-cover" />
-          {% else %}
-          <div class="w-full h-full flex items-center justify-center text-8xl">👤</div>
-          {% endif %}
+        {% set all_photos = ([profile.photo] if profile.photo else []) + (extra_photos | map(attribute='url') | list) %}
+        <div class="relative h-96 bg-gradient-to-br from-pink-100 to-rose-100"
+             x-data="{ photoIdx: 0, photos: {{ all_photos | tojson }} }">
+          <template x-if="photos.length > 0">
+            <img :src="photos[photoIdx]" alt="{{ profile.name }}"
+                 class="w-full h-full object-cover" />
+          </template>
+          <template x-if="photos.length === 0">
+            <div class="w-full h-full flex items-center justify-center text-8xl">👤</div>
+          </template>
+          <!-- Photo nav dots -->
+          <template x-if="photos.length > 1">
+            <div class="absolute top-3 left-0 right-0 flex justify-center gap-1.5 px-4">
+              <template x-for="(p, i) in photos" :key="i">
+                <div @click="photoIdx = i"
+                     :class="i === photoIdx ? 'bg-white' : 'bg-white/40'"
+                     class="h-1 flex-1 max-w-12 rounded-full transition-all cursor-pointer"></div>
+              </template>
+            </div>
+          </template>
+          <!-- Left / right tap areas -->
+          <template x-if="photos.length > 1">
+            <div class="absolute inset-0 flex">
+              <div class="w-1/2 h-full cursor-pointer" @click="photoIdx = photoIdx > 0 ? photoIdx - 1 : photos.length - 1"></div>
+              <div class="w-1/2 h-full cursor-pointer" @click="photoIdx = photoIdx < photos.length - 1 ? photoIdx + 1 : 0"></div>
+            </div>
+          </template>
           <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-6">
+            {% set os = online_status(candidate.last_seen, lang) %}
             <h2 class="text-white text-2xl font-bold flex items-center gap-2">
               {{ profile.name }}, {{ profile.age }}
               {% if candidate.is_verified %}
               <span class="text-xs bg-green-500 text-white px-2 py-0.5 rounded-full">✓</span>
               {% endif %}
+              {% if os and os.is_online %}
+              <span class="w-2.5 h-2.5 bg-green-400 rounded-full border border-white/60 flex-shrink-0"></span>
+              {% endif %}
             </h2>
+            {% if os and not os.is_online %}
+            <p class="text-white/60 text-xs">{{ os.label }}</p>
+            {% endif %}
             {% if profile.city %}
             <p class="text-white/80 text-sm">📍 {{ profile.city }}</p>
             {% endif %}

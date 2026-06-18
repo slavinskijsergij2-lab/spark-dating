@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
@@ -8,9 +7,9 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.i18n import get_lang, get_translations, is_rtl
 from app.models.models import Match, Message, QuizAnswer, User
+from app.templates import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
 
 
 def get_user_matches(user_id: int, db: Session):
@@ -49,9 +48,33 @@ def compute_compatibility(user_id: int, partner_id: int, db: Session) -> int | N
     return round(100 * matches / len(common_qids))
 
 
+@router.get("/api/notifications")
+def notifications(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    matches = get_user_matches(user.id, db)
+    new_matches = sum(
+        1 for m in matches
+        if (m.user1_id == user.id and not m.seen_by_user1)
+        or (m.user2_id == user.id and not m.seen_by_user2)
+    )
+    unread_messages = db.query(Message).join(Match).filter(
+        or_(Match.user1_id == user.id, Match.user2_id == user.id),
+        Message.sender_id != user.id,
+        Message.is_read == False,
+    ).count()
+    return JSONResponse({"new_matches": new_matches, "unread_messages": unread_messages})
+
+
 @router.get("/matches", response_class=HTMLResponse)
 def matches_page(request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     matches = get_user_matches(user.id, db)
+    # Mark all as seen
+    for m in matches:
+        if m.user1_id == user.id and not m.seen_by_user1:
+            m.seen_by_user1 = True
+        elif m.user2_id == user.id and not m.seen_by_user2:
+            m.seen_by_user2 = True
+    db.commit()
+
     partners = []
     for m in matches:
         partner = get_partner(m, user.id)
@@ -64,6 +87,7 @@ def matches_page(request: Request, user: User = Depends(get_current_user), db: S
         "partners": partners,
         "t": get_translations(lang),
         "rtl": is_rtl(lang),
+        "lang": lang,
     })
 
 
@@ -106,6 +130,7 @@ def chat_page(match_id: int, request: Request, user: User = Depends(get_current_
         "messages": messages_data,
         "t": get_translations(lang),
         "rtl": is_rtl(lang),
+        "lang": lang,
     })
 
 
@@ -166,6 +191,6 @@ def get_messages(
         "id": m.id,
         "content": m.content,
         "sender_id": m.sender_id,
-        "time": m.created_at.strftime("%H:%M"),
+        "created_at": m.created_at.isoformat(),
         "is_read": m.is_read,
     } for m in messages])

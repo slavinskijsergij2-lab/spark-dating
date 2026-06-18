@@ -5,7 +5,6 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -14,9 +13,9 @@ from app.database import get_db
 from app.i18n import get_lang, get_translations, is_rtl
 from app.models.models import Match, PolitenessVote, Profile, QuizAnswer, User
 from app.quiz_questions import QUIZ_QUESTIONS, TOTAL_QUESTIONS
+from app.templates import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="templates")
 
 UPLOAD_DIR = Path("static/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

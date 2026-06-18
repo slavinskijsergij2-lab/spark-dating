@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ t.check_email_title }} — Spark{% endblock %}
+{% block content %}
+<div class="flex flex-col items-center justify-center min-h-[80vh]">
+  <div class="w-full max-w-sm text-center">
+
+    <div class="bg-white rounded-3xl card-shadow p-10">
+      <div class="text-6xl mb-4">📬</div>
+      <h1 class="text-2xl font-bold text-gray-800 mb-3">{{ t.check_email_title }}</h1>
+      <p class="text-gray-500 font-medium mb-2">{{ t.check_email_subtitle }}</p>
+      <p class="text-gray-400 text-sm leading-relaxed mb-8">{{ t.check_email_desc }}</p>
+
+      <a href="/login"
+         class="inline-block gradient-pink text-white px-8 py-3 rounded-full font-semibold hover:opacity-90 transition">
+        {{ t.check_email_login }}
+      </a>
+    </div>
+
+    <p class="text-gray-400 text-xs mt-6">💘 Spark</p>
+  </div>
+</div>
+{% endblock %}
