@@ -77,31 +77,31 @@
       <div class="bg-white rounded-3xl card-shadow overflow-hidden swipe-card">
         {% set all_photos = ([profile.photo] if profile.photo else []) + (extra_photos | map(attribute='url') | list) %}
         <div class="relative h-96 bg-gradient-to-br from-pink-100 to-rose-100"
-             x-data="{ photoIdx: 0, photos: {{ all_photos | tojson }} }">
-          <template x-if="photos.length > 0">
-            <img :src="photos[photoIdx]" alt="{{ profile.name }}"
-                 class="w-full h-full object-cover" />
-          </template>
-          <template x-if="photos.length === 0">
+             x-data="{ photoIdx: 0, total: {{ all_photos | length }} }">
+          {% if all_photos %}
+            {% for photo_url in all_photos %}
+            <img src="{{ photo_url }}" alt="{{ profile.name }}"
+                 class="w-full h-full object-cover absolute inset-0"
+                 x-show="photoIdx === {{ loop.index0 }}" />
+            {% endfor %}
+          {% else %}
             <div class="w-full h-full flex items-center justify-center text-8xl">👤</div>
-          </template>
+          {% endif %}
           <!-- Photo nav dots -->
-          <template x-if="photos.length > 1">
-            <div class="absolute top-3 left-0 right-0 flex justify-center gap-1.5 px-4">
-              <template x-for="(p, i) in photos" :key="i">
-                <div @click="photoIdx = i"
-                     :class="i === photoIdx ? 'bg-white' : 'bg-white/40'"
-                     class="h-1 flex-1 max-w-12 rounded-full transition-all cursor-pointer"></div>
-              </template>
-            </div>
-          </template>
+          {% if all_photos | length > 1 %}
+          <div class="absolute top-3 left-0 right-0 flex justify-center gap-1.5 px-4">
+            {% for _ in all_photos %}
+            <div @click="photoIdx = {{ loop.index0 }}"
+                 :class="photoIdx === {{ loop.index0 }} ? 'bg-white' : 'bg-white/40'"
+                 class="h-1 flex-1 max-w-12 rounded-full transition-all cursor-pointer"></div>
+            {% endfor %}
+          </div>
           <!-- Left / right tap areas -->
-          <template x-if="photos.length > 1">
-            <div class="absolute inset-0 flex">
-              <div class="w-1/2 h-full cursor-pointer" @click="photoIdx = photoIdx > 0 ? photoIdx - 1 : photos.length - 1"></div>
-              <div class="w-1/2 h-full cursor-pointer" @click="photoIdx = photoIdx < photos.length - 1 ? photoIdx + 1 : 0"></div>
-            </div>
-          </template>
+          <div class="absolute inset-0 flex">
+            <div class="w-1/2 h-full cursor-pointer" @click="photoIdx = photoIdx > 0 ? photoIdx - 1 : total - 1"></div>
+            <div class="w-1/2 h-full cursor-pointer" @click="photoIdx = photoIdx < total - 1 ? photoIdx + 1 : 0"></div>
+          </div>
+          {% endif %}
           <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-6">
             {% set os = online_status(candidate.last_seen, lang) %}
             <h2 class="text-white text-2xl font-bold flex items-center gap-2">

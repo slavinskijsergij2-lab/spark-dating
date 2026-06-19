@@ -2,7 +2,7 @@
 {% block title %}{{ t.edit_profile }} — Spark{% endblock %}
 {% block content %}
 <div x-data="{
-  preview: '{{ profile.photo if profile and profile.photo else '' }}',
+  preview: '',
   selectedIntention: '{{ profile.intention if profile and profile.intention else '' }}',
   setPreview(e) {
     const f = e.target.files[0];
@@ -41,7 +41,11 @@
               <img :src="preview" class="w-full h-full object-cover" />
             </template>
             <template x-if="!preview">
+              {% if profile and profile.photo %}
+              <img src="{{ profile.photo }}" class="w-full h-full object-cover" />
+              {% else %}
               <span class="text-5xl">👤</span>
+              {% endif %}
             </template>
             {% if user.is_verified %}
             <span class="absolute bottom-1 right-1 bg-green-500 text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">✓</span>
