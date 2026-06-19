@@ -1,30 +1,69 @@
 {% extends "base.html" %}
 {% block title %}{{ t.quiz_title }} — Spark{% endblock %}
+
+{% block head %}
+<style>
+  .cat-lifestyle     { --cat-bg:#f0fdf4; --cat-border:#86efac; --cat-text:#166534; }
+  .cat-values        { --cat-bg:#faf5ff; --cat-border:#d8b4fe; --cat-text:#6b21a8; }
+  .cat-communication { --cat-bg:#eff6ff; --cat-border:#93c5fd; --cat-text:#1e40af; }
+  .cat-romance       { --cat-bg:#fff1f2; --cat-border:#fda4af; --cat-text:#9f1239; }
+  .cat-personality   { --cat-bg:#fefce8; --cat-border:#fde047; --cat-text:#854d0e; }
+  .category-badge { background:var(--cat-bg); border:1.5px solid var(--cat-border); color:var(--cat-text); }
+  .cat-dot { width:7px; height:7px; border-radius:50%; background:#e5e7eb; transition:all .25s; }
+  .cat-dot.done    { background:#ec4899; }
+  .cat-dot.current { background:#ec4899; transform:scale(1.5); }
+</style>
+{% endblock %}
+
 {% block content %}
 <div x-data="quizApp()" x-init="init()">
 
-  <h1 class="text-2xl font-bold text-gray-800 mb-2">🧩 {{ t.quiz_title }}</h1>
-  <p class="text-gray-400 text-sm mb-6">
-    {{ t.quiz_question }} <span x-text="currentIndex + 1"></span> {{ t.quiz_of }} {{ total }}
-  </p>
+  <!-- Header row: category badge + counter -->
+  <div class="flex items-center justify-between mb-3">
+    <div class="category-badge px-3 py-1.5 rounded-full text-sm font-semibold flex items-center gap-1.5"
+         :class="'cat-' + currentCategory()"
+         x-text="categoryIcon() + '  ' + categoryName()">
+    </div>
+    <span class="text-gray-400 text-sm font-medium">
+      <span x-text="currentIndex + 1"></span> / {{ total }}
+    </span>
+  </div>
 
-  <!-- Progress bar -->
-  <div class="w-full bg-gray-100 rounded-full h-2 mb-6">
-    <div class="gradient-pink h-2 rounded-full transition-all duration-300"
-         :style="'width: ' + Math.round(((currentIndex) / {{ total }}) * 100) + '%'"></div>
+  <!-- Overall progress bar -->
+  <div class="w-full bg-gray-100 rounded-full h-2 mb-2">
+    <div class="gradient-pink h-2 rounded-full transition-all duration-400"
+         :style="'width:' + Math.round(((currentIndex) / {{ total }}) * 100) + '%'"></div>
+  </div>
+
+  <!-- Category progress dots -->
+  <div class="flex justify-center gap-2 mb-6">
+    <template x-for="(grp, gi) in catGroups" :key="gi">
+      <div class="flex items-center gap-1">
+        <template x-for="(qIdx, pi) in grp.indices" :key="pi">
+          <div class="cat-dot"
+               :class="{done: qIdx < currentIndex, current: qIdx === currentIndex}">
+          </div>
+        </template>
+      </div>
+    </template>
   </div>
 
   <!-- Question card -->
-  <div class="bg-white rounded-2xl card-shadow p-6 mb-6">
-    <h2 class="text-lg font-semibold text-gray-800 mb-5" x-text="currentQuestion()"></h2>
+  <div class="bg-white rounded-2xl card-shadow p-6 mb-5">
+    <p class="text-xs font-bold uppercase tracking-widest mb-3 opacity-50"
+       x-text="categoryIcon() + '  ' + categoryName()">
+    </p>
+    <h2 class="text-lg font-bold text-gray-800 mb-5" x-text="currentQuestion()"></h2>
     <div class="flex flex-col gap-3">
       <template x-for="(opt, idx) in currentOptions()" :key="idx">
         <button @click="selectAnswer(idx)"
                 :class="selected[currentQid()] === idx
-                  ? 'border-pink-400 bg-pink-50 ring-2 ring-pink-200 text-pink-700'
+                  ? 'border-pink-400 bg-pink-50 ring-2 ring-pink-200 text-pink-700 font-semibold'
                   : 'border-gray-200 bg-white text-gray-700 hover:border-pink-200 hover:bg-pink-50'"
-                class="text-left border-2 rounded-xl px-4 py-3 transition font-medium text-sm"
-                x-text="opt">
+                class="text-left border-2 rounded-xl px-4 py-3 transition text-sm flex items-center gap-3">
+          <span class="text-gray-300 font-mono text-xs w-4 flex-shrink-0"
+                x-text="['A','B','C','D'][idx]"></span>
+          <span x-text="opt"></span>
         </button>
       </template>
     </div>
@@ -34,21 +73,27 @@
   <div class="flex gap-3">
     <button x-show="currentIndex > 0"
             @click="prev()"
-            class="flex-1 border-2 border-gray-200 text-gray-600 py-3 rounded-full font-semibold hover:border-gray-300 transition">
+            class="flex-1 border-2 border-gray-200 text-gray-600 py-3 rounded-full font-semibold hover:border-gray-300 transition text-sm">
       ← {{ t.back }}
     </button>
     <button @click="next()"
             :disabled="selected[currentQid()] === undefined || saving"
-            class="flex-1 gradient-pink text-white py-3 rounded-full font-semibold hover:opacity-90 transition disabled:opacity-50">
+            class="flex-1 gradient-pink text-white py-3 rounded-full font-semibold hover:opacity-90 transition disabled:opacity-50 text-sm">
       <span x-show="!saving && currentIndex < {{ total }} - 1">{{ t.quiz_next }} →</span>
-      <span x-show="!saving && currentIndex >= {{ total }} - 1">{{ t.quiz_submit }}</span>
+      <span x-show="!saving && currentIndex >= {{ total }} - 1">✓ {{ t.quiz_submit }}</span>
       <span x-show="saving">...</span>
     </button>
   </div>
 
   <!-- Done message -->
-  <div x-show="done" x-cloak class="mt-6 bg-green-50 text-green-700 border border-green-200 rounded-xl px-4 py-3 text-center">
-    🎉 {{ t.quiz_done }} <a href="/matches" class="underline font-semibold">{{ t.my_matches }}</a>
+  <div x-show="done" x-cloak
+       class="mt-6 bg-gradient-to-r from-pink-50 to-purple-50 border border-pink-200 rounded-2xl p-6 text-center">
+    <div class="text-4xl mb-2">🎉</div>
+    <p class="font-bold text-gray-800 mb-1">{{ t.quiz_done }}</p>
+    <a href="/matches"
+       class="gradient-pink text-white px-6 py-2.5 rounded-full font-semibold text-sm inline-block mt-3 hover:opacity-90 transition">
+      {{ t.my_matches }} →
+    </a>
   </div>
 
 </div>
@@ -58,25 +103,40 @@ function quizApp() {
   const questions = {{ questions | tojson }};
   const answeredIds = new Set({{ answered_ids | tojson }});
   const translations = {{ t | tojson }};
-  const total = {{ total }};
+
+  const catMeta = {
+    lifestyle:     { icon: '🌿', color: 'green' },
+    values:        { icon: '💎', color: 'purple' },
+    communication: { icon: '💬', color: 'blue' },
+    romance:       { icon: '❤️',  color: 'pink' },
+    personality:   { icon: '✨', color: 'yellow' },
+  };
+  const catOrder = ['lifestyle', 'values', 'communication', 'romance', 'personality'];
+
+  const catGroupsData = catOrder.map(name => ({
+    name,
+    indices: questions.map((q, i) => q.category === name ? i : -1).filter(i => i >= 0),
+  }));
 
   return {
     currentIndex: 0,
     selected: {},
     saving: false,
     done: false,
+    catGroups: catGroupsData,
 
     init() {
-      // Skip already answered questions
       while (this.currentIndex < questions.length - 1 &&
              answeredIds.has(questions[this.currentIndex].id)) {
         this.currentIndex++;
       }
     },
 
-    currentQid() {
-      return questions[this.currentIndex]?.id;
-    },
+    currentQid()      { return questions[this.currentIndex]?.id; },
+    currentCategory() { return questions[this.currentIndex]?.category || 'lifestyle'; },
+    categoryIcon()    { return catMeta[this.currentCategory()]?.icon || '❓'; },
+    categoryColor()   { return catMeta[this.currentCategory()]?.color || 'pink'; },
+    categoryName()    { return translations['quiz_cat_' + this.currentCategory()] || this.currentCategory(); },
 
     currentQuestion() {
       const q = questions[this.currentIndex];
@@ -89,9 +149,7 @@ function quizApp() {
       return q.options.map(k => translations[k] || k);
     },
 
-    selectAnswer(idx) {
-      this.selected[this.currentQid()] = idx;
-    },
+    selectAnswer(idx) { this.selected[this.currentQid()] = idx; },
 
     async next() {
       const qid = this.currentQid();
@@ -101,7 +159,7 @@ function quizApp() {
       this.saving = true;
       await fetch('/quiz/answer', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'x-csrf-token': getCsrfToken()},
         body: JSON.stringify({question_id: qid, answer_index: answerIdx}),
       });
       answeredIds.add(qid);
@@ -109,20 +167,17 @@ function quizApp() {
 
       if (this.currentIndex < questions.length - 1) {
         this.currentIndex++;
-        // Skip already answered
         while (this.currentIndex < questions.length - 1 &&
                answeredIds.has(questions[this.currentIndex].id)) {
           this.currentIndex++;
         }
       } else {
         this.done = true;
-        setTimeout(() => { window.location.href = '/matches'; }, 2000);
+        setTimeout(() => { window.location.href = '/matches'; }, 2500);
       }
     },
 
-    prev() {
-      if (this.currentIndex > 0) this.currentIndex--;
-    },
+    prev() { if (this.currentIndex > 0) this.currentIndex--; },
   };
 }
 </script>

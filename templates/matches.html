@@ -1,10 +1,115 @@
 {% extends "base.html" %}
 {% block title %}{{ t.matches_title }} — Spark{% endblock %}
 {% block content %}
-<h1 class="text-2xl font-bold text-gray-800 mb-6">💌 {{ t.matches_title }}</h1>
+<h1 class="text-2xl font-bold text-gray-800 mb-4">💌 {{ t.matches_title }}</h1>
 
+<!-- ══ STORIES ROW ══ -->
+<div x-data="{ stories: [], storyViewer: null, viewIdx: 0 }"
+     x-init="fetch('/stories/feed').then(r=>r.json()).then(d=>{ stories=d; })"
+     class="mb-4">
+  <div x-show="stories.length > 0" class="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+
+    <!-- My story button (always first) -->
+    <a href="/stories/page" class="flex-shrink-0 flex flex-col items-center gap-1">
+      <div class="w-14 h-14 rounded-full border-2 border-dashed border-pink-300 flex items-center justify-center bg-pink-50 text-2xl hover:bg-pink-100 transition">+</div>
+      <span class="text-xs text-gray-500">Моя</span>
+    </a>
+
+    <template x-for="u in stories.filter(u=>!u.is_me)" :key="u.user_id">
+      <button @click="storyViewer=u; viewIdx=0" class="flex-shrink-0 flex flex-col items-center gap-1">
+        <div class="w-14 h-14 rounded-full border-2 border-pink-400 overflow-hidden bg-pink-100 flex items-center justify-center">
+          <template x-if="u.photo">
+            <img :src="u.photo" class="w-full h-full object-cover" />
+          </template>
+          <template x-if="!u.photo"><span class="text-2xl">👤</span></template>
+        </div>
+        <span class="text-xs text-gray-500 truncate w-14 text-center" x-text="u.name"></span>
+      </button>
+    </template>
+  </div>
+
+  <!-- Story viewer modal -->
+  <div x-show="storyViewer" x-cloak @click="storyViewer=null"
+       class="fixed inset-0 z-50 bg-black flex items-center justify-center">
+    <div @click.stop class="relative w-full max-w-sm h-[70vh] bg-black rounded-2xl overflow-hidden">
+      <template x-if="storyViewer">
+        <div class="w-full h-full">
+          <template x-if="storyViewer.stories[viewIdx].media_type==='image'">
+            <img :src="storyViewer.stories[viewIdx].content" class="w-full h-full object-cover" />
+          </template>
+          <template x-if="storyViewer.stories[viewIdx].media_type==='text'">
+            <div class="w-full h-full flex items-center justify-center p-6 bg-gradient-to-br from-pink-500 to-rose-600">
+              <p class="text-white text-xl font-semibold text-center" x-text="storyViewer.stories[viewIdx].content"></p>
+            </div>
+          </template>
+          <div class="absolute top-3 left-3 right-3 flex gap-1">
+            <template x-for="(s,i) in storyViewer.stories" :key="i">
+              <div class="flex-1 h-0.5 rounded-full" :class="i <= viewIdx ? 'bg-white' : 'bg-white/30'"></div>
+            </template>
+          </div>
+          <div class="absolute top-6 left-3 flex items-center gap-2">
+            <div class="w-8 h-8 rounded-full overflow-hidden bg-white/20">
+              <img x-show="storyViewer.photo" :src="storyViewer.photo" class="w-full h-full object-cover" />
+            </div>
+            <span class="text-white text-sm font-medium" x-text="storyViewer.name"></span>
+          </div>
+          <button @click="storyViewer=null" class="absolute top-4 right-3 text-white text-2xl">✕</button>
+          <div class="absolute inset-0 flex pointer-events-auto">
+            <div class="w-1/2" @click.stop="viewIdx = viewIdx > 0 ? viewIdx-1 : 0"></div>
+            <div class="w-1/2" @click.stop="viewIdx = viewIdx < storyViewer.stories.length-1 ? viewIdx+1 : (storyViewer=null,0)"></div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+</div>
+
+<!-- ══ WHO LIKED YOU ══ -->
+{% if liked_me_users %}
+<div class="mb-5">
+  <p class="text-sm font-semibold text-gray-500 mb-2">❤️ {{ t.get('liked_you_title','Лайкнули тебя') }} <span class="bg-pink-500 text-white text-xs rounded-full px-1.5 py-0.5 ml-1">{{ liked_me_users | length }}</span></p>
+  <div class="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+    {% for lu in liked_me_users %}
+    <div x-data="{hidden:false, loading:false}" x-show="!hidden"
+         class="flex-shrink-0 w-28 bg-white rounded-2xl shadow-sm border border-pink-100 overflow-hidden text-center">
+      <div class="relative h-28 bg-pink-50">
+        {% if lu.profile.photo %}
+        <img src="{{ lu.profile.photo }}" class="w-full h-full object-cover" />
+        {% else %}
+        <div class="w-full h-full flex items-center justify-center text-4xl">👤</div>
+        {% endif %}
+        {% if lu.is_verified %}
+        <span class="absolute top-1 right-1 bg-green-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">✓</span>
+        {% endif %}
+      </div>
+      <div class="p-2">
+        <p class="text-xs font-semibold text-gray-800 truncate">{{ lu.profile.name }}, {{ lu.profile.age }}</p>
+        <button :disabled="loading"
+                @click="
+                  loading = true;
+                  fetch('/swipe/{{ lu.id }}?action=like', {method:'POST', headers:{'x-csrf-token':getCsrfToken()}})
+                    .then(r => r.json())
+                    .then(d => { hidden = true; if(d.matched) window.location.reload(); })
+                    .catch(() => { loading = false; });
+                "
+                class="mt-1.5 w-full gradient-pink text-white text-[11px] font-semibold py-1.5 rounded-full hover:opacity-90 transition disabled:opacity-50">
+          <span x-show="!loading">💚 {{ t.get('like_back','В ответ') }}</span>
+          <span x-show="loading">...</span>
+        </button>
+        <button @click="hidden=true"
+                class="mt-1 w-full text-gray-400 text-[10px] hover:text-gray-600 transition">
+          {{ t.get('skip_person','Пропустить') }}
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- ══ MATCHES LIST ══ -->
 {% if not partners %}
-<div class="flex flex-col items-center justify-center min-h-[40vh] text-center">
+<div class="flex flex-col items-center justify-center min-h-[35vh] text-center">
   <div class="text-6xl mb-4">💔</div>
   <h2 class="text-xl font-bold text-gray-700 mb-2">{{ t.no_matches }}</h2>
   <p class="text-gray-400 mb-6">{{ t.no_matches_desc }}</p>
@@ -13,52 +118,87 @@
   </a>
 </div>
 {% else %}
-<div class="flex flex-col gap-3">
-  {% for match, partner, compat in partners %}
-  {% if partner.profile %}
-  {% set os = online_status(partner.last_seen, lang) %}
-  <a href="/chat/{{ match.id }}"
-     class="bg-white rounded-2xl p-4 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow border border-gray-100 hover:border-pink-200">
-    <div class="w-14 h-14 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center relative">
-      {% if partner.profile.photo %}
-      <img src="{{ partner.profile.photo }}" alt="{{ partner.profile.name }}" class="w-full h-full object-cover" />
-      {% else %}
-      <span class="text-2xl">👤</span>
-      {% endif %}
-      {% if partner.is_verified %}
-      <span class="absolute bottom-0 right-0 bg-green-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center text-[10px]">✓</span>
-      {% endif %}
-      {% if os and os.is_online %}
-      <span class="absolute top-0 right-0 w-3.5 h-3.5 bg-green-400 rounded-full border-2 border-white"></span>
-      {% endif %}
-    </div>
-    <div class="flex-1 min-w-0">
-      <p class="font-semibold text-gray-800">{{ partner.profile.name }}, {{ partner.profile.age }}</p>
-      {% if os %}
-        {% if os.is_online %}
-        <p class="text-green-500 text-xs font-medium">● {{ os.label }}</p>
+<div x-data="{ search: '' }">
+
+  <!-- Search input -->
+  <div class="relative mb-4">
+    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+    <input x-model="search" type="text"
+           placeholder="{{ t.get('search_matches','Поиск по имени...') }}"
+           class="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-pink-300 transition bg-white" />
+    <button x-show="search" @click="search=''"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+  </div>
+
+  <div class="flex flex-col gap-3">
+    {% for match, partner, compat in partners %}
+    {% if partner.profile %}
+    {% set os = online_status(partner.last_seen, lang) %}
+    <a href="/chat/{{ match.id }}"
+       data-name="{{ partner.profile.name | lower }}"
+       x-show="!search || $el.dataset.name.includes(search.toLowerCase())"
+       class="bg-white rounded-2xl p-4 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow border border-gray-100 hover:border-pink-200">
+      <div class="w-14 h-14 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center relative">
+        {% if partner.profile.photo %}
+        <img src="{{ partner.profile.photo }}" alt="{{ partner.profile.name }}" class="w-full h-full object-cover" />
         {% else %}
-        <p class="text-gray-400 text-xs">{{ os.label }}</p>
+        <span class="text-2xl">👤</span>
         {% endif %}
-      {% elif partner.profile.city %}
-      <p class="text-gray-400 text-sm">📍 {{ partner.profile.city }}</p>
-      {% endif %}
-      <!-- Function 6: Compatibility -->
-      {% if compat is not none %}
-      <p class="text-pink-500 text-xs mt-0.5">
-        💞 {{ t.quiz_compatibility }}: {{ compat }}%
-      </p>
-      {% else %}
-      <a href="/quiz" class="text-xs text-purple-500 hover:underline mt-0.5 inline-block"
-         @click.stop>{{ t.quiz_take }}</a>
-      {% endif %}
-    </div>
-    <svg class="w-5 h-5 text-pink-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-    </svg>
-  </a>
-  {% endif %}
-  {% endfor %}
+        {% if partner.is_verified %}
+        <span class="absolute bottom-0 right-0 bg-green-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center text-[10px]">✓</span>
+        {% endif %}
+        {% if os and os.is_online %}
+        <span class="absolute top-0 right-0 w-3.5 h-3.5 bg-green-400 rounded-full border-2 border-white"></span>
+        {% endif %}
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <p class="font-semibold text-gray-800">{{ partner.profile.name }}, {{ partner.profile.age }}</p>
+          {% if match.streak_days and match.streak_days > 1 %}
+          <span class="text-xs text-orange-500 font-bold">🔥{{ match.streak_days }}</span>
+          {% endif %}
+        </div>
+        {% if os %}
+          {% if os.is_online %}
+          <p class="text-green-500 text-xs font-medium">● {{ os.label }}</p>
+          {% else %}
+          <p class="text-gray-400 text-xs">{{ os.label }}</p>
+          {% endif %}
+        {% elif partner.profile.city %}
+        <p class="text-gray-400 text-sm">📍 {{ partner.profile.city }}</p>
+        {% endif %}
+        <!-- Compatibility -->
+        {% if compat is not none %}
+        <p class="text-pink-600 text-xs font-semibold mt-0.5">
+          💞 {{ t.quiz_compatibility }}: {{ compat.overall }}%
+        </p>
+        {% if compat.categories %}
+        <div class="flex flex-wrap gap-1 mt-1">
+          {% for cat, icon in [('lifestyle','🌿'),('values','💎'),('communication','💬'),('romance','❤️'),('personality','✨')] %}
+          {% if cat in compat.categories %}
+          <span class="text-[10px] font-medium px-1.5 py-0.5 rounded-full border
+            {% if compat.categories[cat] >= 80 %}bg-green-50 border-green-200 text-green-700
+            {% elif compat.categories[cat] >= 60 %}bg-yellow-50 border-yellow-200 text-yellow-700
+            {% else %}bg-red-50 border-red-200 text-red-600{% endif %}">
+            {{ icon }} {{ compat.categories[cat] }}%
+          </span>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% else %}
+        <a href="/quiz" class="text-xs text-purple-500 hover:underline mt-0.5 inline-block"
+           @click.stop>{{ t.quiz_take }}</a>
+        {% endif %}
+      </div>
+      <svg class="w-5 h-5 text-pink-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+      </svg>
+    </a>
+    {% endif %}
+    {% endfor %}
+  </div>
+
 </div>
 {% endif %}
 {% endblock %}

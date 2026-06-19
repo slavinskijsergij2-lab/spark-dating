@@ -39,6 +39,7 @@
          }
        }">
     <form method="POST" action="/verify" enctype="multipart/form-data">
+      <input type="hidden" name="csrftoken" value="{{ request.state.csrf_token }}" />
 
       <!-- Photo preview -->
       <div class="flex flex-col items-center mb-6">

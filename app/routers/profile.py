@@ -1,5 +1,7 @@
-import base64
 import io
+import os
+import uuid
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, HTTPException
@@ -8,33 +10,60 @@ from sqlalchemy.orm import Session
 from PIL import Image
 
 from app.auth import get_current_user
+from app.csrf import validate_csrf_form
 from app.database import get_db
 from app.i18n import get_lang, get_translations, is_rtl, VALID_LANGS
-from app.models.models import Profile, ProfilePhoto, User, GenderEnum
+from app.models.models import Match, Profile, ProfilePhoto, ProfileView, User, GenderEnum
+from sqlalchemy import and_, or_
 from app.templates import templates
+from app.utils.time import utcnow as _utcnow
 
 router = APIRouter()
 
 MAX_SIZE = (800, 800)
-
+MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_NAME_LEN = 100
+MAX_BIO_LEN = 1000
+MAX_CITY_LEN = 100
 VALID_INTENTIONS = {"serious", "casual", "today", "browsing"}
 
+# C3: Store photos on filesystem instead of base64 in the database.
+# Set PHOTO_DIR to a Railway Volume path (e.g. /data/photos) for persistence across deploys.
+# Without PHOTO_DIR, photos are stored in ./static/photos/ (lost on Railway redeploy — add a Volume).
+_PHOTO_ENV_DIR = os.getenv("PHOTO_DIR", "")
+if _PHOTO_ENV_DIR:
+    _photo_fs_path = Path(_PHOTO_ENV_DIR)
+    _photo_url_prefix = "/photos/"
+else:
+    _photo_fs_path = Path("static/photos")
+    _photo_url_prefix = "/static/photos/"
 
-def save_photo(file: UploadFile) -> str:
-    """Returns a data: URI so photos survive container restarts."""
-    ext = Path(file.filename).suffix.lower()
+_photo_fs_path.mkdir(parents=True, exist_ok=True)
+
+
+async def save_photo(file: UploadFile) -> str:
+    """Process uploaded image, save to filesystem, return a URL path.
+    Existing base64 data URIs in the DB remain valid — <img src> accepts both."""
+    ext = Path(file.filename or "x.jpg").suffix.lower()
     if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
         raise HTTPException(400, "Только JPG/PNG/WEBP изображения")
+
+    raw = await file.read()
+    if len(raw) > MAX_FILE_BYTES:
+        raise HTTPException(400, "Файл слишком большой. Максимум 10 МБ.")
+
     try:
-        img = Image.open(file.file)
+        img = Image.open(io.BytesIO(raw))
         img.thumbnail(MAX_SIZE, Image.LANCZOS)
         img = img.convert("RGB")
         buf = io.BytesIO()
         img.save(buf, "JPEG", quality=80)
     except Exception:
         raise HTTPException(400, "Не удалось обработать изображение. Попробуйте другой файл.")
-    b64 = base64.b64encode(buf.getvalue()).decode()
-    return f"data:image/jpeg;base64,{b64}"
+
+    filename = f"{uuid.uuid4().hex}.jpg"
+    (_photo_fs_path / filename).write_bytes(buf.getvalue())
+    return f"{_photo_url_prefix}{filename}"
 
 
 @router.get("/profile/edit", response_class=HTMLResponse)
@@ -61,7 +90,7 @@ def edit_profile_page(request: Request, user: User = Depends(get_current_user), 
     })
 
 
-@router.post("/profile/edit")
+@router.post("/profile/edit", dependencies=[Depends(validate_csrf_form)])
 async def edit_profile(
     request: Request,
     name: str = Form(...),
@@ -73,6 +102,9 @@ async def edit_profile(
     photo: UploadFile = File(None),
     language: str = Form(None),
     intention: str = Form(None),
+    interests: str = Form(None),
+    birth_date: str = Form(None),
+    is_anonymous: str = Form(None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -90,36 +122,70 @@ async def edit_profile(
             "verified_flash": False, "error": msg,
         }, status_code=400)
 
-    try:
-        age_int = int(float(age))
-    except (ValueError, TypeError):
-        return _err(t.get("age_invalid", "Введите корректный возраст"))
+    # FIX M2: truncate text fields to server-enforced limits
+    name_val = name.strip()[:MAX_NAME_LEN] if name else ""
+    bio_val = bio.strip()[:MAX_BIO_LEN] if bio else None
+    city_val = city.strip()[:MAX_CITY_LEN] if city else None
 
-    if age_int < 18 or age_int > 100:
-        return _err(t.get("age_range", "Возраст должен быть от 18 до 100"))
-    if gender not in [g.value for g in GenderEnum]:
-        return _err(t.get("gender_invalid", "Выберите пол"))
+    # Age — optional, use 18 as default for new profiles
+    age_int = None
+    if age and age.strip():
+        try:
+            age_int = int(float(age.strip()))
+            # LOW-20: enforce minimum legal age for a dating app
+            if age_int < 18 or age_int > 100:
+                age_int = None
+        except (ValueError, TypeError):
+            age_int = None
+
+    # Gender — optional, default to "other" for new profiles
+    valid_genders = [g.value for g in GenderEnum]
+    gender_val = gender if gender in valid_genders else None
 
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()
     is_new_profile = profile is None
     if is_new_profile:
-        profile = Profile(user_id=user.id)
+        profile = Profile(
+            user_id=user.id,
+            name=name_val if name_val else "—",
+            age=age_int if age_int is not None else 18,
+            gender=GenderEnum(gender_val) if gender_val else GenderEnum.other,
+        )
         db.add(profile)
+    else:
+        if name_val:
+            profile.name = name_val
+        if age_int is not None:
+            profile.age = age_int
+        if gender_val:
+            profile.gender = GenderEnum(gender_val)
 
-    profile.name = name.strip()
-    profile.age = age_int
-    profile.gender = GenderEnum(gender)
-    profile.looking_for = GenderEnum(looking_for) if looking_for else None
-    profile.city = city.strip() if city else None
-    profile.bio = bio.strip() if bio else None
+    profile.looking_for = GenderEnum(looking_for) if looking_for and looking_for in valid_genders else None
+    profile.city = city_val or None
+    profile.bio = bio_val or None
 
     if intention and intention in VALID_INTENTIONS:
         profile.intention = intention
     elif not intention:
         profile.intention = None
 
+    # Interests — comma-separated tags, max 500 chars total
+    if interests is not None:
+        tags = [t.strip()[:40] for t in interests.split(",") if t.strip()]
+        profile.interests = ",".join(tags)[:500] or None
+
+    # Anonymous mode toggle
+    profile.is_anonymous = (is_anonymous == "1")
+
     if photo and photo.filename:
-        profile.photo = save_photo(photo)
+        profile.photo = await save_photo(photo)  # FIX H5: properly awaited
+
+    # Birth date — store on User model
+    if birth_date and birth_date.strip():
+        try:
+            user.birth_date = datetime.strptime(birth_date.strip(), "%Y-%m-%d")
+        except ValueError:
+            pass
 
     new_lang = user.language or "ru"
     if language and language in VALID_LANGS:
@@ -135,7 +201,7 @@ async def edit_profile(
     return redirect
 
 
-@router.post("/profile/photos/add")
+@router.post("/profile/photos/add", dependencies=[Depends(validate_csrf_form)])
 async def add_photo(
     photo: UploadFile = File(...),
     user: User = Depends(get_current_user),
@@ -150,7 +216,7 @@ async def add_photo(
         return RedirectResponse("/profile/edit?photo_limit=1", status_code=302)
 
     if photo and photo.filename:
-        url = save_photo(photo)
+        url = await save_photo(photo)  # FIX H5: properly awaited
         p = ProfilePhoto(profile_id=profile.id, url=url, position=existing)
         db.add(p)
         db.commit()
@@ -158,7 +224,7 @@ async def add_photo(
     return RedirectResponse("/profile/edit", status_code=302)
 
 
-@router.post("/profile/photos/delete/{photo_id}")
+@router.post("/profile/photos/delete/{photo_id}", dependencies=[Depends(validate_csrf_form)])
 def delete_photo(
     photo_id: int,
     user: User = Depends(get_current_user),
@@ -182,13 +248,67 @@ def view_profile(user_id: int, request: Request, user: User = Depends(get_curren
     if not target or not target.profile:
         raise HTTPException(404, "Профиль не найден")
     lang = get_lang(request, user)
+
+    # Track profile view (don't track self-views)
+    if user.id != user_id:
+        from sqlalchemy.exc import IntegrityError as _IE
+        existing = db.query(ProfileView).filter(
+            ProfileView.viewer_id == user.id,
+            ProfileView.viewed_id == user_id,
+        ).first()
+        if existing:
+            existing.created_at = _utcnow()
+        else:
+            db.add(ProfileView(viewer_id=user.id, viewed_id=user_id))
+        try:
+            db.commit()
+        except _IE:
+            db.rollback()
+            db.query(ProfileView).filter(
+                ProfileView.viewer_id == user.id,
+                ProfileView.viewed_id == user_id,
+            ).update({"created_at": _utcnow()})
+            db.commit()
+        except Exception:
+            db.rollback()
     extra_photos = db.query(ProfilePhoto).filter(ProfilePhoto.profile_id == target.profile.id).order_by(ProfilePhoto.position).all()
+    is_matched = user.id == user_id or bool(
+        db.query(Match.id).filter(
+            or_(
+                and_(Match.user1_id == user.id, Match.user2_id == user_id),
+                and_(Match.user1_id == user_id, Match.user2_id == user.id),
+            )
+        ).first()
+    )
+
+    # Zodiac sign + compatibility
+    from app.utils.zodiac import get_sign, compatibility as zodiac_compat_fn
+    zodiac = None
+    zodiac_compat = None
+    if target.birth_date:
+        zodiac = get_sign(target.birth_date)
+        if user.birth_date:
+            my_sign = get_sign(user.birth_date)
+            zodiac_compat = zodiac_compat_fn(my_sign, zodiac)
+
+    # Interests list
+    interests_list = [t.strip() for t in (target.profile.interests or "").split(",") if t.strip()]
+
+    # Achievements
+    from app.utils.achievements import get_achievements
+    achievements = get_achievements(target, db)
+
     return templates.TemplateResponse("profile_view.html", {
         "request": request,
         "user": user,
         "target": target,
         "profile": target.profile,
         "extra_photos": extra_photos,
+        "is_matched": is_matched,
+        "zodiac": zodiac,
+        "zodiac_compat": zodiac_compat,
+        "interests_list": interests_list,
+        "achievements": achievements,
         "t": get_translations(lang),
         "rtl": is_rtl(lang),
     })

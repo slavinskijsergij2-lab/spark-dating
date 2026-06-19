@@ -1,35 +1,108 @@
 {% extends "base.html" %}
 {% block title %}Spark — Знакомства{% endblock %}
+
+{% block head %}
+<style>
+  @keyframes heartFloat {
+    0%   { transform: translateY(0) scale(1);   opacity: .7; }
+    100% { transform: translateY(-100vh) scale(1.4); opacity: 0; }
+  }
+  .floating-heart {
+    position: fixed;
+    pointer-events: none;
+    animation: heartFloat linear forwards;
+    z-index: 0;
+    font-size: 1.4rem;
+    user-select: none;
+  }
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 20px rgba(236,72,153,0.4); }
+    50%       { box-shadow: 0 0 40px rgba(236,72,153,0.8); }
+  }
+  .logo-pulse { animation: pulse-glow 2.5s ease-in-out infinite; }
+  @keyframes shimmer {
+    0%   { background-position: -200% center; }
+    100% { background-position:  200% center; }
+  }
+  .text-gradient {
+    background: linear-gradient(90deg, #ec4899, #8b5cf6, #f43f5e, #ec4899);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: shimmer 3s linear infinite;
+  }
+</style>
+{% endblock %}
+
+{% block main_class %}max-w-lg mx-auto px-4{% endblock %}
+
 {% block content %}
-<div class="flex flex-col items-center justify-center min-h-[80vh] text-center">
-  <div class="gradient-pink w-24 h-24 rounded-full flex items-center justify-center mb-6 shadow-lg">
-    <span class="text-5xl">💘</span>
+<!-- Floating hearts -->
+<div id="hearts-container" class="fixed inset-0 overflow-hidden pointer-events-none z-0"></div>
+
+<div class="relative z-10 flex flex-col items-center justify-center min-h-screen text-center py-12">
+
+  <!-- Logo -->
+  <div class="logo-pulse gradient-pink w-28 h-28 rounded-full flex items-center justify-center mb-8 shadow-2xl">
+    <span class="text-6xl">💘</span>
   </div>
-  <h1 class="text-4xl font-bold text-gray-800 mb-3">Spark</h1>
-  <p class="text-lg text-gray-500 mb-8 max-w-sm">{{ t.hero_subtitle }}</p>
+
+  <!-- Headline -->
+  <h1 class="text-5xl font-black mb-3 text-gradient">Spark</h1>
+  <p class="text-gray-500 text-base mb-10 max-w-xs leading-relaxed">{{ t.hero_subtitle }}</p>
+
+  <!-- CTA buttons -->
   <div class="flex flex-col gap-3 w-full max-w-xs">
     <a href="/register"
-       class="gradient-pink text-white py-3 px-8 rounded-full font-semibold text-lg shadow-lg hover:opacity-90 transition-opacity">
-      {{ t.start }}
+       class="gradient-pink text-white py-4 px-8 rounded-2xl font-bold text-lg shadow-xl hover:opacity-90 active:scale-95 transition-all glow-pink">
+      ✨ {{ t.start }}
     </a>
     <a href="/login"
-       class="border-2 border-pink-400 text-pink-500 py-3 px-8 rounded-full font-semibold text-lg hover:bg-pink-50 transition-colors">
+       class="glass border border-pink-200 text-pink-600 py-4 px-8 rounded-2xl font-bold text-lg hover:bg-pink-50 active:scale-95 transition-all">
       {{ t.login }}
     </a>
   </div>
-  <div class="mt-12 grid grid-cols-3 gap-6 text-center">
-    <div>
-      <div class="text-3xl mb-1">😊</div>
-      <div class="text-sm text-gray-500">{{ t.feature_profiles }}</div>
+
+  <!-- Feature pills -->
+  <div class="mt-14 flex flex-wrap justify-center gap-3">
+    <div class="glass rounded-2xl px-5 py-3 flex items-center gap-2 shadow-sm">
+      <span class="text-2xl">😊</span>
+      <span class="text-sm font-medium text-gray-600">{{ t.feature_profiles }}</span>
     </div>
-    <div>
-      <div class="text-3xl mb-1">💬</div>
-      <div class="text-sm text-gray-500">{{ t.feature_chat }}</div>
+    <div class="glass rounded-2xl px-5 py-3 flex items-center gap-2 shadow-sm">
+      <span class="text-2xl">💬</span>
+      <span class="text-sm font-medium text-gray-600">{{ t.feature_chat }}</span>
     </div>
-    <div>
-      <div class="text-3xl mb-1">🔒</div>
-      <div class="text-sm text-gray-500">{{ t.feature_safety }}</div>
+    <div class="glass rounded-2xl px-5 py-3 flex items-center gap-2 shadow-sm">
+      <span class="text-2xl">🔒</span>
+      <span class="text-sm font-medium text-gray-600">{{ t.feature_safety }}</span>
     </div>
   </div>
+
 </div>
+
+<script>
+(function() {
+  const container = document.getElementById('hearts-container');
+  const emojis = ['💘','💖','💝','💗','✨','💫','🌸','💕'];
+
+  function spawnHeart() {
+    const el = document.createElement('span');
+    el.className = 'floating-heart';
+    el.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+    el.style.left = Math.random() * 100 + 'vw';
+    el.style.bottom = '-2rem';
+    const dur = 6 + Math.random() * 8;
+    el.style.animationDuration = dur + 's';
+    el.style.opacity = 0.5 + Math.random() * 0.4;
+    container.appendChild(el);
+    setTimeout(() => el.remove(), dur * 1000);
+  }
+
+  // Spawn hearts periodically
+  for (let i = 0; i < 8; i++) setTimeout(spawnHeart, i * 600);
+  setInterval(spawnHeart, 1200);
+})();
+</script>
 {% endblock %}

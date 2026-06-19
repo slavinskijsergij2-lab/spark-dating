@@ -24,6 +24,7 @@
         {% else %}
         <form method="POST" action="/resend-verification">
           <input type="hidden" name="email" value="{{ request.query_params.get('email', '') }}" />
+          <input type="hidden" name="csrftoken" value="{{ request.state.csrf_token }}" />
           <button type="submit"
                   class="text-sm text-amber-700 underline hover:text-amber-900 transition">
             {{ t.resend_link }}
@@ -66,6 +67,7 @@
           <input type="password" name="password" required placeholder="••••••••"
                  class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-pink-300 transition" />
         </div>
+        <input type="hidden" name="csrftoken" value="{{ request.state.csrf_token }}" />
         <button type="submit"
                 :disabled="loading"
                 class="w-full gradient-pink text-white py-3 rounded-full font-semibold text-lg shadow hover:opacity-90 transition disabled:opacity-60">

@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Истории — Spark{% endblock %}
+{% block content %}
+<div class="flex items-center gap-3 mb-6">
+  <a href="/matches" class="w-9 h-9 rounded-full border-2 border-gray-200 flex items-center justify-center text-gray-500 hover:border-pink-300 transition">←</a>
+  <h1 class="text-xl font-bold text-gray-800">📸 Моя история</h1>
+</div>
+
+<!-- Current story -->
+{% if my_story %}
+<div class="bg-white rounded-2xl card-shadow p-5 mb-4">
+  <p class="text-sm font-medium text-gray-600 mb-3">Активная история (24ч)</p>
+  {% if my_story.media_type == 'image' %}
+  <img src="{{ my_story.content }}" class="w-full rounded-xl max-h-64 object-cover" />
+  {% else %}
+  <div class="w-full rounded-xl bg-gradient-to-br from-pink-500 to-rose-600 p-6 flex items-center justify-center min-h-[8rem]">
+    <p class="text-white text-lg font-semibold text-center">{{ my_story.content }}</p>
+  </div>
+  {% endif %}
+  <p class="text-xs text-gray-400 mt-2">
+    Истекает: {{ my_story.expires_at.strftime('%d.%m %H:%M') }}
+  </p>
+  <button x-data
+    @click="
+      fetch('/stories/{{ my_story.id }}', {method:'DELETE', headers:{'x-csrf-token': getCsrfToken()}})
+        .then(()=>window.location.reload());
+    "
+    class="mt-3 text-sm text-red-400 hover:text-red-600 transition">
+    🗑 Удалить историю
+  </button>
+</div>
+{% endif %}
+
+<!-- Create new story -->
+<div class="bg-white rounded-2xl card-shadow p-5" x-data="{
+  tab: 'text',
+  text: '',
+  preview: null,
+  loading: false,
+  done: false,
+  async submit() {
+    if (this.loading) return;
+    this.loading = true;
+    const fd = new FormData();
+    fd.append('csrftoken', getCsrfToken());
+    if (this.tab === 'text') {
+      fd.append('text', this.text);
+    } else {
+      const inp = document.getElementById('story-photo');
+      if (!inp.files[0]) { this.loading=false; return; }
+      fd.append('photo', inp.files[0]);
+    }
+    const r = await fetch('/stories', {method:'POST', body:fd}).catch(()=>null);
+    this.loading = false;
+    if (r && r.ok) { this.done=true; setTimeout(()=>window.location.reload(), 1200); }
+  }
+}">
+  <h2 class="text-base font-semibold text-gray-700 mb-4">
+    {% if my_story %}Обновить{% else %}Добавить{% endif %} историю
+  </h2>
+
+  <!-- Tabs -->
+  <div class="flex gap-2 mb-4">
+    <button @click="tab='text'" :class="tab==='text' ? 'gradient-pink text-white' : 'border border-gray-200 text-gray-600'"
+            class="flex-1 py-2 rounded-full text-sm font-medium transition">📝 Текст</button>
+    <button @click="tab='photo'" :class="tab==='photo' ? 'gradient-pink text-white' : 'border border-gray-200 text-gray-600'"
+            class="flex-1 py-2 rounded-full text-sm font-medium transition">📷 Фото</button>
+  </div>
+
+  <!-- Text tab -->
+  <div x-show="tab==='text'">
+    <textarea x-model="text" maxlength="300" rows="4" placeholder="Что у тебя нового?..."
+              class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-pink-300 transition"></textarea>
+    <p class="text-xs text-gray-400 text-right mt-1" x-text="text.length + '/300'"></p>
+  </div>
+
+  <!-- Photo tab -->
+  <div x-show="tab==='photo'" x-cloak>
+    <label class="block w-full aspect-video rounded-xl border-2 border-dashed border-pink-200 overflow-hidden cursor-pointer hover:border-pink-400 transition bg-pink-50 flex flex-col items-center justify-center text-pink-300">
+      <template x-if="!preview">
+        <div class="flex flex-col items-center justify-center gap-2">
+          <span class="text-4xl">📷</span>
+          <span class="text-sm">Выбрать фото</span>
+        </div>
+      </template>
+      <template x-if="preview">
+        <img :src="preview" class="w-full h-full object-cover" />
+      </template>
+      <input id="story-photo" type="file" accept="image/*" class="hidden"
+             @change="preview = $event.target.files[0] ? URL.createObjectURL($event.target.files[0]) : null" />
+    </label>
+  </div>
+
+  <div x-show="done" class="text-center text-green-600 text-sm mt-3">История опубликована! ✓</div>
+
+  <button @click="submit()" :disabled="loading || done || (tab==='text' && !text.trim())"
+          class="mt-4 w-full gradient-pink text-white py-3 rounded-full font-semibold hover:opacity-90 transition disabled:opacity-40">
+    <span x-show="!loading && !done">Опубликовать</span>
+    <span x-show="loading" x-cloak>...</span>
+    <span x-show="done" x-cloak>✓</span>
+  </button>
+</div>
+{% endblock %}

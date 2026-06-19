@@ -1,17 +1,45 @@
+import os
 import secrets
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
-from app.auth import create_access_token, hash_password, verify_password, get_optional_user
+from app.auth import (
+    DUMMY_HASH,
+    create_access_token,
+    hash_password,
+    verify_password,
+    get_optional_user,
+)
+from app.csrf import validate_csrf_form
 from app.database import get_db
 from app.email_utils import is_smtp_configured, send_verification_email
 from app.i18n import get_lang, get_translations, is_rtl
 from app.models.models import User
+from app.rate_limit import rate_limit
 from app.templates import templates
 
 router = APIRouter()
+
+_EMAIL_VERIFY_TTL_SECONDS = 86400  # 24 hours
+# Secure flag for cookies: True on Railway production, False in local dev
+_SECURE_COOKIES = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("SECURE_COOKIES"))
+
+
+from app.utils.time import utcnow as _utcnow
+
+
+def _set_auth_cookie(response, token: str) -> None:
+    """Set the JWT access_token cookie with correct security flags."""
+    response.set_cookie(
+        "access_token", token,
+        httponly=True,
+        max_age=60 * 60 * 24 * 7,
+        samesite="lax",
+        secure=_SECURE_COOKIES,
+    )
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -28,7 +56,7 @@ def login_page(request: Request, user=Depends(get_optional_user)):
     })
 
 
-@router.post("/login")
+@router.post("/login", dependencies=[Depends(rate_limit(10, 60)), Depends(validate_csrf_form)])
 def login(
     request: Request,
     response: Response,
@@ -37,8 +65,14 @@ def login(
     db: Session = Depends(get_db),
 ):
     user = db.query(User).filter(User.email == email.lower().strip()).first()
-    if not user or not verify_password(password, user.hashed_password):
-        lang = user.language if user else "en"
+
+    # FIX H1: always run bcrypt to prevent timing-based email enumeration.
+    # If the user doesn't exist we check against DUMMY_HASH so the response
+    # time is constant regardless of whether the email is registered.
+    password_ok = verify_password(password, user.hashed_password if user else DUMMY_HASH)
+
+    if not user or not password_ok:
+        lang = (user.language if user and user.language else None) or "en"
         t = get_translations(lang)
         return templates.TemplateResponse("login.html", {
             "request": request,
@@ -50,15 +84,16 @@ def login(
         }, status_code=400)
 
     if not user.email_verified and is_smtp_configured():
+        encoded_email = quote(user.email, safe="")
         return RedirectResponse(
-            f"/login?not_verified=1&email={user.email}",
+            f"/login?not_verified=1&email={encoded_email}",
             status_code=302,
         )
 
     token = create_access_token(user.id)
     lang = user.language or "en"
     redirect = RedirectResponse("/swipe", status_code=302)
-    redirect.set_cookie("access_token", token, httponly=True, max_age=60 * 60 * 24 * 7, samesite="lax")
+    _set_auth_cookie(redirect, token)
     redirect.set_cookie("lang", lang, max_age=60 * 60 * 24 * 365, samesite="lax")
     return redirect
 
@@ -75,7 +110,7 @@ def register_page(request: Request, user=Depends(get_optional_user)):
     })
 
 
-@router.post("/register")
+@router.post("/register", dependencies=[Depends(rate_limit(5, 60)), Depends(validate_csrf_form)])
 def register(
     request: Request,
     email: str = Form(...),
@@ -85,7 +120,8 @@ def register(
 ):
     email = email.lower().strip()
 
-    allowed_languages = {"ru", "uk", "de", "en", "tr", "ar"}
+    from app.i18n import VALID_LANGS
+    allowed_languages = VALID_LANGS
     if language not in allowed_languages:
         language = "en"
 
@@ -99,7 +135,7 @@ def register(
             "error": t.get("register_email_taken", "Email already registered"),
         }, status_code=400)
 
-    if len(password) < 6:
+    if len(password) < 8:
         return templates.TemplateResponse("register.html", {
             "request": request,
             "t": t,
@@ -116,6 +152,8 @@ def register(
         language=language,
         email_verified=not smtp_active,
         email_verify_token=verify_token,
+        # FIX H7: record when token was issued so we can enforce 24h expiry
+        email_verify_created_at=_utcnow() if smtp_active else None,
     )
     db.add(user)
     db.commit()
@@ -125,10 +163,9 @@ def register(
         send_verification_email(email, verify_token, lang=language)
         return RedirectResponse("/register/check-email", status_code=302)
 
-    # SMTP not configured — log in directly
     token = create_access_token(user.id)
     redirect = RedirectResponse("/profile/edit", status_code=302)
-    redirect.set_cookie("access_token", token, httponly=True, max_age=60 * 60 * 24 * 7, samesite="lax")
+    _set_auth_cookie(redirect, token)
     redirect.set_cookie("lang", language, max_age=60 * 60 * 24 * 365, samesite="lax")
     return redirect
 
@@ -153,19 +190,31 @@ def verify_email(token: str, db: Session = Depends(get_db)):
             status_code=400,
         )
 
+    # FIX H7: enforce 24-hour token expiry
+    if user.email_verify_created_at:
+        age_seconds = (_utcnow() - user.email_verify_created_at).total_seconds()
+        if age_seconds > _EMAIL_VERIFY_TTL_SECONDS:
+            return HTMLResponse(
+                "<h2 style='font-family:sans-serif;text-align:center;margin-top:80px;color:#ef4444;'>"
+                "❌ Verification link expired (valid for 24 hours). "
+                "<a href='/login' style='color:#ec4899;'>Request a new one</a>.</h2>",
+                status_code=400,
+            )
+
     user.email_verified = True
     user.email_verify_token = None
+    user.email_verify_created_at = None
     db.commit()
 
     access_token = create_access_token(user.id)
     lang = user.language or "en"
     redirect = RedirectResponse("/profile/edit", status_code=302)
-    redirect.set_cookie("access_token", access_token, httponly=True, max_age=60 * 60 * 24 * 7, samesite="lax")
+    _set_auth_cookie(redirect, access_token)  # C3: use helper so secure= flag is applied
     redirect.set_cookie("lang", lang, max_age=60 * 60 * 24 * 365, samesite="lax")
     return redirect
 
 
-@router.post("/resend-verification")
+@router.post("/resend-verification", dependencies=[Depends(rate_limit(3, 300)), Depends(validate_csrf_form)])
 def resend_verification(
     request: Request,
     email: str = Form(...),
@@ -177,14 +226,17 @@ def resend_verification(
     if user and not user.email_verified:
         new_token = secrets.token_urlsafe(32)
         user.email_verify_token = new_token
+        # FIX H7: reset the expiry clock on resend
+        user.email_verify_created_at = _utcnow()
         db.commit()
         send_verification_email(email, new_token, lang=user.language or "en")
 
-    # Always redirect to avoid enumeration
-    return RedirectResponse(f"/login?not_verified=1&email={email}&resent=1", status_code=302)
+    # Always redirect to avoid email enumeration
+    encoded_email = quote(email, safe="")
+    return RedirectResponse(f"/login?not_verified=1&email={encoded_email}&resent=1", status_code=302)
 
 
-@router.post("/logout")
+@router.post("/logout", dependencies=[Depends(validate_csrf_form)])
 def logout():
     redirect = RedirectResponse("/login", status_code=302)
     redirect.delete_cookie("access_token")

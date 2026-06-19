@@ -1,6 +1,28 @@
 {% extends "base.html" %}
 {% block title %}{{ profile.name }} — Spark{% endblock %}
 {% block content %}
+<div x-data="{
+  reportOpen: false,
+  reportReason: 'spam',
+  reportComment: '',
+  blocked: false,
+  reported: false,
+  async blockUser() {
+    await fetch('/user/{{ target.id }}/block', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}});
+    this.blocked = true;
+  },
+  async reportUser() {
+    await fetch('/user/{{ target.id }}/report', {
+      method:'POST',
+      headers:{'x-csrf-token': getCsrfToken(), 'Content-Type':'application/json'},
+      body: JSON.stringify({reason: this.reportReason, comment: this.reportComment})
+    });
+    this.reported = true;
+    this.reportOpen = false;
+    this.blocked = true;
+  }
+}">
+
 <div class="bg-white rounded-3xl card-shadow overflow-hidden">
   <div class="relative h-80 bg-gradient-to-br from-pink-100 to-rose-100">
     {% if profile.photo %}
@@ -9,16 +31,32 @@
     <div class="w-full h-full flex items-center justify-center text-8xl">👤</div>
     {% endif %}
     <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-6">
-      <h1 class="text-white text-3xl font-bold flex items-center gap-2">
+      <h1 class="text-white text-3xl font-bold flex items-center gap-2 flex-wrap">
         {{ profile.name }}, {{ profile.age }}
         {% if target.is_verified %}
         <span class="text-sm bg-green-500 text-white px-2 py-0.5 rounded-full font-medium">{{ t.verified_badge }}</span>
+        {% endif %}
+        {% if target.is_premium %}
+        <span class="text-sm bg-yellow-400 text-yellow-900 px-2 py-0.5 rounded-full font-medium">⭐ Premium</span>
         {% endif %}
       </h1>
       {% if profile.city %}
       <p class="text-white/80">📍 {{ profile.city }}</p>
       {% endif %}
     </div>
+    {% if user.id != target.id %}
+    <div class="absolute top-3 right-3 flex gap-2">
+      <button @click="blockUser()" :title="blocked ? 'Заблокировано' : 'Заблокировать'"
+        class="w-9 h-9 rounded-full flex items-center justify-center transition"
+        :class="blocked ? 'bg-gray-700 text-gray-300' : 'bg-black/40 text-white hover:bg-black/60'">
+        🚫
+      </button>
+      <button @click="reportOpen=true" title="Пожаловаться"
+        class="w-9 h-9 bg-black/40 text-white rounded-full flex items-center justify-center hover:bg-red-600/80 transition">
+        ⚑
+      </button>
+    </div>
+    {% endif %}
   </div>
 
   <div class="p-6">
@@ -28,16 +66,25 @@
 
     <!-- Photo gallery -->
     {% if extra_photos %}
-    <div class="grid grid-cols-3 gap-2 mb-4">
+    <div class="grid grid-cols-3 gap-2 mb-2">
       {% for p in extra_photos %}
-      <div class="aspect-square rounded-xl overflow-hidden">
-        <img src="{{ p.url }}" class="w-full h-full object-cover" />
+      <div class="aspect-square rounded-xl overflow-hidden relative">
+        <img src="{{ p.url }}" class="w-full h-full object-cover {% if not is_matched %}blur-sm{% endif %}" />
+        {% if not is_matched %}
+        <div class="absolute inset-0 flex items-center justify-center bg-black/20 rounded-xl">
+          <span class="text-white text-xl">🔒</span>
+        </div>
+        {% endif %}
       </div>
       {% endfor %}
     </div>
+    {% if not is_matched %}
+    <p class="text-center text-gray-400 text-xs mb-3">{{ t.get('photos_locked','Лайкни — увидишь все фото') }}</p>
+    {% endif %}
     {% endif %}
 
-    <div class="flex gap-2 flex-wrap">
+    <!-- Badges row -->
+    <div class="flex gap-2 flex-wrap mb-4">
       <span class="bg-pink-50 text-pink-600 px-3 py-1 rounded-full text-sm">
         {% if profile.gender.value == 'male' %}👨 {{ t.gender_male_badge }}
         {% elif profile.gender.value == 'female' %}👩 {{ t.gender_female_badge }}
@@ -47,7 +94,6 @@
         🎂 {{ profile.age }} {{ t.years_old }}
       </span>
 
-      <!-- Function 5: Intention badge -->
       {% if profile.intention %}
       <span class="bg-purple-50 text-purple-600 px-3 py-1 rounded-full text-sm">
         {% if profile.intention == 'serious' %}💍 {{ t.intention_serious }}
@@ -58,12 +104,54 @@
       </span>
       {% endif %}
 
-      <!-- Function 3: Politeness rating -->
       {% if target.politeness_votes and target.politeness_votes > 0 %}
       <span class="bg-yellow-50 text-yellow-600 px-3 py-1 rounded-full text-sm">
         ⭐ {{ "%.1f"|format(target.politeness_score) }} ({{ target.politeness_votes }})
       </span>
       {% endif %}
+
+      <!-- Zodiac sign -->
+      {% if zodiac %}
+      <span class="bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full text-sm" title="{{ zodiac.name }}">
+        {{ zodiac.symbol }} {{ zodiac.name }}
+      </span>
+      {% endif %}
+      {% if zodiac_compat is not none %}
+      <span class="bg-rose-50 text-rose-600 px-3 py-1 rounded-full text-sm" title="Совместимость знаков">
+        💞 {{ zodiac_compat }}%
+      </span>
+      {% endif %}
+    </div>
+
+    <!-- Interest tags -->
+    {% if interests_list %}
+    <div class="flex flex-wrap gap-2 mb-4">
+      {% for tag in interests_list %}
+      <span class="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-sm"># {{ tag }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Achievement badges -->
+    {% if achievements %}
+    <div class="mb-4">
+      <p class="text-xs text-gray-400 mb-2 uppercase tracking-wide">Достижения</p>
+      <div class="flex flex-wrap gap-2">
+        {% for ach in achievements %}
+        <span class="bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm font-medium" title="{{ ach.label }}">
+          {{ ach.icon }} {{ ach.label }}
+        </span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Blocked notice -->
+    <div x-show="blocked" class="text-center text-sm text-gray-500 mt-2">
+      Пользователь заблокирован
+    </div>
+    <div x-show="reported" class="text-center text-sm text-green-600 mt-2">
+      Жалоба отправлена
     </div>
   </div>
 </div>
@@ -73,4 +161,26 @@
     {{ t.back }}
   </a>
 </div>
+
+<!-- Report modal -->
+<div x-show="reportOpen" x-cloak class="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4">
+  <div class="bg-white rounded-2xl p-6 w-full max-w-sm" @click.outside="reportOpen=false">
+    <h3 class="font-bold text-lg mb-4">Пожаловаться</h3>
+    <select x-model="reportReason" class="w-full border border-gray-200 rounded-xl p-3 mb-3 text-sm focus:ring-2 focus:ring-pink-500 outline-none">
+      <option value="spam">Спам</option>
+      <option value="fake">Фейк / бот</option>
+      <option value="harassment">Оскорбления</option>
+      <option value="inappropriate">Неприемлемый контент</option>
+      <option value="other">Другое</option>
+    </select>
+    <textarea x-model="reportComment" placeholder="Комментарий (необязательно)" rows="3"
+      class="w-full border border-gray-200 rounded-xl p-3 mb-4 text-sm resize-none focus:ring-2 focus:ring-pink-500 outline-none"></textarea>
+    <div class="flex gap-3">
+      <button @click="reportOpen=false" class="flex-1 py-2 border border-gray-200 rounded-full text-gray-600 text-sm">Отмена</button>
+      <button @click="reportUser()" class="flex-1 py-2 bg-red-500 text-white rounded-full text-sm font-semibold">Отправить</button>
+    </div>
+  </div>
+</div>
+
+</div><!-- end x-data -->
 {% endblock %}

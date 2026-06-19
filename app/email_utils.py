@@ -1,3 +1,4 @@
+import html as _html
 import json
 import logging
 import os
@@ -55,6 +56,83 @@ _EXPIRE = {
     "tr": "Bağlantı 24 saat geçerlidir.",
     "ar": "الرابط صالح لمدة 24 ساعة.",
 }
+
+
+_MATCH_SUBJECTS = {
+    "ru": "У вас новый матч в Spark! 💘",
+    "uk": "У вас новий метч у Spark! 💘",
+    "en": "You have a new match on Spark! 💘",
+    "de": "Du hast ein neues Match bei Spark! 💘",
+    "tr": "Spark'ta yeni bir eşleşmen var! 💘",
+    "ar": "!💘 لديك تطابق جديد في Spark",
+}
+_MATCH_BODY = {
+    "ru": "Поздравляем! Вы и {} взаимно понравились друг другу. Откройте приложение, чтобы начать общение!",
+    "uk": "Вітаємо! Ви і {} взаємно сподобались одне одному. Відкрийте застосунок, щоб почати спілкування!",
+    "en": "Congratulations! You and {} liked each other. Open the app to start chatting!",
+    "de": "Glückwunsch! Du und {} mögt euch gegenseitig. Öffne die App, um zu chatten!",
+    "tr": "Tebrikler! Sen ve {} birbirinizi beğendiniz. Sohbet başlatmak için uygulamayı aç!",
+    "ar": "تهانينا! أنت و{} أعجب كل منكما بالآخر. افتح التطبيق لبدء المحادثة!",
+}
+_MATCH_BTN = {
+    "ru": "Написать",
+    "uk": "Написати",
+    "en": "Say hello",
+    "de": "Hallo sagen",
+    "tr": "Merhaba de",
+    "ar": "قل مرحباً",
+}
+
+
+def send_match_email(to_email: str, partner_name: str, matches_url: str = "", lang: str = "en") -> bool:
+    if not RESEND_API_KEY:
+        return False
+
+    subject = _MATCH_SUBJECTS.get(lang, _MATCH_SUBJECTS["en"])
+    # MEDIUM-18: escape partner_name before embedding in HTML email body
+    body    = _MATCH_BODY.get(lang, _MATCH_BODY["en"]).format(_html.escape(partner_name))
+    btn     = _MATCH_BTN.get(lang, _MATCH_BTN["en"])
+    link    = matches_url or f"{APP_URL}/matches"
+
+    html = f"""<!DOCTYPE html>
+<html>
+<body style="font-family:Arial,sans-serif;background:#fff5f7;margin:0;padding:40px 20px;">
+  <div style="max-width:480px;margin:0 auto;background:white;border-radius:20px;
+              padding:40px;box-shadow:0 4px 24px rgba(0,0,0,.08);">
+    <div style="text-align:center;margin-bottom:32px;">
+      <div style="font-size:56px;">💘</div>
+      <div style="font-size:28px;font-weight:bold;color:#ec4899;">Spark</div>
+    </div>
+    <p style="color:#6b7280;line-height:1.6;font-size:16px;margin-bottom:32px;text-align:center;">{body}</p>
+    <div style="text-align:center;">
+      <a href="{link}"
+         style="display:inline-block;background:linear-gradient(135deg,#ec4899,#f43f5e);
+                color:white;padding:14px 40px;border-radius:50px;font-weight:bold;
+                font-size:16px;text-decoration:none;">{btn}</a>
+    </div>
+  </div>
+</body>
+</html>"""
+
+    payload = json.dumps({"from": RESEND_FROM, "to": [to_email], "subject": subject, "html": html}).encode()
+    req = urllib.request.Request(
+        "https://api.resend.com/emails", data=payload,
+        headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        import ssl
+        try:
+            import certifi
+            ctx = ssl.create_default_context(cafile=certifi.where())
+        except ImportError:
+            ctx = ssl.create_default_context()
+        opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
+        with opener.open(req, timeout=10):
+            return True
+    except Exception:
+        logger.exception("Failed to send match email to %s", to_email)
+        return False
 
 
 def send_verification_email(to_email: str, token: str, lang: str = "en") -> bool:

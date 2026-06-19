@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get('who_viewed_title', 'Кто смотрел профиль') }} — Spark{% endblock %}
+{% block content %}
+
+<div class="flex items-center gap-3 mb-6">
+  <a href="/premium" class="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-pink-50 hover:text-pink-500 transition">
+    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"/>
+    </svg>
+  </a>
+  <h1 class="text-xl font-bold text-gray-800">👀 {{ t.get('who_viewed_title', 'Кто смотрел профиль') }}</h1>
+</div>
+
+<div class="bg-white rounded-2xl card-shadow p-5 mb-4 text-center">
+  <p class="text-4xl font-bold text-pink-500 mb-1">{{ total }}</p>
+  <p class="text-gray-500 text-sm">{{ t.get('who_viewed_count', 'человек смотрели ваш профиль') }}</p>
+</div>
+
+{% if not is_premium %}
+<div class="bg-white rounded-2xl card-shadow p-6 text-center mb-4">
+  <div class="text-5xl mb-3">🔒</div>
+  <p class="font-semibold text-gray-800 mb-2">{{ t.get('who_viewed_locked_title', 'Только для Premium') }}</p>
+  <p class="text-gray-400 text-sm mb-5">{{ t.get('who_viewed_locked_sub', 'Активируй Premium, чтобы видеть кто смотрел твой профиль') }}</p>
+  <a href="/premium" class="inline-block gradient-pink text-white px-8 py-3 rounded-full font-semibold hover:opacity-90 transition">
+    ⭐ {{ t.get('premium_activate', 'Активировать Premium') }}
+  </a>
+</div>
+
+<!-- Blurred preview -->
+<div class="relative">
+  <div class="grid grid-cols-3 gap-3 filter blur-sm pointer-events-none select-none opacity-50">
+    {% for i in range(6) %}
+    <div class="bg-white rounded-xl card-shadow p-3 flex items-center gap-2">
+      <div class="w-10 h-10 rounded-full bg-pink-100 flex items-center justify-center flex-shrink-0">
+        <span class="text-lg">👤</span>
+      </div>
+      <div>
+        <div class="h-3 bg-gray-200 rounded w-16 mb-1"></div>
+        <div class="h-2 bg-gray-100 rounded w-10"></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="absolute inset-0 flex items-center justify-center">
+    <div class="bg-white/90 backdrop-blur-sm rounded-xl px-5 py-3 text-center shadow-lg border border-pink-100">
+      <p class="text-pink-500 font-semibold text-sm">🔒 Premium</p>
+    </div>
+  </div>
+</div>
+
+{% elif viewers %}
+<div class="grid grid-cols-1 gap-3">
+  {% for item in viewers %}
+  {% set u = item.user %}
+  <a href="/profile/{{ u.id }}" class="bg-white rounded-xl card-shadow p-3 flex items-center gap-3 hover:shadow-lg transition">
+    <div class="w-12 h-12 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center">
+      {% if u.profile and u.profile.photo %}
+      <img src="{{ u.profile.photo }}" class="w-full h-full object-cover" />
+      {% else %}
+      <span class="text-2xl">👤</span>
+      {% endif %}
+    </div>
+    <div class="flex-1 min-w-0">
+      <p class="font-semibold text-gray-800 truncate">{{ u.profile.name }}{% if u.is_verified %} <span class="text-green-500 text-xs">✓</span>{% endif %}</p>
+      <p class="text-xs text-gray-400">{{ u.profile.age }}{% if u.profile.city %}, {{ u.profile.city }}{% endif %}</p>
+    </div>
+    <p class="text-xs text-gray-400 flex-shrink-0">
+      {{ item.last_seen.strftime('%d.%m') if item.last_seen else '' }}
+    </p>
+  </a>
+  {% endfor %}
+</div>
+
+{% else %}
+<div class="text-center py-16 text-gray-400">
+  <div class="text-5xl mb-3">👀</div>
+  <p class="text-sm">{{ t.get('who_viewed_empty', 'Пока никто не смотрел ваш профиль') }}</p>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,8 +1,8 @@
 import json
 import logging
 import os
+import secrets
 import traceback
-from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -10,30 +10,50 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text as _text
 
 logging.basicConfig(level=logging.INFO)
 
 from app.database import Base, engine
 from app.i18n import get_lang, get_translations, is_rtl
 from app.routers import auth, profile, swipe, matches
-from app.routers import features
+from app.utils.time import utcnow as _utcnow
+from app.routers import features, premium, social, stories
 from app.templates import templates
 
 Base.metadata.create_all(bind=engine)
 
-# Inline DB migration — safe for PostgreSQL (IF NOT EXISTS) and SQLite (try/except)
-from sqlalchemy import text as _text
+# Inline DB migrations — safe to run on every startup (IF NOT EXISTS / try-except)
 _is_pg = str(engine.url).startswith("postgresql")
 _migrations = [
     "ALTER TABLE users ADD COLUMN{} last_seen TIMESTAMP",
     "ALTER TABLE users ADD COLUMN{} email_verified BOOLEAN NOT NULL DEFAULT TRUE",
     "ALTER TABLE users ADD COLUMN{} email_verify_token VARCHAR(100)",
+    "ALTER TABLE users ADD COLUMN{} email_verify_created_at TIMESTAMP",
+    "ALTER TABLE users ADD COLUMN{} is_premium BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE users ADD COLUMN{} boost_until TIMESTAMP",
+    "ALTER TABLE users ADD COLUMN{} birth_date TIMESTAMP",
+    "ALTER TABLE users ADD COLUMN{} phone VARCHAR(20)",
+    "ALTER TABLE users ADD COLUMN{} phone_verified BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE profiles ADD COLUMN{} interests VARCHAR(500)",
+    "ALTER TABLE profiles ADD COLUMN{} is_anonymous BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE likes ADD COLUMN{} is_super BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE matches ADD COLUMN{} seen_by_user1 BOOLEAN NOT NULL DEFAULT TRUE",
     "ALTER TABLE matches ADD COLUMN{} seen_by_user2 BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE matches ADD COLUMN{} streak_days INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE matches ADD COLUMN{} last_streak_date TIMESTAMP",
+    "ALTER TABLE matches ADD COLUMN{} user1_revealed BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE matches ADD COLUMN{} user2_revealed BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE messages ADD COLUMN{} is_voice BOOLEAN NOT NULL DEFAULT FALSE",
+    # HIGH-8: both parties should see new match notification
+    "ALTER TABLE matches ALTER COLUMN seen_by_user1 SET DEFAULT FALSE",
 ]
-# Widen photo columns to TEXT so base64 data URIs fit
+# MEDIUM-5: add unique constraint on profile_views to prevent duplicates
+_constraint_migrations = [
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_profile_view ON profile_views (viewer_id, viewed_id)",
+]
 _type_migrations = [
     "ALTER TABLE profiles ALTER COLUMN photo TYPE TEXT",
     "ALTER TABLE profile_photos ALTER COLUMN url TYPE TEXT",
@@ -54,18 +74,80 @@ if _is_pg:
         except Exception:
             pass
 
-Path("static/uploads").mkdir(parents=True, exist_ok=True)
+for _sql in _constraint_migrations:
+    try:
+        with engine.begin() as _c:
+            _c.execute(_text(_sql))
+    except Exception:
+        pass
 
 app = FastAPI(title="Spark — сайт знакомств")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# C3: If PHOTO_DIR is set (e.g. Railway Volume /data/photos), serve photos from there.
+# Without it, photos go to ./static/photos/ which is already covered by the /static mount.
+_PHOTO_ENV_DIR = os.getenv("PHOTO_DIR", "")
+if _PHOTO_ENV_DIR:
+    from pathlib import Path as _Path
+    _Path(_PHOTO_ENV_DIR).mkdir(parents=True, exist_ok=True)
+    app.mount("/photos", StaticFiles(directory=_PHOTO_ENV_DIR), name="photos")
+
+# HIGH-6: Reject oversized request bodies before they reach route handlers.
+# Prevents DoS via 100 MB audio/image uploads buffered into memory.
+_MAX_BODY_BYTES = 12 * 1024 * 1024  # 12 MB ceiling
+
+@app.middleware("http")
+async def max_body_size_middleware(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > _MAX_BODY_BYTES:
+        return JSONResponse({"detail": "Request body too large (max 12 MB)"}, status_code=413)
+    return await call_next(request)
+
+_CSRF_COOKIE = "csrftoken"
+
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    # Double-submit CSRF cookie: ensure every request has a token in state
+    csrf_token = request.cookies.get(_CSRF_COOKIE) or secrets.token_urlsafe(32)
+    request.state.csrf_token = csrf_token
+
+    response = await call_next(request)
+
+    # Set cookie on first visit (httponly=False — JS needs to read it for AJAX)
+    if not request.cookies.get(_CSRF_COOKIE):
+        response.set_cookie(
+            _CSRF_COOKIE, csrf_token,
+            httponly=False, samesite="lax", max_age=60 * 60 * 24 * 7,
+        )
+
+    # Security headers
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none';"
+    )
+    response.headers.setdefault("Content-Security-Policy", csp)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+
+    return response
+
 
 def _tojson(value, indent=None):
+    from datetime import datetime as _dt
     def default(o):
-        if isinstance(o, datetime):
+        if isinstance(o, _dt):
             return o.isoformat()
         raise TypeError(f"Object of type {type(o)} is not JSON serializable")
-    return json.dumps(value, default=default, indent=indent, ensure_ascii=False)
+    result = json.dumps(value, default=default, indent=indent, ensure_ascii=False)
+    # HIGH-7: escape `</` so user content can't close a <script> block when
+    # the result is used with |safe inside a <script> tag.
+    return result.replace("</", "<\\/").replace("<!--", "<\\!--")
 
 
 _ONLINE_LABELS = {
@@ -81,7 +163,7 @@ _ONLINE_LABELS = {
 def _online_status(last_seen, lang="en"):
     if not last_seen:
         return None
-    diff = (datetime.utcnow() - last_seen).total_seconds()
+    diff = (_utcnow() - last_seen).total_seconds()
     online_lbl, mins_lbl, hrs_lbl = _ONLINE_LABELS.get(lang, _ONLINE_LABELS["en"])
     if diff < 300:
         return {"is_online": True, "label": online_lbl}
@@ -94,12 +176,16 @@ def _online_status(last_seen, lang="en"):
 
 templates.env.filters["tojson"] = _tojson
 templates.env.globals["online_status"] = _online_status
+templates.env.globals["now"] = _utcnow
 
 app.include_router(auth.router)
 app.include_router(profile.router)
 app.include_router(swipe.router)
 app.include_router(matches.router)
 app.include_router(features.router)
+app.include_router(premium.router)
+app.include_router(social.router)
+app.include_router(stories.router)
 
 
 @app.exception_handler(HTTPException)
@@ -122,7 +208,6 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     accept = request.headers.get("accept", "")
     if "text/html" in accept:
-        # Redirect back with error param so the form can show it
         path = request.url.path
         return RedirectResponse(f"{path}?error=validation", status_code=302)
     return JSONResponse(status_code=422, content={"detail": exc.errors()})
@@ -132,24 +217,35 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def global_exception_handler(request: Request, exc: Exception):
     tb = traceback.format_exc()
     logging.error("Unhandled exception on %s %s:\n%s", request.method, request.url.path, tb)
-    return JSONResponse(status_code=500, content={"error": str(exc), "type": type(exc).__name__})
+    # FIX H8: return HTML error page to browser users, not raw JSON
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept:
+        return HTMLResponse(
+            "<html><body style='font-family:sans-serif;text-align:center;padding:80px 20px;'>"
+            "<h2 style='color:#ef4444;'>Что-то пошло не так 😔</h2>"
+            "<p style='color:#6b7280;'>Попробуйте обновить страницу или вернитесь позже.</p>"
+            "<a href='/' style='color:#ec4899;font-weight:600;'>На главную</a>"
+            "</body></html>",
+            status_code=500,
+        )
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
-    from fastapi.responses import FileResponse
     return FileResponse("static/favicon.ico", media_type="image/x-icon")
 
 
 @app.get("/health")
 def health():
-    from app.database import engine
+    # FIX H6: do not expose DB host/credentials in response
     try:
         with engine.connect() as conn:
-            conn.execute(__import__("sqlalchemy").text("SELECT 1"))
-        return {"status": "ok", "db": str(engine.url).split("@")[-1]}
+            conn.execute(_text("SELECT 1"))
+        return {"status": "ok"}
     except Exception as e:
-        return JSONResponse(status_code=500, content={"status": "error", "detail": str(e)})
+        logging.error("Health check failed: %s", e)
+        return JSONResponse(status_code=500, content={"status": "error"})
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -1,7 +1,6 @@
+import io
 import os
 import random
-import uuid
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -9,6 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from app.auth import get_current_user
+from app.csrf import validate_csrf_form, validate_csrf_header
 from app.database import get_db
 from app.i18n import get_lang, get_translations, is_rtl
 from app.models.models import Match, PolitenessVote, Profile, QuizAnswer, User
@@ -16,9 +16,6 @@ from app.quiz_questions import QUIZ_QUESTIONS, TOTAL_QUESTIONS
 from app.templates import templates
 
 router = APIRouter()
-
-UPLOAD_DIR = Path("static/uploads")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 VERIFY_GESTURES = [
     "✌️ peace sign",
@@ -28,13 +25,30 @@ VERIFY_GESTURES = [
     "🖐️ open palm",
 ]
 
+# Singleton Anthropic client — created once at import time if API key is set
+_anthropic_client = None
+_ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+if _ANTHROPIC_API_KEY:
+    try:
+        import anthropic as _anthropic_module
+        _anthropic_client = _anthropic_module.Anthropic(api_key=_ANTHROPIC_API_KEY)
+    except Exception:
+        _anthropic_client = None
+
+
+def _sanitize_prompt_field(text: str, max_len: int = 200) -> str:
+    """FIX H3: strip newlines and limit length to mitigate prompt injection."""
+    if not text:
+        return ""
+    return text.replace("\n", " ").replace("\r", " ").replace("```", "").strip()[:max_len]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Function 2: AI Icebreakers
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.get("/chat/{match_id}/icebreakers")
-def get_icebreakers(
+async def get_icebreakers(
     match_id: int,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -46,26 +60,26 @@ def get_icebreakers(
     partner = match.user2 if match.user1_id == user.id else match.user1
     profile = partner.profile
 
-    ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-
-    if not ANTHROPIC_API_KEY:
-        # Return stubs when no API key is configured
+    # FIX H2: guard every profile field — profile may be None
+    def _fallback():
         name = profile.name if profile else "them"
-        city = profile.city or "their city"
-        suggestions = [
+        city = (profile.city if profile else None) or "their city"
+        return [
             f"Hey {name}! What's your favourite thing to do in {city}?",
             f"Hi {name}, your profile caught my eye — what are you passionate about?",
             f"Hello {name}! If you could travel anywhere tomorrow, where would you go?",
         ]
-        return JSONResponse({"suggestions": suggestions})
+
+    if not _anthropic_client:
+        return JSONResponse({"suggestions": _fallback()})
 
     try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        name = profile.name if profile else "Unknown"
-        age = str(profile.age) if profile else "unknown"
-        city = profile.city or "unknown"
-        bio = profile.bio or "no bio"
+        import asyncio
+        import json
+        name = _sanitize_prompt_field(profile.name if profile else "Unknown", 50)
+        age  = str(profile.age) if profile else "unknown"
+        city = _sanitize_prompt_field((profile.city or "") if profile else "", 100)
+        bio  = _sanitize_prompt_field((profile.bio or "no bio") if profile else "no bio", 300)
 
         prompt = (
             "You are a dating app assistant. Based on this profile, suggest 3 short, friendly opening messages "
@@ -74,25 +88,26 @@ def get_icebreakers(
             f"Profile: Name: {name}, Age: {age}, City: {city}, About: {bio}"
         )
 
-        message = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=300,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        import json
+        # H1: wrap synchronous Anthropic SDK call in a thread so it doesn't block the event loop
+        def _call_api():
+            return _anthropic_client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=300,
+                messages=[{"role": "user", "content": prompt}],
+            )
+
+        message = await asyncio.to_thread(_call_api)
         text = message.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
         suggestions = json.loads(text)
         if not isinstance(suggestions, list):
             raise ValueError("Not a list")
         suggestions = [str(s) for s in suggestions[:3]]
     except Exception:
-        name = profile.name if profile else "them"
-        city = (profile.city or "your city") if profile else "your city"
-        suggestions = [
-            f"Hey {name}! What do you love most about {city}?",
-            f"Hi {name}, your profile stood out — what are you up to these days?",
-            f"Hello! If you could do anything this weekend, what would it be?",
-        ]
+        suggestions = _fallback()
 
     return JSONResponse({"suggestions": suggestions})
 
@@ -101,13 +116,17 @@ def get_icebreakers(
 # Function 3: Politeness Rating
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.post("/chat/{match_id}/rate")
+@router.post("/chat/{match_id}/rate", dependencies=[Depends(validate_csrf_header)])
 async def rate_politeness(
     match_id: int,
     request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # FIX M4: resolve lang once, not twice
+    lang = get_lang(request, user)
+    t = get_translations(lang)
+
     data = await request.json()
     stars = data.get("stars")
     if not isinstance(stars, int) or stars < 1 or stars > 5:
@@ -121,21 +140,16 @@ async def rate_politeness(
     if partner.id == user.id:
         return JSONResponse({"error": "Cannot rate yourself"}, status_code=400)
 
-    # Check for existing vote
     existing = db.query(PolitenessVote).filter(
         PolitenessVote.voter_id == user.id,
         PolitenessVote.target_id == partner.id,
     ).first()
     if existing:
-        lang = get_lang(request, user)
-        t = get_translations(lang)
         return JSONResponse({"error": t.get("already_rated", "Already rated")}, status_code=409)
 
-    # Save vote
     vote = PolitenessVote(voter_id=user.id, target_id=partner.id, stars=stars)
     db.add(vote)
 
-    # Update partner's rolling average
     old_score = partner.politeness_score or 5.0
     old_votes = partner.politeness_votes or 0
     new_votes = old_votes + 1
@@ -147,12 +161,8 @@ async def rate_politeness(
         db.commit()
     except IntegrityError:
         db.rollback()
-        lang = get_lang(request, user)
-        t = get_translations(lang)
         return JSONResponse({"error": t.get("already_rated", "Already rated")}, status_code=409)
 
-    lang = get_lang(request, user)
-    t = get_translations(lang)
     return JSONResponse({"success": True, "message": t.get("rate_success", "Rated!")})
 
 
@@ -182,7 +192,7 @@ def quiz_page(request: Request, user: User = Depends(get_current_user), db: Sess
     })
 
 
-@router.post("/quiz/answer")
+@router.post("/quiz/answer", dependencies=[Depends(validate_csrf_header)])
 async def quiz_answer(
     request: Request,
     user: User = Depends(get_current_user),
@@ -194,10 +204,13 @@ async def quiz_answer(
 
     if question_id is None or answer_index is None:
         return JSONResponse({"error": "Missing fields"}, status_code=400)
+    # MEDIUM-2: validate against actual question IDs (1-based), not 0-based index
+    valid_question_ids = {q["id"] for q in QUIZ_QUESTIONS}
+    if not isinstance(question_id, int) or question_id not in valid_question_ids:
+        return JSONResponse({"error": "Invalid question_id"}, status_code=400)
     if not isinstance(answer_index, int) or answer_index < 0 or answer_index > 3:
         return JSONResponse({"error": "Invalid answer_index"}, status_code=400)
 
-    # Upsert answer
     existing = db.query(QuizAnswer).filter(
         QuizAnswer.user_id == user.id,
         QuizAnswer.question_id == question_id,
@@ -237,7 +250,7 @@ def verify_page(request: Request, user: User = Depends(get_current_user), db: Se
     })
 
 
-@router.post("/verify", response_class=HTMLResponse)
+@router.post("/verify", response_class=HTMLResponse, dependencies=[Depends(validate_csrf_form)])
 async def verify_submit(
     request: Request,
     photo: UploadFile = File(...),
@@ -247,41 +260,73 @@ async def verify_submit(
     lang = get_lang(request, user)
     t = get_translations(lang)
 
+    def _err(msg: str):
+        return templates.TemplateResponse("verify.html", {
+            "request": request,
+            "user": user,
+            "gesture": user.verify_gesture or random.choice(VERIFY_GESTURES),
+            "error": msg,
+            "t": t,
+            "rtl": is_rtl(lang),
+        })
+
     if not photo or not photo.filename:
-        return templates.TemplateResponse("verify.html", {
-            "request": request,
-            "user": user,
-            "gesture": user.verify_gesture or random.choice(VERIFY_GESTURES),
-            "error": "Please upload a photo",
-            "t": t,
-            "rtl": is_rtl(lang),
-        })
+        return _err("Please upload a photo")
 
-    # Validate that it's a real image using PIL
+    # Read up to 10MB and validate it's a real image
     try:
+        import base64
         from PIL import Image as PILImage
-        import io
-        contents = await photo.read()
-        img = PILImage.open(io.BytesIO(contents))
-        img.verify()  # verify it's a valid image
+        contents = await photo.read(10 * 1024 * 1024 + 1)
+        if len(contents) > 10 * 1024 * 1024:
+            return _err("File too large (max 10 MB)")
+        PILImage.open(io.BytesIO(contents)).load()
     except Exception:
-        return templates.TemplateResponse("verify.html", {
-            "request": request,
-            "user": user,
-            "gesture": user.verify_gesture or random.choice(VERIFY_GESTURES),
-            "error": "Invalid image file. Please upload a valid photo.",
-            "t": t,
-            "rtl": is_rtl(lang),
-        })
+        return _err("Invalid image file. Please upload a valid photo.")
 
-    # Save the selfie
-    ext = Path(photo.filename).suffix.lower() or ".jpg"
-    filename = f"verify_{uuid.uuid4().hex}{ext}"
-    path = UPLOAD_DIR / filename
-    path.write_bytes(contents)
+    # H3: use Anthropic Vision to confirm the required gesture is present.
+    # Falls back to auto-approve when ANTHROPIC_API_KEY is not set.
+    if _anthropic_client and user.verify_gesture:
+        try:
+            import asyncio
+            ext = (photo.filename or "photo.jpg").rsplit(".", 1)[-1].lower()
+            media_type_map = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+            img_media_type = media_type_map.get(ext, "image/jpeg")
+            b64_data = base64.b64encode(contents).decode()
 
-    # Mark user as verified
+            gesture_clean = _sanitize_prompt_field(user.verify_gesture, 50)
+            vision_prompt = (
+                "You are a photo verification assistant for a dating app. "
+                f"The user was asked to show this gesture: {gesture_clean}. "
+                "Look at the image and answer with ONLY 'yes' or 'no': "
+                "is there a human hand or person clearly showing that gesture?"
+            )
+
+            # H1: wrap sync Anthropic call in thread so event loop isn't blocked
+            def _call_vision():
+                return _anthropic_client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=10,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "image", "source": {"type": "base64", "media_type": img_media_type, "data": b64_data}},
+                            {"type": "text", "text": vision_prompt},
+                        ],
+                    }],
+                )
+
+            vision_msg = await asyncio.to_thread(_call_vision)
+            answer = vision_msg.content[0].text.strip().lower()
+            if not answer.startswith("yes"):
+                return _err(
+                    t.get("verify_gesture_not_found", "Gesture not detected. Please try again with better lighting.")
+                )
+        except Exception:
+            pass  # Vision unavailable — proceed to auto-approve
+
     user.is_verified = True
+    user.verify_gesture = None  # Clear gesture so a new one is assigned next time
     db.commit()
 
     return RedirectResponse("/profile/edit?verified=1", status_code=302)

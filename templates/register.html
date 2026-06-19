@@ -50,6 +50,7 @@
           </div>
         </div>
 
+        <input type="hidden" name="csrftoken" value="{{ request.state.csrf_token }}" />
         <button type="submit"
                 class="w-full gradient-pink text-white py-3 rounded-full font-semibold text-lg shadow hover:opacity-90 transition">
           {{ t.register_button }}

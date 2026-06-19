@@ -1,9 +1,9 @@
-from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Enum, Float, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Enum, Float, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
 import enum
 
 from app.database import Base
+from app.utils.time import utcnow as _utcnow
 
 
 class GenderEnum(str, enum.Enum):
@@ -20,7 +20,7 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     language = Column(String(10), nullable=True, default="ru")
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     # Function 3: Politeness rating
     politeness_score = Column(Float, nullable=True, default=5.0)
@@ -36,6 +36,16 @@ class User(Base):
     # Email verification
     email_verified = Column(Boolean, default=False, nullable=False)
     email_verify_token = Column(String(100), nullable=True, index=True)
+    email_verify_created_at = Column(DateTime, nullable=True)
+
+    # Premium & boost
+    is_premium = Column(Boolean, default=False, nullable=False)
+    boost_until = Column(DateTime, nullable=True)
+
+    # Zodiac & phone
+    birth_date = Column(DateTime, nullable=True)
+    phone = Column(String(20), nullable=True)
+    phone_verified = Column(Boolean, default=False, nullable=False)
 
     profile = relationship("Profile", back_populates="user", uselist=False, cascade="all, delete-orphan")
     likes_given = relationship("Like", foreign_keys="Like.liker_id", back_populates="liker", cascade="all, delete-orphan")
@@ -55,10 +65,14 @@ class Profile(Base):
     city = Column(String(100), nullable=True)
     bio = Column(Text, nullable=True)
     photo = Column(Text, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
 
     # Function 5: Intention
     intention = Column(String(20), nullable=True)
+
+    # Interests & anonymous mode
+    interests = Column(String(500), nullable=True)   # comma-separated tags
+    is_anonymous = Column(Boolean, default=False, nullable=False)
 
     user = relationship("User", back_populates="profile")
     photos = relationship("ProfilePhoto", back_populates="profile", cascade="all, delete-orphan", order_by="ProfilePhoto.position")
@@ -68,41 +82,59 @@ class Like(Base):
     __tablename__ = "likes"
 
     id = Column(Integer, primary_key=True, index=True)
-    liker_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    liked_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    liker_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    liked_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     is_like = Column(Boolean, nullable=False)  # True = like, False = dislike
-    created_at = Column(DateTime, default=datetime.utcnow)
+    is_super = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=_utcnow)
 
     liker = relationship("User", foreign_keys=[liker_id], back_populates="likes_given")
     liked = relationship("User", foreign_keys=[liked_id], back_populates="likes_received")
+
+    __table_args__ = (
+        UniqueConstraint("liker_id", "liked_id", name="uq_like_pair"),
+    )
 
 
 class Match(Base):
     __tablename__ = "matches"
 
     id = Column(Integer, primary_key=True, index=True)
-    user1_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    user2_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    user1_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user2_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at = Column(DateTime, default=_utcnow)
 
-    # Notification: who has seen this match
-    seen_by_user1 = Column(Boolean, default=True, nullable=False)
+    # Notification: who has seen this match (both start as unseen — HIGH-8 fix)
+    seen_by_user1 = Column(Boolean, default=False, nullable=False)
     seen_by_user2 = Column(Boolean, default=False, nullable=False)
+
+    # Streak
+    streak_days = Column(Integer, default=0, nullable=False)
+    last_streak_date = Column(DateTime, nullable=True)
+
+    # Anonymous mode: True = revealed (default), False = hidden
+    user1_revealed = Column(Boolean, default=True, nullable=False)
+    user2_revealed = Column(Boolean, default=True, nullable=False)
 
     user1 = relationship("User", foreign_keys=[user1_id])
     user2 = relationship("User", foreign_keys=[user2_id])
     messages = relationship("Message", back_populates="match", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("user1_id", "user2_id", name="uq_match_pair"),
+    )
 
 
 class Message(Base):
     __tablename__ = "messages"
 
     id = Column(Integer, primary_key=True, index=True)
-    match_id = Column(Integer, ForeignKey("matches.id"), nullable=False)
-    sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    match_id = Column(Integer, ForeignKey("matches.id"), nullable=False, index=True)
+    sender_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     content = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
     is_read = Column(Boolean, default=False)
+    is_voice = Column(Boolean, default=False, nullable=False)
 
     match = relationship("Match", back_populates="messages")
     sender = relationship("User", foreign_keys=[sender_id], back_populates="messages_sent")
@@ -113,10 +145,10 @@ class PolitenessVote(Base):
     __tablename__ = "politeness_votes"
 
     id = Column(Integer, primary_key=True, index=True)
-    voter_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    target_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    voter_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    target_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     stars = Column(Integer, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     __table_args__ = (UniqueConstraint("voter_id", "target_id", name="uq_politeness_vote"),)
 
@@ -126,12 +158,75 @@ class ProfilePhoto(Base):
     __tablename__ = "profile_photos"
 
     id = Column(Integer, primary_key=True, index=True)
-    profile_id = Column(Integer, ForeignKey("profiles.id"), nullable=False)
+    profile_id = Column(Integer, ForeignKey("profiles.id"), nullable=False, index=True)
     url = Column(Text, nullable=False)
     position = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     profile = relationship("Profile", back_populates="photos")
+
+
+# Block / Report
+class Block(Base):
+    __tablename__ = "blocks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    blocker_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    blocked_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at = Column(DateTime, default=_utcnow)
+
+    __table_args__ = (UniqueConstraint("blocker_id", "blocked_id", name="uq_block"),)
+
+
+class Report(Base):
+    __tablename__ = "reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    reporter_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    reported_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    reason = Column(String(50), nullable=False)
+    comment = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=_utcnow)
+
+    __table_args__ = (UniqueConstraint("reporter_id", "reported_id", name="uq_report"),)
+
+
+# Stories (disappear after 24h)
+class Story(Base):
+    __tablename__ = "stories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    content = Column(Text, nullable=False)       # text or "img:base64..."
+    media_type = Column(String(10), default="text")  # "text" | "image"
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=_utcnow)
+
+
+# Who viewed my profile
+class ProfileView(Base):
+    __tablename__ = "profile_views"
+
+    id = Column(Integer, primary_key=True, index=True)
+    viewer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    viewed_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at = Column(DateTime, default=_utcnow)
+
+    # MEDIUM-5: prevent duplicate rows from TOCTOU race in view_profile
+    __table_args__ = (UniqueConstraint("viewer_id", "viewed_id", name="uq_profile_view"),)
+
+
+# Message reactions (emoji)
+class MessageReaction(Base):
+    __tablename__ = "message_reactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(Integer, ForeignKey("messages.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    emoji = Column(String(10), nullable=False)
+    created_at = Column(DateTime, default=_utcnow)
+
+    __table_args__ = (UniqueConstraint("message_id", "user_id", name="uq_msg_reaction"),)
 
 
 # Function 6: Quiz answers
@@ -139,9 +234,9 @@ class QuizAnswer(Base):
     __tablename__ = "quiz_answers"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     question_id = Column(Integer, nullable=False)
     answer_index = Column(Integer, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
     __table_args__ = (UniqueConstraint("user_id", "question_id", name="uq_quiz_answer"),)

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Заблокированные — Spark{% endblock %}
+{% block content %}
+<div class="flex items-center gap-3 mb-6">
+  <a href="/matches" class="w-9 h-9 rounded-full border-2 border-gray-200 flex items-center justify-center text-gray-500 hover:border-pink-300 transition">
+    ←
+  </a>
+  <h1 class="text-xl font-bold text-gray-800">🚫 Заблокированные</h1>
+</div>
+
+{% if not items %}
+<div class="text-center py-16">
+  <div class="text-5xl mb-4">🤝</div>
+  <p class="text-gray-500">Список пуст</p>
+</div>
+{% else %}
+<div class="flex flex-col gap-3" x-data="{ unblocking: {} }">
+  {% for block, bu in items %}
+  {% if bu %}
+  <div x-show="!unblocking[{{ bu.id }}]"
+       class="bg-white rounded-2xl p-4 flex items-center gap-4 shadow-sm border border-gray-100">
+    <div class="w-12 h-12 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center">
+      {% if bu.profile and bu.profile.photo %}
+      <img src="{{ bu.profile.photo }}" class="w-full h-full object-cover" />
+      {% else %}
+      <span class="text-2xl">👤</span>
+      {% endif %}
+    </div>
+    <div class="flex-1 min-w-0">
+      <p class="font-semibold text-gray-800 truncate">
+        {% if bu.profile %}{{ bu.profile.name }}, {{ bu.profile.age }}{% else %}Пользователь #{{ bu.id }}{% endif %}
+      </p>
+      <p class="text-gray-400 text-xs">Заблокирован {{ block.created_at.strftime('%d.%m.%Y') }}</p>
+    </div>
+    <button @click="
+      fetch('/user/{{ bu.id }}/unblock', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}})
+        .then(r => r.json())
+        .then(d => { if(d.success) unblocking[{{ bu.id }}] = true; });
+    " class="flex-shrink-0 text-sm border border-gray-200 text-gray-600 px-4 py-1.5 rounded-full hover:border-pink-300 hover:text-pink-600 transition">
+      Разблокировать
+    </button>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,74 +1,229 @@
 <!DOCTYPE html>
-<html lang="{{ lang if lang is defined else 'ru' }}" {% if rtl is defined and rtl %}dir="rtl"{% endif %}>
+<html lang="{{ lang if lang is defined else 'ru' }}"
+      {% if rtl is defined and rtl %}dir="rtl"{% endif %}
+      class="{% if request.cookies.get('theme') == 'dark' %}dark{% endif %}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}Spark — Знакомства{% endblock %}</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <style>
     [x-cloak] { display: none !important; }
+
+    /* ── Design system ── */
     .gradient-pink { background: linear-gradient(135deg, #f472b6 0%, #ec4899 50%, #db2777 100%); }
-    .card-shadow { box-shadow: 0 20px 60px rgba(236,72,153,0.15); }
-    .swipe-card { transform-origin: center bottom; transition: transform 0.3s ease; }
+    .gradient-purple { background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 50%, #7c3aed 100%); }
+    .card-shadow { box-shadow: 0 8px 40px rgba(236,72,153,0.18); }
+    .glass { background: rgba(255,255,255,0.72); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.6); }
+    .glow-pink { box-shadow: 0 0 20px rgba(236,72,153,0.5); }
+
+    /* ── Animated background blobs ── */
+    .blob {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(60px);
+      opacity: 0.35;
+      pointer-events: none;
+      z-index: -1;
+      animation: float 12s ease-in-out infinite;
+    }
+    .blob-1 { width: 500px; height: 500px; background: #f9a8d4; top: -150px; left: -150px; animation-delay: 0s; }
+    .blob-2 { width: 400px; height: 400px; background: #c4b5fd; bottom: -100px; right: -100px; animation-delay: -4s; }
+    .blob-3 { width: 300px; height: 300px; background: #fda4af; top: 40%; left: 60%; animation-delay: -8s; }
+    @keyframes float {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      33%       { transform: translate(30px, -40px) scale(1.05); }
+      66%       { transform: translate(-20px, 20px) scale(0.95); }
+    }
+
+    /* ── Bottom nav ── */
+    .bottom-nav { padding-bottom: env(safe-area-inset-bottom, 0px); }
+    .nav-icon svg { transition: transform .2s, stroke .2s; }
+    .nav-icon.active svg { stroke: #ec4899; }
+    .nav-icon:active svg { transform: scale(0.85); }
+
+    /* ── Swipe card ── */
+    .swipe-card { transform-origin: center bottom; will-change: transform; }
+
+    /* ── Page enter ── */
+    @keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+    .page-enter { animation: fadeUp .35s ease both; }
+
+    /* ── Dark mode ── */
+    html.dark body { background: linear-gradient(145deg,#0d0a14 0%,#110e1a 50%,#130b17 100%) !important; color: #e2e8f0; }
+    html.dark .bg-white { background-color: #1c1730 !important; }
+    html.dark .glass { background: rgba(28,23,48,0.92) !important; border-color: rgba(255,255,255,0.07) !important; }
+    html.dark .text-gray-900, html.dark .text-gray-800 { color: #f1f5f9 !important; }
+    html.dark .text-gray-700 { color: #cbd5e1 !important; }
+    html.dark .text-gray-600 { color: #94a3b8 !important; }
+    html.dark .text-gray-500 { color: #64748b !important; }
+    html.dark .text-gray-400 { color: #475569 !important; }
+    html.dark .border-gray-200, html.dark .border-gray-100 { border-color: #2d2645 !important; }
+    html.dark .border-gray-300 { border-color: #3b3260 !important; }
+    html.dark input[type="text"], html.dark input[type="email"],
+    html.dark input[type="password"], html.dark input[type="number"],
+    html.dark textarea, html.dark select {
+      background-color: #26203e !important; border-color: #3b3260 !important; color: #e2e8f0 !important;
+    }
+    html.dark input::placeholder, html.dark textarea::placeholder { color: #475569 !important; }
+    html.dark .bg-gray-50 { background-color: #181430 !important; }
+    html.dark .bg-gray-100 { background-color: #201b38 !important; }
+    html.dark .bg-pink-50 { background-color: rgba(236,72,153,0.08) !important; }
+    html.dark .border-pink-100 { border-color: rgba(236,72,153,0.15) !important; }
+    html.dark .border-pink-200 { border-color: rgba(236,72,153,0.22) !important; }
+    html.dark .card-shadow { box-shadow: 0 8px 40px rgba(0,0,0,0.5) !important; }
+    html.dark .bubble-partner { background: #26203e !important; color: #e2e8f0 !important; box-shadow: 0 1px 4px rgba(0,0,0,0.35) !important; }
+    html.dark .chat-bg { background-color: #110e1a !important; }
+    html.dark .bg-amber-50 { background-color: rgba(245,158,11,0.1) !important; }
+    html.dark .border-amber-200 { border-color: rgba(245,158,11,0.28) !important; }
+    html.dark .bg-red-50 { background-color: rgba(239,68,68,0.1) !important; }
+    html.dark .border-red-200 { border-color: rgba(239,68,68,0.25) !important; }
+    html.dark .bg-green-50 { background-color: rgba(34,197,94,0.08) !important; }
+    html.dark .border-green-200 { border-color: rgba(34,197,94,0.22) !important; }
+    html.dark .blob { opacity: 0.10 !important; }
+    html.dark #messages-container { scrollbar-color: #3b3260 transparent; }
   </style>
   {% block head %}{% endblock %}
 </head>
-<body class="bg-gray-50 min-h-screen">
 
-  {% if request.url.path not in ['/login', '/register', '/'] %}
-  <nav class="bg-white shadow-sm sticky top-0 z-50"
+<body class="min-h-screen" style="background: linear-gradient(145deg,#fdf2f8 0%,#faf5ff 50%,#fff1f2 100%);">
+
+  <!-- Animated background -->
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+
+  {% set show_nav = request.url.path not in ['/login', '/register', '/'] %}
+
+  <main class="{% block main_class %}max-w-lg mx-auto px-4 py-6{% endblock %} page-enter {% if show_nav %}pb-24{% endif %}">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- ── Bottom navigation bar ── -->
+  <!-- Support button (configure SUPPORT_URL env var) -->
+
+  {% if show_nav %}
+  <nav class="bottom-nav fixed bottom-0 left-0 right-0 glass border-t border-pink-100/60 z-50"
        x-data="{ newMatches: 0, unreadMessages: 0 }"
        x-init="
+         let prev = {m: 0, msg: 0}, first = true;
+         const t = {{ (t | tojson) if t is defined else '{}' }};
+         if ('Notification' in window && Notification.permission === 'default') {
+           setTimeout(() => Notification.requestPermission(), 4000);
+         }
+         const notify = (title, body) => {
+           if ('Notification' in window && Notification.permission === 'granted') {
+             try { new Notification(title, {body}); } catch(e) {}
+           }
+         };
          const poll = async () => {
            try {
              const r = await fetch('/api/notifications');
              const d = await r.json();
              newMatches = d.new_matches || 0;
              unreadMessages = d.unread_messages || 0;
+             if (!first) {
+               if (newMatches > prev.m)   notify(t.notif_match_title || '💘 Новый матч!',   t.notif_match_body || 'У вас новый матч в Spark');
+               if (unreadMessages > prev.msg) notify(t.notif_msg_title || '💬 Новое сообщение', t.notif_msg_body || 'Вам написали в Spark');
+             }
+             prev = {m: newMatches, msg: unreadMessages};
+             first = false;
            } catch(e) {}
          };
          poll();
-         setInterval(poll, 15000);
+         setInterval(poll, 30000); // FIX M6: 30s reduces DB load vs 15s with many users
        ">
-    <div class="max-w-lg mx-auto px-4 py-3 flex justify-between items-center">
-      <a href="/" class="text-2xl font-bold text-pink-500">💘 Spark</a>
-      <div class="flex gap-4 items-center">
-        <a href="/swipe" class="text-gray-600 hover:text-pink-500 transition-colors">
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>
+    <div class="max-w-lg mx-auto flex justify-around items-center py-2 px-4">
+
+      <!-- Swipe -->
+      <a href="/swipe" class="nav-icon {% if request.url.path == '/swipe' %}active{% endif %} flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-2xl transition-all
+         {% if request.url.path == '/swipe' %}bg-pink-50{% endif %}">
+        <svg class="w-6 h-6 {% if request.url.path == '/swipe' %}stroke-pink-500{% else %}stroke-gray-400{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>
+        </svg>
+        <span class="text-[10px] font-medium {% if request.url.path == '/swipe' %}text-pink-500{% else %}text-gray-400{% endif %}">
+          {% if t is defined %}{{ t.get('nav_swipe', 'Искать') }}{% else %}Искать{% endif %}
+        </span>
+      </a>
+
+      <!-- Matches -->
+      <a href="/matches" class="nav-icon {% if request.url.path == '/matches' %}active{% endif %} relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-2xl transition-all
+         {% if request.url.path == '/matches' %}bg-pink-50{% endif %}">
+        <svg class="w-6 h-6 {% if request.url.path == '/matches' %}stroke-pink-500{% else %}stroke-gray-400{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+        </svg>
+        <!-- New matches badge -->
+        <span x-show="newMatches > 0" x-cloak
+              class="absolute top-1 right-1.5 bg-pink-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center"
+              x-text="newMatches > 9 ? '9+' : newMatches"></span>
+        <!-- Unread messages badge -->
+        <span x-show="newMatches === 0 && unreadMessages > 0" x-cloak
+              class="absolute top-1 right-1.5 bg-violet-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center"
+              x-text="unreadMessages > 9 ? '9+' : unreadMessages"></span>
+        <span class="text-[10px] font-medium {% if request.url.path == '/matches' %}text-pink-500{% else %}text-gray-400{% endif %}">
+          {% if t is defined %}{{ t.get('nav_matches', 'Матчи') }}{% else %}Матчи{% endif %}
+        </span>
+      </a>
+
+      <!-- Profile -->
+      <a href="/profile/edit" class="nav-icon {% if request.url.path == '/profile/edit' %}active{% endif %} flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-2xl transition-all
+         {% if request.url.path == '/profile/edit' %}bg-pink-50{% endif %}">
+        <svg class="w-6 h-6 {% if request.url.path == '/profile/edit' %}stroke-pink-500{% else %}stroke-gray-400{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+        </svg>
+        <span class="text-[10px] font-medium {% if request.url.path == '/profile/edit' %}text-pink-500{% else %}text-gray-400{% endif %}">
+          {% if t is defined %}{{ t.get('nav_profile', 'Профиль') }}{% else %}Профиль{% endif %}
+        </span>
+      </a>
+
+      <!-- Premium -->
+      <a href="/premium" class="nav-icon {% if request.url.path == '/premium' %}active{% endif %} flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-2xl transition-all
+         {% if request.url.path == '/premium' %}bg-pink-50{% endif %}">
+        <svg class="w-6 h-6 {% if request.url.path == '/premium' %}stroke-pink-500{% else %}stroke-gray-400{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3l3.5 5L12 4l3.5 4L19 3l1 14H4L5 3z"/>
+        </svg>
+        <span class="text-[10px] font-medium {% if request.url.path == '/premium' %}text-pink-500{% else %}text-gray-400{% endif %}">Premium</span>
+      </a>
+
+      <!-- Dark mode toggle -->
+      <button onclick="toggleDark()"
+              class="nav-icon flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-2xl">
+        <span class="text-xl leading-none dark-icon-moon">🌙</span>
+        <span class="text-[10px] font-medium text-gray-400 dark-label-moon">{{ t.get('dark_mode','Тема') if t is defined else 'Тема' }}</span>
+      </button>
+
+      <!-- Logout -->
+      <form method="POST" action="/logout" class="flex flex-col items-center">
+        <input type="hidden" name="csrftoken" value="{{ request.state.csrf_token }}" />
+        <button type="submit" class="nav-icon flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-2xl">
+          <svg class="w-6 h-6 stroke-gray-400 hover:stroke-red-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
           </svg>
-        </a>
-        <!-- Matches icon with badge -->
-        <a href="/matches" class="relative text-gray-600 hover:text-pink-500 transition-colors">
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-          </svg>
-          <span x-show="newMatches > 0" x-cloak
-                class="absolute -top-1.5 -right-1.5 bg-pink-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center"
-                x-text="newMatches > 9 ? '9+' : newMatches"></span>
-          <span x-show="newMatches === 0 && unreadMessages > 0" x-cloak
-                class="absolute -top-1.5 -right-1.5 bg-blue-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center"
-                x-text="unreadMessages > 9 ? '9+' : unreadMessages"></span>
-        </a>
-        <a href="/profile/edit" class="text-gray-600 hover:text-pink-500 transition-colors">
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-          </svg>
-        </a>
-        <form method="POST" action="/logout" class="inline">
-          <button type="button" onclick="this.form.submit()" class="text-gray-400 hover:text-red-500 transition-colors text-sm">
-            {% if t is defined %}{{ t.logout }}{% else %}Выйти{% endif %}
-          </button>
-        </form>
-      </div>
+          <span class="text-[10px] font-medium text-gray-400">
+            {% if t is defined %}{{ t.get('logout', 'Выйти') }}{% else %}Выйти{% endif %}
+          </span>
+        </button>
+      </form>
+
     </div>
   </nav>
   {% endif %}
 
-  <main class="{% block main_class %}max-w-lg mx-auto px-4 py-6{% endblock %}">
-    {% block content %}{% endblock %}
-  </main>
-
+<script>
+function getCsrfToken() {
+  const c = document.cookie.split('; ').find(r => r.startsWith('csrftoken='));
+  return c ? c.split('=')[1] : '';
+}
+function toggleDark() {
+  const isDark = document.documentElement.classList.toggle('dark');
+  document.cookie = 'theme=' + (isDark ? 'dark' : 'light') + '; path=/; max-age=31536000; samesite=lax';
+}
+// Sync moon/sun icon
+(function() {
+  const dark = document.documentElement.classList.contains('dark');
+  document.querySelectorAll('.dark-icon-moon').forEach(el => el.textContent = dark ? '☀️' : '🌙');
+})();
+</script>
 </body>
 </html>
