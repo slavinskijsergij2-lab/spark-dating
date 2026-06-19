@@ -101,7 +101,8 @@ async def edit_profile(
         return _err(t.get("gender_invalid", "Выберите пол"))
 
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()
-    if not profile:
+    is_new_profile = profile is None
+    if is_new_profile:
         profile = Profile(user_id=user.id)
         db.add(profile)
 
@@ -112,7 +113,6 @@ async def edit_profile(
     profile.city = city.strip() if city else None
     profile.bio = bio.strip() if bio else None
 
-    # Function 5: Save intention
     if intention and intention in VALID_INTENTIONS:
         profile.intention = intention
     elif not intention:
@@ -128,7 +128,9 @@ async def edit_profile(
 
     db.commit()
 
-    redirect = RedirectResponse("/profile/edit?saved=1", status_code=302)
+    # First-time setup → go straight to swipe; editing → stay on form with success flash
+    dest = "/swipe" if is_new_profile else "/profile/edit?saved=1"
+    redirect = RedirectResponse(dest, status_code=302)
     redirect.set_cookie("lang", new_lang, max_age=60 * 60 * 24 * 365, samesite="lax")
     return redirect
 
