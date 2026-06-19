@@ -129,6 +129,12 @@ async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"error": str(exc), "type": type(exc).__name__})
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    from fastapi.responses import FileResponse
+    return FileResponse("static/favicon.ico", media_type="image/x-icon")
+
+
 @app.get("/health")
 def health():
     from app.database import engine
