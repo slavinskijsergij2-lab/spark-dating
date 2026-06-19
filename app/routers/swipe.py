@@ -19,7 +19,7 @@ def find_next_candidate(user: User, db: Session, intention: str = None):
     if not profile:
         return None
 
-    already_seen = db.query(Like.liked_id).filter(Like.liker_id == user.id).subquery()
+    already_seen = db.query(Like.liked_id).filter(Like.liker_id == user.id).scalar_subquery()
 
     q = (
         db.query(User)

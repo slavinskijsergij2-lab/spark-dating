@@ -141,6 +141,7 @@ def health():
 
 
 @app.get("/", response_class=HTMLResponse)
+@app.head("/")
 def index(request: Request):
     token = request.cookies.get("access_token")
     if token:

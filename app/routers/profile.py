@@ -23,13 +23,16 @@ VALID_INTENTIONS = {"serious", "casual", "today", "browsing"}
 def save_photo(file: UploadFile) -> str:
     """Returns a data: URI so photos survive container restarts."""
     ext = Path(file.filename).suffix.lower()
-    if ext not in {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}:
+    if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
         raise HTTPException(400, "Только JPG/PNG/WEBP изображения")
-    img = Image.open(file.file)
-    img.thumbnail(MAX_SIZE, Image.LANCZOS)
-    img = img.convert("RGB")
-    buf = io.BytesIO()
-    img.save(buf, "JPEG", quality=80)
+    try:
+        img = Image.open(file.file)
+        img.thumbnail(MAX_SIZE, Image.LANCZOS)
+        img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=80)
+    except Exception:
+        raise HTTPException(400, "Не удалось обработать изображение. Попробуйте другой файл.")
     b64 = base64.b64encode(buf.getvalue()).decode()
     return f"data:image/jpeg;base64,{b64}"
 

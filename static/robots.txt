@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: /api/
+Disallow: /chat/
+Disallow: /matches
+Disallow: /swipe
+Allow: /
