@@ -104,11 +104,17 @@ app.include_router(features.router)
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
+    from urllib.parse import quote
     accept = request.headers.get("accept", "")
-    if exc.status_code == 401 and "text/html" in accept:
-        response = RedirectResponse("/login", status_code=302)
-        response.delete_cookie("access_token")
-        return response
+    if "text/html" in accept:
+        if exc.status_code == 401:
+            response = RedirectResponse("/login", status_code=302)
+            response.delete_cookie("access_token")
+            return response
+        if exc.status_code in (400, 403, 422):
+            path = request.url.path or "/"
+            msg = quote(str(exc.detail), safe="")
+            return RedirectResponse(f"{path}?error={msg}", status_code=302)
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 

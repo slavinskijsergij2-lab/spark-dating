@@ -1,6 +1,25 @@
 {% extends "base.html" %}
 {% block title %}{{ t.edit_profile }} — Spark{% endblock %}
 {% block content %}
+
+{% if saved_flash is defined and saved_flash %}
+<script>window.scrollTo({top:0,behavior:'smooth'});</script>
+<div id="saved-banner"
+     class="fixed top-0 left-0 right-0 z-50 bg-green-500 text-white text-center py-3 px-4 font-semibold shadow-lg flex items-center justify-center gap-2 text-base"
+     style="animation: slideDown 0.3s ease;">
+  ✅ {{ t.get('profile_saved', 'Профиль сохранён!') }}
+</div>
+<style>
+  @keyframes slideDown { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+</style>
+<script>
+  setTimeout(function() {
+    var b = document.getElementById('saved-banner');
+    if (b) b.style.transition = 'opacity 0.5s', b.style.opacity = '0', setTimeout(function(){ b.remove(); }, 500);
+  }, 3000);
+</script>
+{% endif %}
+
 <div x-data="{
   preview: '',
   selectedIntention: '{{ profile.intention if profile and profile.intention else '' }}',
@@ -10,12 +29,6 @@
   }
 }">
   <h1 class="text-2xl font-bold text-gray-800 mb-6">✏️ {{ t.edit_profile }}</h1>
-
-  {% if saved_flash is defined and saved_flash %}
-  <div class="bg-green-50 border border-green-200 text-green-700 rounded-xl px-4 py-3 mb-4 flex items-center gap-2">
-    <span>✅</span> <span>{{ t.get('profile_saved', 'Профиль сохранён!') }}</span>
-  </div>
-  {% endif %}
 
   {% if error is defined and error %}
   <div class="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 mb-4 flex items-center gap-2">
