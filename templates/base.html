@@ -94,7 +94,7 @@
   <div class="blob blob-2"></div>
   <div class="blob blob-3"></div>
 
-  {% set show_nav = request.url.path not in ['/login', '/register', '/'] %}
+  {% set show_nav = request.url.path not in ['/login', '/register', '/', '/register/check-email'] and not request.url.path.startswith('/verify-email/') %}
 
   <main class="{% block main_class %}max-w-lg mx-auto px-4 py-6{% endblock %} page-enter {% if show_nav %}pb-24{% endif %}">
     {% block content %}{% endblock %}

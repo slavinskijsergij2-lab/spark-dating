@@ -15,10 +15,18 @@
       <p class="text-xs text-gray-400">{{ t.get('premium_active_sub', 'Все функции разблокированы') }}</p>
     </div>
   </div>
-  <button @click="deactivate()"
-          x-data="{ loading: false }"
-          class="w-full border-2 border-gray-200 text-gray-500 py-2.5 rounded-full text-sm font-medium hover:border-red-200 hover:text-red-400 transition">
-    {{ t.get('premium_cancel', 'Отменить подписку') }}
+  <button x-data="{ loading: false }"
+          @click="
+            loading = true;
+            fetch('/premium/deactivate', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}})
+              .then(r => r.json())
+              .then(d => { if (d.success) window.location.reload(); })
+              .finally(() => loading = false);
+          "
+          :disabled="loading"
+          class="w-full border-2 border-gray-200 text-gray-500 py-2.5 rounded-full text-sm font-medium hover:border-red-200 hover:text-red-400 transition disabled:opacity-50">
+    <span x-show="!loading">{{ t.get('premium_cancel', 'Отменить подписку') }}</span>
+    <span x-show="loading" x-cloak>...</span>
   </button>
   {% else %}
   <p class="text-sm text-gray-500 mb-4">{{ t.get('premium_free', 'Сейчас у вас бесплатный план') }}</p>
@@ -149,10 +157,4 @@
   </div>
 </a>
 
-<script>
-function deactivate() {
-  fetch('/premium/deactivate', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}})
-    .then(r => r.json()).then(d => { if(d.success) window.location.reload(); });
-}
-</script>
 {% endblock %}

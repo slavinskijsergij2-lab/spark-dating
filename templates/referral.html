@@ -35,38 +35,44 @@
 
 <!-- Referral link -->
 <div class="bg-white rounded-2xl card-shadow p-5 mb-4"
-     x-data="{ copied: false }">
+     x-data="{
+       copied: false,
+       link: {{ referral_link | tojson | safe }},
+       shareTitle: {{ t.get('referral_share_title', 'Spark — знакомства') | tojson | safe }},
+       shareText: {{ t.get('referral_share_text', 'Присоединяйся к Spark!') | tojson | safe }},
+       copyLink() {
+         navigator.clipboard.writeText(this.link)
+           .then(() => { this.copied = true; setTimeout(() => this.copied = false, 2500); })
+           .catch(() => {
+             const el = document.querySelector('[readonly]');
+             if (el) { el.select(); document.execCommand('copy'); }
+             this.copied = true; setTimeout(() => this.copied = false, 2500);
+           });
+       },
+       share() {
+         if (navigator.share) {
+           navigator.share({ title: this.shareTitle, text: this.shareText, url: this.link });
+         } else {
+           this.copyLink();
+         }
+       }
+     }">
   <p class="text-sm font-semibold text-gray-700 mb-3">🔗 {{ t.get('referral_copy', 'Твоя реферальная ссылка') }}</p>
   <div class="flex gap-2">
     <input type="text" readonly
            value="{{ referral_link }}"
            class="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-600 bg-gray-50 focus:outline-none focus:border-pink-300"
            @click="$el.select()" />
-    <button @click="
-        navigator.clipboard.writeText('{{ referral_link }}')
-          .then(() => { copied = true; setTimeout(() => copied = false, 2500); })
-          .catch(() => {
-            const el = document.querySelector('[readonly]');
-            el.select(); document.execCommand('copy');
-            copied = true; setTimeout(() => copied = false, 2500);
-          });
-      "
+    <button @click="copyLink()"
       class="flex-shrink-0 gradient-pink text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:opacity-90 transition whitespace-nowrap">
       <span x-show="!copied">📋 {{ t.get('referral_copy_btn', 'Копировать') }}</span>
       <span x-show="copied" x-cloak class="text-white">✓ {{ t.get('referral_copied', 'Скопировано!') }}</span>
     </button>
   </div>
 
-  <!-- Share button (Web Share API) -->
-  <button onclick="
-    if (navigator.share) {
-      navigator.share({
-        title: 'Spark — знакомства',
-        text: '{{ t.get('referral_share_text', 'Присоединяйся к Spark!') }}',
-        url: '{{ referral_link }}'
-      });
-    }
-  " class="w-full mt-3 border-2 border-pink-200 text-pink-600 py-2.5 rounded-xl text-sm font-semibold hover:bg-pink-50 transition flex items-center justify-center gap-2">
+  <!-- Share button (Web Share API / fallback to copy) -->
+  <button @click="share()"
+          class="w-full mt-3 border-2 border-pink-200 text-pink-600 py-2.5 rounded-xl text-sm font-semibold hover:bg-pink-50 transition flex items-center justify-center gap-2">
     📤 {{ t.get('referral_share_btn', 'Поделиться') }}
   </button>
 </div>

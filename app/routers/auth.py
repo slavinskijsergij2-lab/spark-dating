@@ -72,12 +72,13 @@ def login(
     password_ok = verify_password(password, user.hashed_password if user else DUMMY_HASH)
 
     if not user or not password_ok:
-        lang = (user.language if user and user.language else None) or "en"
+        lang = (user.language if user and user.language else None) or get_lang(request)
         t = get_translations(lang)
         return templates.TemplateResponse("login.html", {
             "request": request,
             "t": t,
             "rtl": is_rtl(lang),
+            "lang": lang,
             "error": t.get("login_wrong", "Incorrect email or password"),
             "not_verified": "",
             "resent": "",
@@ -135,6 +136,8 @@ def register(
             "request": request,
             "t": t,
             "rtl": is_rtl(language),
+            "lang": language,
+            "ref": ref,
             "error": t.get("register_email_taken", "Email already registered"),
         }, status_code=400)
 
@@ -143,6 +146,8 @@ def register(
             "request": request,
             "t": t,
             "rtl": is_rtl(language),
+            "lang": language,
+            "ref": ref,
             "error": t.get("register_password_short", "Password must be at least 8 characters"),
         }, status_code=400)
 
@@ -198,25 +203,36 @@ def check_email_page(request: Request):
 
 
 @router.get("/verify-email/{token}", response_class=HTMLResponse)
-def verify_email(token: str, db: Session = Depends(get_db)):
+def verify_email(token: str, request: Request, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email_verify_token == token).first()
     if not user:
-        return HTMLResponse(
-            "<h2 style='font-family:sans-serif;text-align:center;margin-top:80px;color:#ef4444;'>"
-            "❌ Invalid or expired verification link.</h2>",
-            status_code=400,
-        )
+        lang = get_lang(request)
+        t = get_translations(lang)
+        return templates.TemplateResponse("verify_error.html", {
+            "request": request,
+            "t": t,
+            "rtl": is_rtl(lang),
+            "lang": lang,
+            "error_key": "verify_invalid",
+            "error_msg": t.get("verify_invalid_link", "Ссылка недействительна или уже использована."),
+        }, status_code=400)
 
     # FIX H7: enforce 24-hour token expiry
     if user.email_verify_created_at:
         age_seconds = (_utcnow() - user.email_verify_created_at).total_seconds()
         if age_seconds > _EMAIL_VERIFY_TTL_SECONDS:
-            return HTMLResponse(
-                "<h2 style='font-family:sans-serif;text-align:center;margin-top:80px;color:#ef4444;'>"
-                "❌ Verification link expired (valid for 24 hours). "
-                "<a href='/login' style='color:#ec4899;'>Request a new one</a>.</h2>",
-                status_code=400,
-            )
+            lang = user.language or get_lang(request)
+            t = get_translations(lang)
+            return templates.TemplateResponse("verify_error.html", {
+                "request": request,
+                "t": t,
+                "rtl": is_rtl(lang),
+                "lang": lang,
+                "error_key": "verify_expired",
+                "error_msg": t.get("verify_expired_link", "Ссылка истекла (действует 24 ч). Войдите, чтобы получить новую."),
+                "show_resend": True,
+                "resend_email": user.email,
+            }, status_code=400)
 
     user.email_verified = True
     user.email_verify_token = None

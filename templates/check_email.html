@@ -8,7 +8,39 @@
       <div class="text-6xl mb-4">📬</div>
       <h1 class="text-2xl font-bold text-gray-800 mb-3">{{ t.check_email_title }}</h1>
       <p class="text-gray-500 font-medium mb-2">{{ t.check_email_subtitle }}</p>
-      <p class="text-gray-400 text-sm leading-relaxed mb-8">{{ t.check_email_desc }}</p>
+      <p class="text-gray-400 text-sm leading-relaxed mb-6">{{ t.check_email_desc }}</p>
+
+      <!-- Resend verification -->
+      <div x-data="{ open: false, sent: false, email: '', loading: false }" class="mb-6">
+        <button @click="open = !open"
+                class="text-sm text-pink-500 hover:text-pink-700 font-medium underline underline-offset-2 transition">
+          {{ t.get('check_email_not_arrived', 'Письмо не пришло?') }}
+        </button>
+        <div x-show="open" x-cloak class="mt-4 text-left">
+          <template x-if="!sent">
+            <form @submit.prevent="
+              loading = true;
+              fetch('/resend-verification', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'email=' + encodeURIComponent(email) + '&csrftoken=' + getCsrfToken()
+              }).then(() => { sent = true; loading = false; }).catch(() => { loading = false; });
+            ">
+              <input x-model="email" type="email" required
+                     placeholder="{{ t.get('your_email', 'Ваш email') }}"
+                     class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm mb-3 focus:outline-none focus:border-pink-400 transition">
+              <button type="submit" :disabled="loading"
+                      class="w-full gradient-pink text-white py-2.5 rounded-full text-sm font-semibold hover:opacity-90 transition disabled:opacity-50">
+                <span x-show="!loading">📨 {{ t.get('resend_verification', 'Отправить заново') }}</span>
+                <span x-show="loading" x-cloak>...</span>
+              </button>
+            </form>
+          </template>
+          <template x-if="sent">
+            <p class="text-green-600 text-sm font-medium text-center py-2">✓ {{ t.get('resend_done', 'Письмо отправлено! Проверьте почту.') }}</p>
+          </template>
+        </div>
+      </div>
 
       <a href="/login"
          class="inline-block gradient-pink text-white px-8 py-3 rounded-full font-semibold hover:opacity-90 transition">

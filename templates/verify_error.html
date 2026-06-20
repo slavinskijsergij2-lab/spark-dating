@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get('verify_error_title', 'Ошибка верификации') }} — Spark{% endblock %}
+{% block content %}
+<div class="flex flex-col items-center justify-center min-h-[75vh] text-center px-4">
+  <div class="w-full max-w-sm">
+    <div class="bg-white rounded-3xl card-shadow p-10">
+      <div class="text-6xl mb-4">❌</div>
+      <h1 class="text-xl font-bold text-gray-800 mb-3">{{ t.get('verify_error_title', 'Ошибка верификации') }}</h1>
+      <p class="text-gray-500 text-sm leading-relaxed mb-6">{{ error_msg }}</p>
+
+      {% if show_resend is defined and show_resend %}
+      <form method="POST" action="/resend-verification" class="mb-4">
+        <input type="hidden" name="csrftoken" value="{{ request.state.csrf_token }}" />
+        <input type="hidden" name="email" value="{{ resend_email }}" />
+        <button type="submit"
+                class="w-full gradient-pink text-white py-3 rounded-full font-semibold hover:opacity-90 transition mb-3">
+          📨 {{ t.get('resend_verification', 'Отправить новую ссылку') }}
+        </button>
+      </form>
+      {% endif %}
+
+      <a href="/login"
+         class="inline-block border-2 border-gray-200 text-gray-600 px-8 py-3 rounded-full font-semibold hover:border-gray-300 transition">
+        {{ t.get('go_to_login', 'Войти') }}
+      </a>
+    </div>
+    <p class="text-gray-400 text-xs mt-6">💘 Spark</p>
+  </div>
+</div>
+{% endblock %}

@@ -15,7 +15,12 @@ _lock = Lock()
 def rate_limit(max_calls: int, window_seconds: int = 60):
     """Returns a FastAPI dependency that enforces a rate limit per IP + path."""
     def dependency(request: Request):
-        ip = (request.client.host if request.client else None) or "unknown"
+        # Behind Railway/Nginx proxy the real IP is in X-Forwarded-For
+        forwarded = request.headers.get("X-Forwarded-For") or request.headers.get("X-Real-IP")
+        if forwarded:
+            ip = forwarded.split(",")[0].strip()
+        else:
+            ip = (request.client.host if request.client else None) or "unknown"
         key = f"{request.url.path}:{ip}"
         now = time.monotonic()
         with _lock:
