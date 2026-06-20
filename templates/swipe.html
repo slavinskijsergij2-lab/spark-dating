@@ -1,103 +1,210 @@
 {% extends "base.html" %}
-{% block title %}Spark{% endblock %}
+{% block title %}{{ t.get('nav_swipe','Поиск') }} — Spark{% endblock %}
 
 {% block head %}
 <style>
-  .swipe-card-wrap {
-    transition: transform .35s cubic-bezier(.22,.61,.36,1), opacity .35s ease;
+  /* ─── Card physics ─── */
+  .card-physics {
+    transition: transform .32s cubic-bezier(.22,.61,.36,1), opacity .32s ease;
     will-change: transform, opacity;
-    touch-action: pan-y;
-    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
   }
-  .swipe-card-wrap:active { cursor: grabbing; }
-  .stamp-like { border: 4px solid #22c55e; color: #22c55e; transform: rotate(-15deg); }
-  .stamp-nope { border: 4px solid #ef4444; color: #ef4444; transform: rotate(15deg); }
-  .btn-like { box-shadow: 0 4px 20px rgba(34,197,94,.35); }
-  .btn-nope { box-shadow: 0 4px 20px rgba(239,68,68,.35); }
-  .btn-like:hover { box-shadow: 0 6px 28px rgba(34,197,94,.6); transform: scale(1.1); }
-  .btn-nope:hover { box-shadow: 0 6px 28px rgba(239,68,68,.6); transform: scale(1.1); }
-  .intention-pill.active { background: #fce7f3; border-color: #ec4899; color: #db2777; font-weight: 700; }
-  @keyframes matchPop { from { transform: scale(.5); opacity:0; } to { transform: scale(1); opacity:1; } }
-  .match-pop { animation: matchPop .4s cubic-bezier(.34,1.56,.64,1) both; }
-  @keyframes confettiDrop { to { transform: translateY(100vh) rotate(720deg); opacity:0; } }
+  /* ─── Stamps ─── */
+  .stamp {
+    position: absolute;
+    top: 28px;
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: 3px;
+    padding: 6px 16px;
+    border-radius: 10px;
+    border-width: 4px;
+    border-style: solid;
+    text-transform: uppercase;
+    pointer-events: none;
+    z-index: 30;
+    transition: opacity .15s;
+  }
+  .stamp-like  { left: 18px;  color: #22c55e; border-color: #22c55e; transform: rotate(-15deg); }
+  .stamp-nope  { right: 18px; color: #ef4444; border-color: #ef4444; transform: rotate(15deg); }
+  /* ─── Photo dots ─── */
+  .photo-dot { height: 4px; border-radius: 4px; transition: all .2s; background: rgba(255,255,255,.35); }
+  .photo-dot.active { background: white; }
+  /* ─── Action buttons ─── */
+  .action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    transition: transform .15s, box-shadow .15s;
+    flex-shrink: 0;
+  }
+  .action-btn:active { transform: scale(.88) !important; }
+  .btn-dislike {
+    width: 60px; height: 60px;
+    background: white;
+    box-shadow: 0 4px 24px rgba(239,68,68,.25);
+    font-size: 24px;
+  }
+  .btn-dislike:hover { transform: scale(1.08); box-shadow: 0 6px 30px rgba(239,68,68,.4); }
+  .btn-like {
+    width: 70px; height: 70px;
+    background: linear-gradient(135deg,#f472b6,#ec4899);
+    box-shadow: 0 6px 28px rgba(236,72,153,.4);
+    font-size: 28px;
+  }
+  .btn-like:hover { transform: scale(1.1); box-shadow: 0 8px 36px rgba(236,72,153,.6); }
+  .btn-super {
+    width: 52px; height: 52px;
+    background: white;
+    box-shadow: 0 4px 20px rgba(234,179,8,.3);
+    font-size: 20px;
+  }
+  .btn-super:hover { transform: scale(1.08); box-shadow: 0 6px 28px rgba(234,179,8,.5); }
+  .btn-undo {
+    width: 44px; height: 44px;
+    background: white;
+    box-shadow: 0 4px 16px rgba(0,0,0,.1);
+    font-size: 18px;
+  }
+  .btn-eye {
+    width: 44px; height: 44px;
+    background: white;
+    box-shadow: 0 4px 16px rgba(0,0,0,.1);
+    font-size: 18px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    transition: transform .15s;
+    text-decoration: none;
+  }
+  .btn-eye:hover { transform: scale(1.08); }
+  /* ─── Filter pill ─── */
+  .filter-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 7px 16px;
+    border-radius: 999px;
+    border: 2px solid #e5e7eb;
+    font-size: 13px;
+    color: #6b7280;
+    background: white;
+    white-space: nowrap;
+    transition: all .15s;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .filter-pill:hover { border-color: #f9a8d4; color: #db2777; }
+  .filter-pill.active { background: #fce7f3; border-color: #ec4899; color: #db2777; font-weight: 700; }
+  .filter-icon-btn {
+    width: 38px; height: 38px;
+    border-radius: 50%;
+    border: 2px solid #e5e7eb;
+    background: white;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all .15s;
+    flex-shrink: 0;
+  }
+  .filter-icon-btn.active { border-color: #ec4899; background: #fce7f3; }
+  /* ─── Match popup ─── */
+  @keyframes matchPop { from { transform: scale(.4) translateY(60px); opacity:0; } to { transform: scale(1) translateY(0); opacity:1; } }
+  .match-pop { animation: matchPop .5s cubic-bezier(.34,1.56,.64,1) both; }
+  @keyframes confetti-fall { to { transform: translateY(110vh) rotate(720deg); opacity:0; } }
+  /* ─── No-scrollbar ─── */
   .no-scrollbar::-webkit-scrollbar { display:none; }
   .no-scrollbar { -ms-overflow-style:none; scrollbar-width:none; }
+  /* ─── Text gradient ─── */
   .text-gradient { background:linear-gradient(135deg,#f472b6,#ec4899,#db2777); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+  /* ─── Info tag ─── */
+  .info-tag { display:inline-flex; align-items:center; gap:4px; background:rgba(255,255,255,.18); backdrop-filter:blur(8px); color:white; border-radius:999px; padding:3px 10px; font-size:11px; font-weight:600; }
+  /* ─── Slide-up filter panel ─── */
+  [x-cloak] { display:none !important; }
 </style>
 
 <script>
 document.addEventListener('alpine:init', () => {
   Alpine.data('swipeApp', () => ({
+    /* state */
     matched: false,
     partnerName: '',
     noMore: {{ 'true' if not candidate else 'false' }},
+    photoIdx: 0,
+    totalPhotos: {{ ([profile.photo] if (profile and profile.photo) else []) | length + (extra_photos | length) }},
+
+    /* drag */
     dragging: false,
     startX: 0, startY: 0,
     dx: 0, dy: 0,
-    flyX: 0, flyOpacity: 1,
+    rot: 0,
+
+    /* fly animation */
+    flying: false,
+    flyX: 0, flyY: 0, flyOpacity: 1,
     swiping: false,
+
+    /* data from server */
     superLikesLeft: {{ super_likes_left }},
     canUndo: {{ 'true' if can_undo else 'false' }},
     candidateId: {{ candidate.id if candidate else 0 }},
     profileName: {{ (profile.name if profile else '') | tojson | safe }},
 
+    /* ── computed ── */
     get cardStyle() {
-      const rot = this.dx * 0.07;
-      if (this.swiping) {
-        return `transform: translate(${this.flyX}px, ${this.dy}px) rotate(${rot}deg); opacity: ${this.flyOpacity};`;
+      if (this.flying) {
+        return 'transform:translate(' + this.flyX + 'px,' + this.flyY + 'px) rotate(' + this.rot + 'deg);opacity:' + this.flyOpacity + ';transition:transform .38s cubic-bezier(.22,.61,.36,1),opacity .38s ease;';
       }
-      return `transform: translate(${this.dx}px, ${this.dy}px) rotate(${rot}deg);`;
+      return 'transform:translate(' + this.dx + 'px,' + this.dy + 'px) rotate(' + this.rot + 'deg);';
     },
-    get showLike() { return this.dx > 40; },
-    get showNope() { return this.dx < -40; },
-    get likeOpacity() { return Math.min(1, (this.dx - 40) / 60); },
-    get nopeOpacity() { return Math.min(1, (-this.dx - 40) / 60); },
+    get likeOpacity()  { return Math.max(0, Math.min(1, (this.dx - 35) / 70)); },
+    get nopeOpacity()  { return Math.max(0, Math.min(1, (-this.dx - 35) / 70)); },
 
-    onTouchStart(e) {
+    /* ── drag handlers ── */
+    dragStart(e) {
       if (this.swiping || this.noMore) return;
       this.dragging = true;
-      this.startX = e.touches ? e.touches[0].clientX : e.clientX;
-      this.startY = e.touches ? e.touches[0].clientY : e.clientY;
+      const t = e.touches ? e.touches[0] : e;
+      this.startX = t.clientX;
+      this.startY = t.clientY;
     },
-    onTouchMove(e) {
+    dragMove(e) {
       if (!this.dragging || this.swiping) return;
-      const cx = e.touches ? e.touches[0].clientX : e.clientX;
-      const cy = e.touches ? e.touches[0].clientY : e.clientY;
-      this.dx = cx - this.startX;
-      this.dy = (cy - this.startY) * 0.3;
+      const t = e.touches ? e.touches[0] : e;
+      this.dx = t.clientX - this.startX;
+      this.dy = (t.clientY - this.startY) * 0.25;
+      this.rot = this.dx * 0.06;
     },
-    onTouchEnd() {
+    dragEnd() {
       if (!this.dragging || this.swiping) return;
       this.dragging = false;
-      if (this.dx > 90)       { this.swipe('like'); }
-      else if (this.dx < -90) { this.swipe('dislike'); }
-      else { this.dx = 0; this.dy = 0; }
+      if (this.dx > 95)       { this.swipe('like'); }
+      else if (this.dx < -95) { this.swipe('dislike'); }
+      else {
+        this.dx = 0; this.dy = 0; this.rot = 0;
+      }
     },
 
-    async superLike() {
-      if (this.swiping || this.noMore || this.superLikesLeft <= 0) return;
-      this.superLikesLeft--;
-      await this.swipe('like', true);
-    },
-
-    async undo() {
-      if (!this.canUndo) return;
-      const r = await fetch('/swipe/undo', { method: 'POST', headers: { 'x-csrf-token': getCsrfToken() } });
-      const d = await r.json();
-      if (d.success) window.location.reload();
-    },
-
+    /* ── swipe ── */
     async swipe(action, isSuper) {
       if (this.swiping || this.noMore) return;
       this.swiping = true;
-      const dir = action === 'like' ? 1 : -1;
-      this.flyX = dir * (window.innerWidth + 200);
-      this.flyOpacity = 0;
-      this.dy = -30;
-      await new Promise(r => setTimeout(r, 380));
 
-      const url = '/swipe/' + this.candidateId + '?action=' + action + (isSuper ? '&is_super=1' : '');
+      /* fly off screen */
+      const dir = (action === 'like') ? 1 : -1;
+      this.flying = true;
+      this.flyX = dir * (window.innerWidth + 220);
+      this.flyY = -40;
+      this.flyOpacity = 0;
+      this.rot = dir * 28;
+
+      await new Promise(r => setTimeout(r, 400));
+
       try {
+        const url = '/swipe/' + this.candidateId + '?action=' + action + (isSuper ? '&is_super=1' : '');
         const resp = await fetch(url, {
           method: 'POST',
           headers: { 'x-csrf-token': getCsrfToken() },
@@ -107,33 +214,47 @@ document.addEventListener('alpine:init', () => {
           this.partnerName = this.profileName;
           this.matched = true;
           this.spawnConfetti();
-          setTimeout(() => { this.matched = false; window.location.reload(); }, 3500);
+          setTimeout(() => { this.matched = false; window.location.reload(); }, 3800);
         } else {
           window.location.reload();
         }
-      } catch(e) {
+      } catch(_) {
         window.location.reload();
       }
     },
 
+    async superLike() {
+      if (this.swiping || this.noMore || this.superLikesLeft <= 0) return;
+      this.superLikesLeft--;
+      await this.swipe('like', true);
+    },
+
+    async undo() {
+      if (!this.canUndo || this.swiping) return;
+      const r = await fetch('/swipe/undo', { method: 'POST', headers: { 'x-csrf-token': getCsrfToken() } });
+      const d = await r.json();
+      if (d.success) window.location.reload();
+    },
+
+    /* ── confetti ── */
     spawnConfetti() {
-      const colors = ['#ec4899','#f43f5e','#8b5cf6','#f59e0b','#22c55e','#06b6d4'];
-      for (let i = 0; i < 60; i++) {
+      const colors = ['#ec4899','#f43f5e','#8b5cf6','#f59e0b','#22c55e','#06b6d4','#fbbf24'];
+      for (let i = 0; i < 70; i++) {
         const el = document.createElement('div');
         const color = colors[Math.floor(Math.random() * colors.length)];
-        const size = 6 + Math.random() * 8;
-        const left = Math.random() * 100;
-        const dur = 1.5 + Math.random() * 2;
-        const delay = Math.random() * 0.8;
-        const radius = Math.random() > 0.5 ? '50%' : '2px';
-        el.style.cssText = 'position:fixed;top:-10px;z-index:9999;pointer-events:none;' +
-          'width:' + size + 'px;height:' + size + 'px;' +
-          'background:' + color + ';' +
-          'left:' + left + 'vw;' +
+        const size  = (5 + Math.random() * 9) + 'px';
+        const left  = (Math.random() * 100) + 'vw';
+        const dur   = (1.4 + Math.random() * 2) + 's';
+        const delay = (Math.random() * 1) + 's';
+        const radius = Math.random() > 0.5 ? '50%' : '3px';
+        el.style.cssText =
+          'position:fixed;top:-14px;z-index:9999;pointer-events:none;' +
+          'width:' + size + ';height:' + size + ';' +
+          'background:' + color + ';left:' + left + ';' +
           'border-radius:' + radius + ';' +
-          'animation:confettiDrop ' + dur + 's ease-in ' + delay + 's forwards;';
+          'animation:confetti-fall ' + dur + ' ease-in ' + delay + ' forwards;';
         document.body.appendChild(el);
-        setTimeout(() => el.remove(), 4000);
+        setTimeout(() => el.remove(), 4500);
       }
     },
   }));
@@ -142,249 +263,270 @@ document.addEventListener('alpine:init', () => {
 {% endblock %}
 
 {% block content %}
-
-<!-- Intention filter bar -->
-<div x-data="{ showFilters: false }" class="mb-4">
-  <div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar items-center">
-    <a href="/swipe{% if age_min != 18 or age_max != 100 %}?age_min={{ age_min }}&age_max={{ age_max }}{% endif %}"
-       class="intention-pill flex-shrink-0 text-sm px-4 py-2 rounded-full border-2 border-gray-200 text-gray-500 transition {% if not current_intention %}active{% endif %}">
-      {{ t.filter_all }}
-    </a>
-    {% for item in [('serious','💍'), ('casual','😊'), ('today','🔥'), ('browsing','👀')] %}
-    <a href="/swipe?intention={{ item[0] }}{% if age_min != 18 or age_max != 100 %}&age_min={{ age_min }}&age_max={{ age_max }}{% endif %}"
-       class="intention-pill flex-shrink-0 text-sm px-4 py-2 rounded-full border-2 border-gray-200 text-gray-500 transition whitespace-nowrap {% if current_intention == item[0] %}active{% endif %}">
-      {{ item[1] }}
-      {% if item[0] == 'serious' %}{{ t.intention_serious }}
-      {% elif item[0] == 'casual' %}{{ t.intention_casual }}
-      {% elif item[0] == 'today' %}{{ t.intention_today }}
-      {% elif item[0] == 'browsing' %}{{ t.intention_browsing }}
-      {% endif %}
-    </a>
-    {% endfor %}
-
-    <button @click="showFilters = !showFilters"
-            class="flex-shrink-0 w-9 h-9 rounded-full border-2 flex items-center justify-center transition
-                   {% if filters_active %}border-pink-400 bg-pink-50 text-pink-600{% else %}border-gray-200 text-gray-500 hover:border-pink-200{% endif %}">
-      🎚
-    </button>
-  </div>
-
-  <div x-show="showFilters" x-cloak class="mt-3 glass rounded-2xl p-4 border border-pink-100 shadow-sm">
-    <p class="text-sm font-semibold text-gray-700 mb-3">🎚 {{ t.get('filter_title','Фильтры') }}</p>
-    <form method="GET" action="/swipe" class="flex flex-col gap-3">
-      {% if current_intention %}
-      <input type="hidden" name="intention" value="{{ current_intention }}">
-      {% endif %}
-      <div class="flex items-center gap-3">
-        <label class="text-sm text-gray-600 w-20">{{ t.get('filter_age','Возраст') }}</label>
-        <div class="flex items-center gap-2 flex-1">
-          <input type="number" name="age_min" value="{{ age_min }}" min="18" max="99"
-                 class="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-pink-300">
-          <span class="text-gray-400 text-sm">—</span>
-          <input type="number" name="age_max" value="{{ age_max }}" min="19" max="100"
-                 class="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-pink-300">
-        </div>
-      </div>
-      <div class="flex items-center gap-3">
-        <label class="text-sm text-gray-600 w-20">🌆 {{ t.get('filter_city','Город') }}</label>
-        <input type="text" name="city" value="{{ current_city }}" maxlength="100"
-               placeholder="{{ t.get('filter_city_placeholder','Любой') }}"
-               class="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-300">
-      </div>
-      <div class="flex items-center gap-3">
-        <label class="text-sm text-gray-600 w-20">🟢 {{ t.get('filter_online_label','Онлайн') }}</label>
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" name="online_only" value="1" {% if online_only %}checked{% endif %}
-                 class="w-4 h-4 accent-pink-500 rounded">
-          <span class="text-sm text-gray-600">{{ t.get('filter_online','Только онлайн') }}</span>
-        </label>
-      </div>
-      <div class="flex gap-2">
-        <button type="submit"
-                class="flex-1 gradient-pink text-white py-2 rounded-full text-sm font-semibold hover:opacity-90 transition">
-          {{ t.get('filter_apply','Применить') }}
-        </button>
-        <a href="/swipe{% if current_intention %}?intention={{ current_intention }}{% endif %}"
-           class="flex-1 border-2 border-gray-200 text-gray-600 py-2 rounded-full text-sm font-semibold text-center hover:border-gray-300 transition">
-          {{ t.get('filter_reset','Сбросить') }}
-        </a>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- Main swipe area -->
 <div x-data="swipeApp()">
 
-  <!-- Match popup -->
+  <!-- ══ MATCH POPUP ══ -->
   <div x-show="matched" x-cloak
-       class="fixed inset-0 z-[200] flex items-center justify-center"
-       style="background:rgba(0,0,0,0.65);backdrop-filter:blur(8px);">
-    <div class="match-pop glass rounded-3xl p-10 text-center max-w-sm mx-4 shadow-2xl border border-pink-200">
-      <div class="text-7xl mb-4">🎉</div>
-      <h2 class="text-3xl font-black text-gradient mb-2">{{ t.its_a_match }}</h2>
-      <p class="text-gray-500 mb-6"><strong x-text="partnerName"></strong> — {{ t.match_desc }}</p>
-      <a href="/matches" class="inline-block gradient-pink text-white px-8 py-3 rounded-2xl font-bold hover:opacity-90 active:scale-95 transition-all glow-pink">
-        {{ t.write_message }} 💬
+       style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.7);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;"
+       x-show="matched">
+    <div class="match-pop text-center px-6 py-10 mx-4 max-w-xs w-full"
+         style="background:linear-gradient(160deg,#fff5f8,#fdf2ff);border-radius:32px;box-shadow:0 32px 80px rgba(236,72,153,.35);">
+      <div style="font-size:72px;margin-bottom:8px;animation:matchPop .6s .1s both;">💘</div>
+      <h2 class="text-gradient" style="font-size:36px;font-weight:900;margin-bottom:6px;">{{ t.get('its_a_match','Это Матч!') }}</h2>
+      <p style="color:#9ca3af;margin-bottom:24px;font-size:15px;">
+        <strong x-text="partnerName" style="color:#374151;"></strong> {{ t.get('match_desc','лайкнул вас в ответ') }} ✨
+      </p>
+      <a href="/matches"
+         style="display:inline-block;background:linear-gradient(135deg,#f472b6,#ec4899);color:white;font-weight:700;font-size:16px;padding:14px 36px;border-radius:999px;box-shadow:0 8px 24px rgba(236,72,153,.4);text-decoration:none;">
+        {{ t.get('write_message','Написать') }} 💬
       </a>
     </div>
   </div>
 
-  <!-- No more candidates -->
+  <!-- ══ NO MORE ══ -->
   <template x-if="noMore">
-    <div class="flex flex-col items-center justify-center min-h-[65vh] text-center">
-      <div class="glass rounded-3xl p-10 shadow-xl max-w-sm">
-        <div class="text-6xl mb-4">😔</div>
-        <h2 class="text-xl font-bold text-gray-700 mb-2">{{ t.no_more_title }}</h2>
-        <p class="text-gray-400 mb-6">{{ t.no_more_desc }}</p>
-        <a href="/matches" class="gradient-pink text-white px-8 py-3 rounded-2xl font-bold hover:opacity-90 transition">
-          {{ t.my_matches }}
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:70vh;text-align:center;padding:0 24px;">
+      <div style="width:110px;height:110px;border-radius:50%;background:linear-gradient(135deg,#fce7f3,#ede9fe);display:flex;align-items:center;justify-content:center;font-size:52px;margin-bottom:24px;box-shadow:0 8px 32px rgba(236,72,153,.15);">😔</div>
+      <h2 style="font-size:22px;font-weight:800;color:#1f2937;margin-bottom:8px;">{{ t.get('no_more_title','Никого не нашлось') }}</h2>
+      <p style="color:#9ca3af;font-size:14px;max-width:260px;line-height:1.6;margin-bottom:32px;">{{ t.get('no_more_desc','Попробуйте расширить фильтры или зайдите позже — новые люди появляются каждый день!') }}</p>
+      <div style="display:flex;flex-direction:column;gap:12px;width:100%;max-width:280px;">
+        <a href="/swipe" style="background:linear-gradient(135deg,#f472b6,#ec4899);color:white;font-weight:700;padding:14px 24px;border-radius:999px;text-decoration:none;font-size:15px;box-shadow:0 6px 20px rgba(236,72,153,.35);">
+          🔄 {{ t.get('filter_reset','Сбросить фильтры') }}
+        </a>
+        <a href="/matches" style="border:2px solid #e5e7eb;color:#6b7280;font-weight:600;padding:13px 24px;border-radius:999px;text-decoration:none;font-size:15px;background:white;">
+          💌 {{ t.get('my_matches','Мои матчи') }}
         </a>
       </div>
     </div>
   </template>
 
-  <!-- Swipe card -->
+  <!-- ══ SWIPE AREA ══ -->
   {% if candidate and profile %}
   <template x-if="!noMore">
     <div>
-      <div class="swipe-card-wrap select-none"
+
+      <!-- ─── Filter bar ─── -->
+      <div x-data="{ open: false }" class="mb-4">
+        <div class="flex gap-2 items-center overflow-x-auto pb-0.5 no-scrollbar">
+          <a href="/swipe{% if current_intention %}?intention={{ current_intention }}{% endif %}"
+             class="filter-pill {% if not age_min != 18 and not age_max != 100 and not current_city and not online_only and not current_intention %}active{% endif %}">
+            {{ t.get('filter_all','Все') }}
+          </a>
+          {% for code, emoji in [('serious','💍'),('casual','😊'),('today','🔥'),('browsing','👀')] %}
+          <a href="/swipe?intention={{ code }}{% if age_min != 18 or age_max != 100 %}&age_min={{ age_min }}&age_max={{ age_max }}{% endif %}{% if current_city %}&city={{ current_city }}{% endif %}{% if online_only %}&online_only=1{% endif %}"
+             class="filter-pill {% if current_intention == code %}active{% endif %}">
+            {{ emoji }}
+            {% if code == 'serious' %}{{ t.get('intention_serious','Серьёзные') }}
+            {% elif code == 'casual' %}{{ t.get('intention_casual','Общение') }}
+            {% elif code == 'today' %}{{ t.get('intention_today','Сегодня') }}
+            {% elif code == 'browsing' %}{{ t.get('intention_browsing','Смотрю') }}
+            {% endif %}
+          </a>
+          {% endfor %}
+          <button @click="open=!open"
+                  class="filter-icon-btn {% if filters_active %}active{% endif %}">
+            ⚙️
+          </button>
+        </div>
+
+        <!-- Filter drawer -->
+        <div x-show="open" x-cloak
+             style="margin-top:12px;background:white;border-radius:20px;border:1.5px solid #fce7f3;padding:20px;box-shadow:0 8px 32px rgba(236,72,153,.12);">
+          <p style="font-size:13px;font-weight:700;color:#374151;margin-bottom:16px;">⚙️ {{ t.get('filter_title','Фильтры') }}</p>
+          <form method="GET" action="/swipe" style="display:flex;flex-direction:column;gap:14px;">
+            {% if current_intention %}<input type="hidden" name="intention" value="{{ current_intention }}">{% endif %}
+
+            <div style="display:flex;align-items:center;gap:12px;">
+              <span style="font-size:13px;color:#6b7280;min-width:72px;">{{ t.get('filter_age','Возраст') }}</span>
+              <div style="display:flex;align-items:center;gap:8px;flex:1;">
+                <input type="number" name="age_min" value="{{ age_min }}" min="18" max="99"
+                       style="width:60px;border:1.5px solid #e5e7eb;border-radius:10px;padding:7px 8px;font-size:13px;text-align:center;outline:none;">
+                <span style="color:#d1d5db;">—</span>
+                <input type="number" name="age_max" value="{{ age_max }}" min="19" max="100"
+                       style="width:60px;border:1.5px solid #e5e7eb;border-radius:10px;padding:7px 8px;font-size:13px;text-align:center;outline:none;">
+              </div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:12px;">
+              <span style="font-size:13px;color:#6b7280;min-width:72px;">🌆 {{ t.get('filter_city','Город') }}</span>
+              <input type="text" name="city" value="{{ current_city }}" maxlength="100"
+                     placeholder="{{ t.get('filter_city_placeholder','Любой') }}"
+                     style="flex:1;border:1.5px solid #e5e7eb;border-radius:10px;padding:7px 12px;font-size:13px;outline:none;">
+            </div>
+
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+              <input type="checkbox" name="online_only" value="1" {% if online_only %}checked{% endif %}
+                     style="width:16px;height:16px;accent-color:#ec4899;">
+              <span style="font-size:13px;color:#374151;">🟢 {{ t.get('filter_online','Только онлайн') }}</span>
+            </label>
+
+            <div style="display:flex;gap:8px;margin-top:4px;">
+              <button type="submit"
+                      style="flex:1;background:linear-gradient(135deg,#f472b6,#ec4899);color:white;font-weight:700;font-size:13px;padding:11px;border-radius:999px;border:none;cursor:pointer;">
+                {{ t.get('filter_apply','Применить') }}
+              </button>
+              <a href="/swipe{% if current_intention %}?intention={{ current_intention }}{% endif %}"
+                 style="flex:1;border:1.5px solid #e5e7eb;color:#6b7280;font-weight:600;font-size:13px;padding:11px;border-radius:999px;text-align:center;text-decoration:none;background:white;">
+                {{ t.get('filter_reset','Сбросить') }}
+              </a>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- ─── CARD ─── -->
+      {% set all_photos = ([profile.photo] if profile.photo else []) + (extra_photos | map(attribute='url') | list) %}
+
+      <div class="card-physics"
            :style="cardStyle"
-           @mousedown="onTouchStart"
-           @mousemove="dragging && onTouchMove($event)"
-           @mouseup="onTouchEnd"
-           @mouseleave="dragging && onTouchEnd()"
-           @touchstart.passive="onTouchStart"
-           @touchmove.prevent="onTouchMove"
-           @touchend="onTouchEnd">
+           @mousedown.prevent="dragStart"
+           @mousemove.prevent="dragging && dragMove($event)"
+           @mouseup="dragEnd"
+           @mouseleave="dragging && dragEnd()"
+           @touchstart.passive="dragStart"
+           @touchmove.prevent="dragMove"
+           @touchend="dragEnd">
 
-        <div class="bg-white rounded-3xl card-shadow overflow-hidden relative">
+        <div style="border-radius:28px;overflow:hidden;position:relative;background:#f1f5f9;box-shadow:0 16px 60px rgba(0,0,0,.18);">
 
-          <div class="absolute top-8 left-8 z-20 stamp-like px-4 py-1 rounded-xl text-2xl font-black tracking-widest transition-opacity"
-               :style="{opacity: likeOpacity}">LIKE</div>
-          <div class="absolute top-8 right-8 z-20 stamp-nope px-4 py-1 rounded-xl text-2xl font-black tracking-widest transition-opacity"
-               :style="{opacity: nopeOpacity}">NOPE</div>
+          <!-- LIKE / NOPE stamps -->
+          <div class="stamp stamp-like" :style="{ opacity: likeOpacity }">LIKE 💚</div>
+          <div class="stamp stamp-nope" :style="{ opacity: nopeOpacity }">NOPE ✖</div>
 
-          <!-- Photos -->
-          {% set all_photos = ([profile.photo] if profile.photo else []) + (extra_photos | map(attribute='url') | list) %}
-          <div class="relative bg-gradient-to-br from-pink-100 to-rose-100"
-               style="height: min(62vw, 420px);"
-               x-data="{ photoIdx: 0, total: {{ all_photos | length }} }">
+          <!-- Photo -->
+          <div style="position:relative;height:min(72vw,480px);overflow:hidden;"
+               x-data="{ idx: 0, total: {{ all_photos | length }} }">
 
-            {% if all_photos %}
-              {% for photo_url in all_photos %}
-              <img src="{{ photo_url }}" alt="{{ profile.name }}"
-                   class="w-full h-full object-cover absolute inset-0 transition-opacity duration-300"
-                   x-show="photoIdx === {{ loop.index0 }}" />
-              {% endfor %}
-            {% else %}
-              <div class="w-full h-full flex items-center justify-center text-9xl text-pink-200">👤</div>
+            {% for photo_url in all_photos %}
+            <img src="{{ photo_url }}" alt="{{ profile.name }}"
+                 style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:opacity .25s;"
+                 x-show="idx === {{ loop.index0 }}" />
+            {% endfor %}
+            {% if not all_photos %}
+            <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:100px;background:linear-gradient(135deg,#fce7f3,#ede9fe);">👤</div>
             {% endif %}
 
+            <!-- Photo navigation dots -->
             {% if all_photos | length > 1 %}
-            <div class="absolute top-3 left-3 right-3 flex gap-1.5">
+            <div style="position:absolute;top:12px;left:12px;right:12px;display:flex;gap:5px;z-index:10;">
               {% for _ in all_photos %}
-              <div @click.stop="photoIdx = {{ loop.index0 }}"
-                   :class="photoIdx === {{ loop.index0 }} ? 'bg-white shadow' : 'bg-white/40'"
-                   class="h-1.5 flex-1 rounded-full transition-all cursor-pointer"></div>
+              <div @click.stop="idx={{ loop.index0 }}"
+                   class="photo-dot"
+                   :class="idx === {{ loop.index0 }} ? 'active' : ''"
+                   style="flex:1;cursor:pointer;"></div>
               {% endfor %}
             </div>
-            <div class="absolute inset-0 flex pointer-events-auto">
-              <div class="w-1/2 h-full" @click.stop="photoIdx = photoIdx > 0 ? photoIdx - 1 : total - 1"></div>
-              <div class="w-1/2 h-full" @click.stop="photoIdx = photoIdx < total - 1 ? photoIdx + 1 : 0"></div>
+            <!-- Tap left/right to switch photos -->
+            <div style="position:absolute;inset:0;display:flex;z-index:9;">
+              <div style="flex:1;" @click.stop="idx = idx > 0 ? idx-1 : total-1"></div>
+              <div style="flex:1;" @click.stop="idx = idx < total-1 ? idx+1 : 0"></div>
             </div>
             {% endif %}
 
-            {% if not candidate.is_verified %}
-            <div class="absolute top-3 left-0 right-0 flex justify-center z-10 pointer-events-none">
-              <span class="bg-black/40 backdrop-blur-sm text-white text-[11px] font-medium px-3 py-1 rounded-full flex items-center gap-1">
-                ⚠️ {{ t.get('unverified_badge','Не верифицирован') }}
-              </span>
-            </div>
-            {% endif %}
+            <!-- Gradient overlay -->
+            <div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.82) 0%,rgba(0,0,0,.15) 45%,transparent 70%);pointer-events:none;z-index:8;"></div>
 
-            <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/75 via-black/30 to-transparent p-5 pt-12">
+            <!-- Bottom info -->
+            <div style="position:absolute;bottom:0;left:0;right:0;padding:20px 20px 18px;z-index:9;pointer-events:none;">
               {% set os = online_status(candidate.last_seen, lang) %}
-              <div class="flex items-end gap-2">
+
+              <!-- Name row -->
+              <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;">
                 <div>
-                  <h2 class="text-white text-2xl font-black flex items-center gap-2 flex-wrap">
-                    {{ profile.name }}, {{ profile.age }}
+                  <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                    <span style="color:white;font-size:26px;font-weight:900;text-shadow:0 2px 8px rgba(0,0,0,.4);">
+                      {{ profile.name }}, {{ profile.age }}
+                    </span>
                     {% if candidate.is_verified %}
-                    <span class="text-xs bg-green-500/90 text-white px-2 py-0.5 rounded-full backdrop-blur-sm">✓</span>
+                    <span style="background:#22c55e;color:white;font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;">✓</span>
                     {% endif %}
                     {% if os and os.is_online %}
-                    <span class="w-2.5 h-2.5 bg-green-400 rounded-full border-2 border-white/60 flex-shrink-0"></span>
+                    <span style="width:10px;height:10px;background:#4ade80;border-radius:50%;border:2px solid rgba(255,255,255,.6);display:inline-block;"></span>
                     {% endif %}
-                  </h2>
+                  </div>
                   {% if profile.city %}
-                  <p class="text-white/75 text-sm flex items-center gap-1 mt-0.5">📍 {{ profile.city }}</p>
+                  <p style="color:rgba(255,255,255,.7);font-size:13px;margin-top:3px;">📍 {{ profile.city }}</p>
                   {% endif %}
                   {% if os and not os.is_online %}
-                  <p class="text-white/50 text-xs mt-0.5">{{ os.label }}</p>
+                  <p style="color:rgba(255,255,255,.5);font-size:11px;margin-top:2px;">{{ os.label }}</p>
                   {% endif %}
                 </div>
                 {% if profile.intention %}
-                <span class="ml-auto text-xs bg-white/20 text-white px-3 py-1 rounded-full backdrop-blur-md whitespace-nowrap self-start mt-1">
-                  {% if profile.intention == 'serious' %}💍 {{ t.intention_serious }}
-                  {% elif profile.intention == 'casual' %}😊 {{ t.intention_casual }}
-                  {% elif profile.intention == 'today' %}🔥 {{ t.intention_today }}
-                  {% elif profile.intention == 'browsing' %}👀 {{ t.intention_browsing }}
+                <span class="info-tag" style="margin-left:auto;align-self:flex-start;margin-top:4px;">
+                  {% if profile.intention == 'serious' %}💍 {{ t.get('intention_serious','Серьёзные') }}
+                  {% elif profile.intention == 'casual' %}😊 {{ t.get('intention_casual','Общение') }}
+                  {% elif profile.intention == 'today' %}🔥 {{ t.get('intention_today','Сегодня') }}
+                  {% elif profile.intention == 'browsing' %}👀 {{ t.get('intention_browsing','Смотрю') }}
                   {% endif %}
                 </span>
                 {% endif %}
               </div>
-            </div>
-          </div>
 
-          <div class="px-5 py-4">
-            {% if profile.bio %}
-            <p class="text-gray-600 text-sm leading-relaxed line-clamp-3">{{ profile.bio }}</p>
-            {% endif %}
-            {% if candidate.politeness_votes and candidate.politeness_votes > 0 %}
-            <p class="text-yellow-500 text-sm mt-2 flex items-center gap-1">
-              ⭐ <span class="font-semibold">{{ "%.1f"|format(candidate.politeness_score) }}</span>
-              <span class="text-gray-400 text-xs">({{ candidate.politeness_votes }})</span>
-            </p>
-            {% endif %}
-
-            <!-- Interest tags -->
-            {% if profile.interests %}
-            {% set tags = profile.interests.split(',') | map('trim') | list %}
-            {% if tags %}
-            <div class="flex flex-wrap gap-1.5 mt-3">
-              {% for tag in tags[:5] %}
-              <span class="bg-pink-50 text-pink-600 text-xs px-2.5 py-1 rounded-full"># {{ tag }}</span>
-              {% endfor %}
-              {% if tags | length > 5 %}
-              <span class="text-gray-400 text-xs px-2 py-1">+{{ tags | length - 5 }}</span>
+              <!-- Tags -->
+              {% if profile.interests %}
+              {% set tags = profile.interests.split(',') | map('trim') | list %}
+              {% if tags %}
+              <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;">
+                {% for tag in tags[:4] %}
+                <span style="background:rgba(255,255,255,.18);backdrop-filter:blur(8px);color:white;font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;"># {{ tag }}</span>
+                {% endfor %}
+                {% if tags | length > 4 %}<span style="color:rgba(255,255,255,.5);font-size:11px;padding:3px 6px;">+{{ tags|length - 4 }}</span>{% endif %}
+              </div>
+              {% endif %}
               {% endif %}
             </div>
-            {% endif %}
-            {% endif %}
           </div>
+
+          <!-- Bio section -->
+          {% if profile.bio %}
+          <div style="padding:14px 18px 10px;background:white;">
+            <p style="color:#4b5563;font-size:14px;line-height:1.55;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">{{ profile.bio }}</p>
+          </div>
+          {% endif %}
+
+          <!-- Rating -->
+          {% if candidate.politeness_votes and candidate.politeness_votes > 0 %}
+          <div style="padding:0 18px 14px;background:white;display:flex;align-items:center;gap:4px;">
+            <span style="color:#f59e0b;font-size:13px;">⭐</span>
+            <span style="font-weight:700;font-size:13px;color:#374151;">{{ "%.1f"|format(candidate.politeness_score) }}</span>
+            <span style="color:#9ca3af;font-size:12px;">({{ candidate.politeness_votes }} {{ t.get('ratings_label','оценок') }})</span>
+          </div>
+          {% endif %}
         </div>
       </div>
 
-      <!-- Action buttons -->
-      <div class="flex justify-center items-center gap-4 mt-6">
+      <!-- ─── ACTION BUTTONS ─── -->
+      <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-top:24px;padding:0 8px;">
+
+        <!-- Undo -->
         <button @click="undo()" :disabled="!canUndo"
-                class="w-11 h-11 rounded-full bg-white border-2 border-gray-200 flex items-center justify-center text-lg transition-all hover:scale-110 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
+                class="action-btn btn-undo"
+                :style="!canUndo ? 'opacity:.35;cursor:not-allowed;' : ''"
                 title="{{ t.get('undo_btn_title','Отменить (Premium)') }}">↩</button>
-        <button @click="swipe('dislike')"
-                class="btn-nope w-16 h-16 rounded-full bg-white flex items-center justify-center text-2xl transition-all active:scale-90">✖️</button>
-        <a href="/profile/{{ candidate.id }}"
-           class="w-10 h-10 rounded-full glass border border-pink-200 flex items-center justify-center text-lg hover:scale-110 transition-all shadow-sm">👁</a>
-        <button @click="swipe('like')"
-                class="btn-like w-16 h-16 rounded-full bg-white flex items-center justify-center text-2xl transition-all active:scale-90">💚</button>
+
+        <!-- Dislike -->
+        <button @click="swipe('dislike')" class="action-btn btn-dislike">✖️</button>
+
+        <!-- View profile -->
+        <a href="/profile/{{ candidate.id }}" class="btn-eye">👁</a>
+
+        <!-- Like -->
+        <button @click="swipe('like')" class="action-btn btn-like">💚</button>
+
+        <!-- Super like -->
         <button @click="superLike()" :disabled="superLikesLeft <= 0"
-                class="w-11 h-11 rounded-full bg-white border-2 border-yellow-300 flex items-center justify-center text-lg transition-all hover:scale-110 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
-                :title="'{{ t.get('super_like_title','Супер-лайк') }} (' + superLikesLeft + ' {{ t.get('super_like_remaining','осталось') }})'">⭐</button>
+                class="action-btn btn-super"
+                :style="superLikesLeft <= 0 ? 'opacity:.35;cursor:not-allowed;' : ''"
+                :title="'⭐ {{ t.get('super_like_title','Супер-лайк') }} (' + superLikesLeft + ')'">⭐</button>
       </div>
 
-      <p class="text-center text-gray-400 text-xs mt-3">{{ t.get('swipe_hint','← свайп влево / вправо →') }}</p>
-      <p class="text-center text-yellow-500 text-xs" x-show="superLikesLeft > 0">
-        ⭐ <span x-text="superLikesLeft"></span> {{ t.get('super_likes_label','супер-лайков') }}
-      </p>
+      <!-- Hints row -->
+      <div style="display:flex;align-items:center;justify-content:center;gap:24px;margin-top:14px;">
+        <span style="font-size:12px;color:#d1d5db;">← {{ t.get('swipe_hint_left','нет') }}</span>
+        <span style="font-size:12px;color:#ec4899;" x-show="superLikesLeft > 0">⭐ <span x-text="superLikesLeft"></span></span>
+        <span style="font-size:12px;color:#d1d5db;">{{ t.get('swipe_hint_right','да') }} →</span>
+      </div>
+
     </div>
   </template>
   {% endif %}
