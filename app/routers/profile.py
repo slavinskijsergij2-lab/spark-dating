@@ -1,6 +1,5 @@
+import base64
 import io
-import os
-import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -27,23 +26,10 @@ MAX_BIO_LEN = 1000
 MAX_CITY_LEN = 100
 VALID_INTENTIONS = {"serious", "casual", "today", "browsing"}
 
-# C3: Store photos on filesystem instead of base64 in the database.
-# Set PHOTO_DIR to a Railway Volume path (e.g. /data/photos) for persistence across deploys.
-# Without PHOTO_DIR, photos are stored in ./static/photos/ (lost on Railway redeploy — add a Volume).
-_PHOTO_ENV_DIR = os.getenv("PHOTO_DIR", "")
-if _PHOTO_ENV_DIR:
-    _photo_fs_path = Path(_PHOTO_ENV_DIR)
-    _photo_url_prefix = "/photos/"
-else:
-    _photo_fs_path = Path("static/photos")
-    _photo_url_prefix = "/static/photos/"
-
-_photo_fs_path.mkdir(parents=True, exist_ok=True)
-
 
 async def save_photo(file: UploadFile) -> str:
-    """Process uploaded image, save to filesystem, return a URL path.
-    Existing base64 data URIs in the DB remain valid — <img src> accepts both."""
+    """Resize uploaded image and return as base64 data URI for persistent DB storage.
+    Storing in DB (not filesystem) means photos survive Railway container restarts/redeploys."""
     ext = Path(file.filename or "x.jpg").suffix.lower()
     if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
         raise HTTPException(400, "Только JPG/PNG/WEBP изображения")
@@ -61,9 +47,8 @@ async def save_photo(file: UploadFile) -> str:
     except Exception:
         raise HTTPException(400, "Не удалось обработать изображение. Попробуйте другой файл.")
 
-    filename = f"{uuid.uuid4().hex}.jpg"
-    (_photo_fs_path / filename).write_bytes(buf.getvalue())
-    return f"{_photo_url_prefix}{filename}"
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    return f"data:image/jpeg;base64,{b64}"
 
 
 @router.get("/profile/edit", response_class=HTMLResponse)

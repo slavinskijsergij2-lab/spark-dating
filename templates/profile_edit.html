@@ -258,7 +258,7 @@
             x-text="'# ' + tag"></button>
         </template>
       </div>
-      <p class="text-xs text-gray-400 mt-2" x-show="selectedTags.length >= 10">Максимум 10 тегов</p>
+      <p class="text-xs text-gray-400 mt-2" x-show="selectedTags.length >= 10">{{ t.get('interests_max_warning', 'Максимум 10 тегов') }}</p>
     </div>
 
     <!-- Anonymous mode -->

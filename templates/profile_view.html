@@ -46,12 +46,12 @@
     </div>
     {% if user.id != target.id %}
     <div class="absolute top-3 right-3 flex gap-2">
-      <button @click="blockUser()" :title="blocked ? 'Заблокировано' : 'Заблокировать'"
+      <button @click="blockUser()" :title="blocked ? '{{ t.get(\"blocked_status\", \"Заблокировано\") }}' : '{{ t.get(\"block_btn\", \"Заблокировать\") }}'"
         class="w-9 h-9 rounded-full flex items-center justify-center transition"
         :class="blocked ? 'bg-gray-700 text-gray-300' : 'bg-black/40 text-white hover:bg-black/60'">
         🚫
       </button>
-      <button @click="reportOpen=true" title="Пожаловаться"
+      <button @click="reportOpen=true" title="{{ t.get('report_btn', 'Пожаловаться') }}"
         class="w-9 h-9 bg-black/40 text-white rounded-full flex items-center justify-center hover:bg-red-600/80 transition">
         ⚑
       </button>
@@ -112,12 +112,12 @@
 
       <!-- Zodiac sign -->
       {% if zodiac %}
-      <span class="bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full text-sm" title="{{ zodiac.name }}">
-        {{ zodiac.symbol }} {{ zodiac.name }}
+      <span class="bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full text-sm" title="{{ t.get('zodiac_' + zodiac.key, zodiac.name) }}">
+        {{ zodiac.symbol }} {{ t.get('zodiac_' + zodiac.key, zodiac.name) }}
       </span>
       {% endif %}
       {% if zodiac_compat is not none %}
-      <span class="bg-rose-50 text-rose-600 px-3 py-1 rounded-full text-sm" title="Совместимость знаков">
+      <span class="bg-rose-50 text-rose-600 px-3 py-1 rounded-full text-sm" title="{{ t.get('zodiac_compat_title', 'Совместимость знаков') }}">
         💞 {{ zodiac_compat }}%
       </span>
       {% endif %}
@@ -135,7 +135,7 @@
     <!-- Achievement badges -->
     {% if achievements %}
     <div class="mb-4">
-      <p class="text-xs text-gray-400 mb-2 uppercase tracking-wide">Достижения</p>
+      <p class="text-xs text-gray-400 mb-2 uppercase tracking-wide">{{ t.get('achievements_title', 'Достижения') }}</p>
       <div class="flex flex-wrap gap-2">
         {% for ach in achievements %}
         <span class="bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm font-medium" title="{{ ach.label }}">
@@ -148,10 +148,10 @@
 
     <!-- Blocked notice -->
     <div x-show="blocked" class="text-center text-sm text-gray-500 mt-2">
-      Пользователь заблокирован
+      {{ t.get('blocked_notice', 'Пользователь заблокирован') }}
     </div>
     <div x-show="reported" class="text-center text-sm text-green-600 mt-2">
-      Жалоба отправлена
+      {{ t.get('reported_notice', 'Жалоба отправлена') }}
     </div>
   </div>
 </div>
@@ -165,19 +165,19 @@
 <!-- Report modal -->
 <div x-show="reportOpen" x-cloak class="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4">
   <div class="bg-white rounded-2xl p-6 w-full max-w-sm" @click.outside="reportOpen=false">
-    <h3 class="font-bold text-lg mb-4">Пожаловаться</h3>
+    <h3 class="font-bold text-lg mb-4">{{ t.get('report_modal_title', 'Пожаловаться') }}</h3>
     <select x-model="reportReason" class="w-full border border-gray-200 rounded-xl p-3 mb-3 text-sm focus:ring-2 focus:ring-pink-500 outline-none">
-      <option value="spam">Спам</option>
-      <option value="fake">Фейк / бот</option>
-      <option value="harassment">Оскорбления</option>
-      <option value="inappropriate">Неприемлемый контент</option>
-      <option value="other">Другое</option>
+      <option value="spam">{{ t.get('report_spam', 'Спам') }}</option>
+      <option value="fake">{{ t.get('report_fake', 'Фейк / бот') }}</option>
+      <option value="harassment">{{ t.get('report_harassment', 'Оскорбления') }}</option>
+      <option value="inappropriate">{{ t.get('report_inappropriate', 'Неприемлемый контент') }}</option>
+      <option value="other">{{ t.get('report_other', 'Другое') }}</option>
     </select>
-    <textarea x-model="reportComment" placeholder="Комментарий (необязательно)" rows="3"
+    <textarea x-model="reportComment" placeholder="{{ t.get('report_comment_placeholder', 'Комментарий (необязательно)') }}" rows="3"
       class="w-full border border-gray-200 rounded-xl p-3 mb-4 text-sm resize-none focus:ring-2 focus:ring-pink-500 outline-none"></textarea>
     <div class="flex gap-3">
-      <button @click="reportOpen=false" class="flex-1 py-2 border border-gray-200 rounded-full text-gray-600 text-sm">Отмена</button>
-      <button @click="reportUser()" class="flex-1 py-2 bg-red-500 text-white rounded-full text-sm font-semibold">Отправить</button>
+      <button @click="reportOpen=false" class="flex-1 py-2 border border-gray-200 rounded-full text-gray-600 text-sm">{{ t.get('cancel_btn', 'Отмена') }}</button>
+      <button @click="reportUser()" class="flex-1 py-2 bg-red-500 text-white rounded-full text-sm font-semibold">{{ t.get('send_btn_modal', 'Отправить') }}</button>
     </div>
   </div>
 </div>
