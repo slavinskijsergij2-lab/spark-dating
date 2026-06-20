@@ -226,12 +226,20 @@ async def global_exception_handler(request: Request, exc: Exception):
     # FIX H8: return HTML error page to browser users, not raw JSON
     accept = request.headers.get("accept", "")
     if "text/html" in accept:
+        try:
+            lang = get_lang(request)
+            t = get_translations(lang)
+            err_title = t.get("error_500_title", "Something went wrong 😔")
+            err_body  = t.get("error_500_body", "Please refresh the page or try again later.")
+            err_home  = t.get("error_500_home", "Go home")
+        except Exception:
+            err_title, err_body, err_home = "Something went wrong 😔", "Please try again later.", "Home"
         return HTMLResponse(
-            "<html><body style='font-family:sans-serif;text-align:center;padding:80px 20px;'>"
-            "<h2 style='color:#ef4444;'>Что-то пошло не так 😔</h2>"
-            "<p style='color:#6b7280;'>Попробуйте обновить страницу или вернитесь позже.</p>"
-            "<a href='/' style='color:#ec4899;font-weight:600;'>На главную</a>"
-            "</body></html>",
+            f"<html><body style='font-family:sans-serif;text-align:center;padding:80px 20px;'>"
+            f"<h2 style='color:#ef4444;'>{err_title}</h2>"
+            f"<p style='color:#6b7280;'>{err_body}</p>"
+            f"<a href='/' style='color:#ec4899;font-weight:600;'>{err_home}</a>"
+            f"</body></html>",
             status_code=500,
         )
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})

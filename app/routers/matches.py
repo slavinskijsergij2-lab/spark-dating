@@ -2,7 +2,7 @@ import base64
 import io
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from PIL import Image
 from sqlalchemy.orm import Session
@@ -170,7 +170,7 @@ def matches_page(request: Request, user: User = Depends(get_current_user), db: S
 def chat_page(match_id: int, request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     match = db.query(Match).filter(Match.id == match_id).first()
     if not match or (match.user1_id != user.id and match.user2_id != user.id):
-        return HTMLResponse("Доступ запрещен", status_code=403)
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     db.query(Message).filter(
         Message.match_id == match_id,

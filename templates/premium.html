@@ -59,10 +59,10 @@
   <p class="font-semibold text-gray-700 mb-4">{{ t.get('premium_benefits', 'Что включено в Premium') }}</p>
   <div class="flex flex-col gap-3">
     {% for item in [
-      ('👀', 'Кто смотрел ваш профиль — полный список', '/profile/who-viewed'),
-      ('⚡', 'Буст профиля на 3 часа (вместо 30 минут)', None),
-      ('💘', 'Значок Premium на профиле', None),
-      ('📧', 'Email-уведомления о новых матчах', None),
+      ('👀', t.get('premium_benefit_views', t.get('who_viewed_title', 'Кто смотрел профиль'))),
+      ('⚡', t.get('premium_benefit_boost', t.get('boost_title', 'Буст профиля'))),
+      ('💘', t.get('premium_benefit_badge', 'Premium badge')),
+      ('📧', t.get('premium_benefit_email', 'Email notifications for new matches')),
     ] %}
     <div class="flex items-center gap-3 {% if user.is_premium %}opacity-100{% else %}opacity-60{% endif %}">
       <span class="text-2xl">{{ item[0] }}</span>

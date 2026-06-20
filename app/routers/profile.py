@@ -32,11 +32,11 @@ async def save_photo(file: UploadFile) -> str:
     Storing in DB (not filesystem) means photos survive Railway container restarts/redeploys."""
     ext = Path(file.filename or "x.jpg").suffix.lower()
     if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
-        raise HTTPException(400, "Только JPG/PNG/WEBP изображения")
+        raise HTTPException(400, "photo_format_error")
 
     raw = await file.read()
     if len(raw) > MAX_FILE_BYTES:
-        raise HTTPException(400, "Файл слишком большой. Максимум 10 МБ.")
+        raise HTTPException(400, "photo_size_error")
 
     try:
         img = Image.open(io.BytesIO(raw))
@@ -45,7 +45,7 @@ async def save_photo(file: UploadFile) -> str:
         buf = io.BytesIO()
         img.save(buf, "JPEG", quality=80)
     except Exception:
-        raise HTTPException(400, "Не удалось обработать изображение. Попробуйте другой файл.")
+        raise HTTPException(400, "photo_process_error")
 
     b64 = base64.b64encode(buf.getvalue()).decode()
     return f"data:image/jpeg;base64,{b64}"
@@ -231,7 +231,7 @@ def delete_photo(
 def view_profile(user_id: int, request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     target = db.query(User).filter(User.id == user_id).first()
     if not target or not target.profile:
-        raise HTTPException(404, "Профиль не найден")
+        raise HTTPException(404, "Profile not found")
     lang = get_lang(request, user)
 
     # Track profile view (don't track self-views)
