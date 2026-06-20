@@ -326,6 +326,13 @@ TRANSLATIONS = {
         "zodiac_libra": "Весы",
         "zodiac_scorpio": "Скорпион",
         "zodiac_sagittarius": "Стрелец",
+        # Swipe / chat misc
+        "stories_mine": "Моя",
+        "undo_btn_title": "Отменить (Premium)",
+        "swipe_hint": "← свайп влево / вправо →",
+        "super_likes_label": "супер-лайков",
+        "voice_msg_title": "Голосовое сообщение (держать)",
+        "filter_online_label": "Онлайн",
     },
     "uk": {
         "logout": "Вийти",
@@ -654,6 +661,13 @@ TRANSLATIONS = {
         "zodiac_libra": "Терези",
         "zodiac_scorpio": "Скорпіон",
         "zodiac_sagittarius": "Стрілець",
+        # Swipe / chat misc
+        "stories_mine": "Моя",
+        "undo_btn_title": "Скасувати (Premium)",
+        "swipe_hint": "← свайп вліво / вправо →",
+        "super_likes_label": "супер-лайків",
+        "voice_msg_title": "Голосове повідомлення (тримати)",
+        "filter_online_label": "Онлайн",
     },
     "de": {
         "logout": "Abmelden",
@@ -980,6 +994,13 @@ TRANSLATIONS = {
         "zodiac_libra": "Waage",
         "zodiac_scorpio": "Skorpion",
         "zodiac_sagittarius": "Schütze",
+        # Swipe / chat misc
+        "stories_mine": "Mine",
+        "undo_btn_title": "Undo (Premium)",
+        "swipe_hint": "← swipe left / right →",
+        "super_likes_label": "super likes",
+        "voice_msg_title": "Voice message (hold)",
+        "filter_online_label": "Online",
     },
     "en": {
         "logout": "Sign out",
@@ -1306,6 +1327,13 @@ TRANSLATIONS = {
         "zodiac_libra": "Libra",
         "zodiac_scorpio": "Scorpio",
         "zodiac_sagittarius": "Sagittarius",
+        # Swipe / chat misc
+        "stories_mine": "Mine",
+        "undo_btn_title": "Undo (Premium)",
+        "swipe_hint": "← swipe left / right →",
+        "super_likes_label": "super likes",
+        "voice_msg_title": "Voice message (hold)",
+        "filter_online_label": "Online",
     },
     "tr": {
         "logout": "Çıkış",
@@ -1632,6 +1660,13 @@ TRANSLATIONS = {
         "zodiac_libra": "Terazi",
         "zodiac_scorpio": "Akrep",
         "zodiac_sagittarius": "Yay",
+        # Swipe / chat misc
+        "stories_mine": "لي",
+        "undo_btn_title": "تراجع (Premium)",
+        "swipe_hint": "← اسحب يساراً / يميناً →",
+        "super_likes_label": "إعجابات فائقة",
+        "voice_msg_title": "رسالة صوتية (اضغط مع الاستمرار)",
+        "filter_online_label": "متصل",
     },
     "ar": {
         "logout": "خروج",
@@ -1958,6 +1993,13 @@ TRANSLATIONS = {
         "zodiac_libra": "الميزان",
         "zodiac_scorpio": "العقرب",
         "zodiac_sagittarius": "القوس",
+        # Swipe / chat misc
+        "stories_mine": "لي",
+        "undo_btn_title": "تراجع (Premium)",
+        "swipe_hint": "← اسحب يساراً / يميناً →",
+        "super_likes_label": "إعجابات فائقة",
+        "voice_msg_title": "رسالة صوتية (اضغط مع الاستمرار)",
+        "filter_online_label": "متصل",
     },
 }
 

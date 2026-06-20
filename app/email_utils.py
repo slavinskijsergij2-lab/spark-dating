@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 RESEND_FROM = os.getenv("RESEND_FROM", "Spark <onboarding@resend.dev>")
-APP_URL = os.getenv("APP_URL", "http://localhost:8000")
+APP_URL = os.getenv("APP_URL", "https://spark-dating.club")
 
 
 def is_smtp_configured() -> bool:

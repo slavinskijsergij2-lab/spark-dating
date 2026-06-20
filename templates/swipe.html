@@ -85,7 +85,7 @@
                class="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-300">
       </div>
       <div class="flex items-center gap-3">
-        <label class="text-sm text-gray-600 w-20">🟢 Онлайн</label>
+        <label class="text-sm text-gray-600 w-20">🟢 {{ t.get('filter_online_label', 'Онлайн') }}</label>
         <label class="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" name="online_only" value="1" {% if online_only %}checked{% endif %}
                  class="w-4 h-4 accent-pink-500 rounded">
@@ -353,7 +353,7 @@
         <!-- Undo -->
         <button @click="undo()" :disabled="!canUndo"
                 class="w-11 h-11 rounded-full bg-white border-2 border-gray-200 flex items-center justify-center text-lg transition-all hover:scale-110 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
-                title="Отменить (Premium)">
+                title="{{ t.get('undo_btn_title', 'Отменить (Premium)') }}">
           ↩
         </button>
         <!-- Dislike -->
@@ -380,9 +380,9 @@
       </div>
 
       <!-- Hint text -->
-      <p class="text-center text-gray-400 text-xs mt-3">← свайп влево / вправо →</p>
+      <p class="text-center text-gray-400 text-xs mt-3">{{ t.get('swipe_hint', '← свайп влево / вправо →') }}</p>
       <p class="text-center text-yellow-500 text-xs" x-show="superLikesLeft > 0">
-        ⭐ <span x-text="superLikesLeft"></span> супер-лайков
+        ⭐ <span x-text="superLikesLeft"></span> {{ t.get('super_likes_label', 'супер-лайков') }}
       </p>
     </div>
   </template>

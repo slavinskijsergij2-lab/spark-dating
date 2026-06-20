@@ -295,7 +295,7 @@
     <button @mousedown="startVoice()" @mouseup="stopVoice()" @touchstart.prevent="startVoice()" @touchend.prevent="stopVoice()"
             :class="recording ? 'bg-red-500' : 'bg-gray-100 text-gray-500 hover:bg-pink-50'"
             class="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition text-lg"
-            title="Голосовое сообщение (держать)">
+            title="{{ t.get('voice_msg_title', 'Голосовое сообщение (держать)') }}">
       <span x-show="!recording">🎤</span>
       <span x-show="recording" x-cloak class="text-white text-sm font-bold">●</span>
     </button>
