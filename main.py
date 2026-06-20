@@ -192,6 +192,12 @@ app.include_router(stories.router)
 async def http_exception_handler(request: Request, exc: HTTPException):
     from urllib.parse import quote
     accept = request.headers.get("accept", "")
+    is_api = request.url.path.startswith("/api/")
+    if exc.status_code == 401 and not is_api:
+        # Always redirect browser page requests to login and clear stale cookie
+        response = RedirectResponse("/login", status_code=302)
+        response.delete_cookie("access_token")
+        return response
     if "text/html" in accept:
         if exc.status_code == 401:
             response = RedirectResponse("/login", status_code=302)
