@@ -72,6 +72,7 @@ TRANSLATIONS = {
         "message_placeholder": "Написать сообщение...",
         "send": "Отправить",
         "start_chat": "Начни разговор 👋",
+        "mic_denied": "Нет доступа к микрофону",
         # Function 2: Icebreakers
         "icebreakers_btn": "💡 Подсказки для первого сообщения",
         "icebreakers_title": "Варианты первого сообщения",
@@ -84,6 +85,7 @@ TRANSLATIONS = {
         "rate_error": "Ошибка при отправке",
         "politeness_label": "Рейтинг вежливости",
         "already_rated": "Вы уже оценивали этого пользователя",
+        "premium_code_invalid": "Неверный код активации",
         # Function 5: Intentions
         "intention_label": "Что ищешь?",
         "intention_serious": "Серьёзные отношения",
@@ -348,6 +350,7 @@ TRANSLATIONS = {
         "message_placeholder": "Написати повідомлення...",
         "send": "Надіслати",
         "start_chat": "Почни розмову 👋",
+        "mic_denied": "Немає доступу до мікрофону",
         # Function 2: Icebreakers
         "icebreakers_btn": "💡 Підказки для першого повідомлення",
         "icebreakers_title": "Варіанти першого повідомлення",
@@ -360,6 +363,7 @@ TRANSLATIONS = {
         "rate_error": "Помилка при надсиланні",
         "politeness_label": "Рейтинг ввічливості",
         "already_rated": "Ви вже оцінювали цього користувача",
+        "premium_code_invalid": "Невірний код активації",
         # Function 5: Intentions
         "intention_label": "Що шукаєш?",
         "intention_serious": "Серйозні стосунки",
@@ -624,6 +628,7 @@ TRANSLATIONS = {
         "message_placeholder": "Nachricht schreiben...",
         "send": "Senden",
         "start_chat": "Starte das Gespräch 👋",
+        "mic_denied": "Kein Zugriff auf das Mikrofon",
         # Function 2: Icebreakers
         "icebreakers_btn": "💡 Gesprächseinstieg",
         "icebreakers_title": "Vorschläge für die erste Nachricht",
@@ -636,6 +641,7 @@ TRANSLATIONS = {
         "rate_error": "Fehler beim Senden",
         "politeness_label": "Höflichkeitsbewertung",
         "already_rated": "Du hast diesen Nutzer bereits bewertet",
+        "premium_code_invalid": "Ungültiger Aktivierungscode",
         # Function 5: Intentions
         "intention_label": "Was suchst du?",
         "intention_serious": "Ernsthafte Beziehung",
@@ -900,6 +906,7 @@ TRANSLATIONS = {
         "message_placeholder": "Write a message...",
         "send": "Send",
         "start_chat": "Start the conversation 👋",
+        "mic_denied": "Microphone access denied",
         # Function 2: Icebreakers
         "icebreakers_btn": "💡 Get icebreakers",
         "icebreakers_title": "Opening message suggestions",
@@ -912,6 +919,7 @@ TRANSLATIONS = {
         "rate_error": "Error submitting rating",
         "politeness_label": "Politeness rating",
         "already_rated": "You have already rated this user",
+        "premium_code_invalid": "Invalid activation code",
         # Function 5: Intentions
         "intention_label": "What are you looking for?",
         "intention_serious": "Serious relationship",
@@ -1176,6 +1184,7 @@ TRANSLATIONS = {
         "message_placeholder": "Mesaj yaz...",
         "send": "Gönder",
         "start_chat": "Konuşmayı başlat 👋",
+        "mic_denied": "Mikrofon erişimi reddedildi",
         # Function 2: Icebreakers
         "icebreakers_btn": "💡 Konuşma başlatıcıları",
         "icebreakers_title": "İlk mesaj önerileri",
@@ -1188,6 +1197,7 @@ TRANSLATIONS = {
         "rate_error": "Gönderimde hata",
         "politeness_label": "Kibarlık puanı",
         "already_rated": "Bu kullanıcıyı zaten değerlendirdiniz",
+        "premium_code_invalid": "Geçersiz aktivasyon kodu",
         # Function 5: Intentions
         "intention_label": "Ne arıyorsun?",
         "intention_serious": "Ciddi ilişki",
@@ -1452,6 +1462,7 @@ TRANSLATIONS = {
         "message_placeholder": "اكتب رسالة...",
         "send": "إرسال",
         "start_chat": "ابدأ المحادثة 👋",
+        "mic_denied": "تم رفض الوصول إلى الميكروفون",
         # Function 2: Icebreakers
         "icebreakers_btn": "💡 اقتراحات للرسالة الأولى",
         "icebreakers_title": "اقتراحات رسالة افتتاحية",
@@ -1464,6 +1475,7 @@ TRANSLATIONS = {
         "rate_error": "خطأ في الإرسال",
         "politeness_label": "تقييم اللطف",
         "already_rated": "لقد قيّمت هذا المستخدم بالفعل",
+        "premium_code_invalid": "رمز التفعيل غير صحيح",
         # Function 5: Intentions
         "intention_label": "ماذا تبحث عن؟",
         "intention_serious": "علاقة جادة",

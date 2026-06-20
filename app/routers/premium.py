@@ -57,7 +57,9 @@ async def activate_premium(
             data = {}
         code = (data.get("code") or "").strip()
         if code not in _PREMIUM_CODES:
-            return JSONResponse({"error": "Неверный код активации"}, status_code=400)
+            lang = get_lang(request, user)
+            t = get_translations(lang)
+            return JSONResponse({"error": t.get("premium_code_invalid", "Invalid activation code")}, status_code=400)
     user.is_premium = True
     db.commit()
     return JSONResponse({"success": True})

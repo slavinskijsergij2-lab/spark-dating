@@ -525,7 +525,7 @@
           this.mediaRecorder.ondataavailable = e => { if (e.data.size > 0) this.audioChunks.push(e.data); };
           this.mediaRecorder.start();
           this.recording = true;
-        } catch(e) { alert('Нет доступа к микрофону'); }
+        } catch(e) { alert('{{ t.get("mic_denied", "Microphone access denied") }}'); }
       },
 
       async stopVoice() {
