@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from PIL import Image
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.auth import get_current_user
 from app.csrf import validate_csrf_form, validate_csrf_header
@@ -105,7 +105,10 @@ def stories_feed(user: User = Depends(get_current_user), db: Session = Depends(g
 
     # HIGH-4: batch-load all story authors in a single query (was N+1)
     user_ids = list(by_user.keys())
-    users_map = {u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()}
+    users_map = {
+        u.id: u
+        for u in db.query(User).options(joinedload(User.profile)).filter(User.id.in_(user_ids)).all()
+    }
 
     result = []
     for uid, slist in by_user.items():

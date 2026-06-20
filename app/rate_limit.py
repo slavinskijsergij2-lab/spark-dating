@@ -29,4 +29,9 @@ def rate_limit(max_calls: int, window_seconds: int = 60):
                 )
             calls.append(now)
             _store[key] = calls
+            # Prevent unbounded memory growth: evict all empty/expired keys when store is large.
+            if len(_store) > 5000:
+                to_del = [k for k, v in _store.items() if not v or max(v) <= now - window_seconds]
+                for k in to_del:
+                    del _store[k]
     return dependency

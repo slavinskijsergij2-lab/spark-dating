@@ -74,8 +74,12 @@ def deactivate_premium(user: User = Depends(get_current_user), db: Session = Dep
 
 @router.post("/profile/boost", dependencies=[Depends(validate_csrf_header)])
 def boost_profile(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    now = _utcnow()
+    if user.boost_until and user.boost_until > now:
+        remaining = int((user.boost_until - now).total_seconds() / 60)
+        return JSONResponse({"error": "boost_active", "remaining_minutes": remaining}, status_code=400)
     hours = 3.0 if user.is_premium else 0.5
-    user.boost_until = _utcnow() + timedelta(hours=hours)
+    user.boost_until = now + timedelta(hours=hours)
     db.commit()
     return JSONResponse({"success": True, "minutes": int(hours * 60)})
 

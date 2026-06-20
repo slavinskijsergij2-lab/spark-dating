@@ -5,7 +5,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from PIL import Image
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, func, or_
 
 from app.auth import get_current_user
@@ -141,7 +141,7 @@ def matches_page(request: Request, user: User = Depends(get_current_user), db: S
     all_partner_ids = list(partner_id_by_match.values())
     partners_map = {
         u.id: u
-        for u in db.query(User).filter(User.id.in_(all_partner_ids)).all()
+        for u in db.query(User).options(joinedload(User.profile)).filter(User.id.in_(all_partner_ids)).all()
     } if all_partner_ids else {}
 
     compat_map = compute_compatibility_batch(user.id, all_partner_ids, db)
@@ -166,7 +166,7 @@ def matches_page(request: Request, user: User = Depends(get_current_user), db: S
     liked_me_users = []
     if pending_ids:
         liked_me_users = [
-            u for u in db.query(User).filter(User.id.in_(pending_ids)).all()
+            u for u in db.query(User).options(joinedload(User.profile)).filter(User.id.in_(pending_ids)).all()
             if u.profile
         ]
 

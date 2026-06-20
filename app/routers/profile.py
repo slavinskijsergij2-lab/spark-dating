@@ -34,7 +34,7 @@ async def save_photo(file: UploadFile) -> str:
     if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
         raise HTTPException(400, "photo_format_error")
 
-    raw = await file.read()
+    raw = await file.read(MAX_FILE_BYTES + 1)
     if len(raw) > MAX_FILE_BYTES:
         raise HTTPException(400, "photo_size_error")
 

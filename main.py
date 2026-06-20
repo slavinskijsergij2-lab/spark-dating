@@ -140,14 +140,15 @@ async def security_middleware(request: Request, call_next):
 
 def _tojson(value, indent=None):
     from datetime import datetime as _dt
+    from markupsafe import Markup
     def default(o):
         if isinstance(o, _dt):
             return o.isoformat()
         raise TypeError(f"Object of type {type(o)} is not JSON serializable")
     result = json.dumps(value, default=default, indent=indent, ensure_ascii=False)
-    # HIGH-7: escape `</` so user content can't close a <script> block when
-    # the result is used with |safe inside a <script> tag.
-    return result.replace("</", "<\\/").replace("<!--", "<\\!--")
+    # Escape `</` and `<!--` so user content can't break a <script> block.
+    # Return Markup so Jinja2 autoescape doesn't double-encode quotes in <script> tags.
+    return Markup(result.replace("</", "<\\/").replace("<!--", "<\\!--"))
 
 
 _ONLINE_LABELS = {
