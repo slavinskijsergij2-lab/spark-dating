@@ -132,6 +132,23 @@
   </div>
 </a>
 
+<!-- Referral card -->
+<a href="/referral"
+   class="block bg-gradient-to-r from-pink-50 to-purple-50 border border-pink-200 rounded-2xl p-5 mb-4 hover:shadow-lg transition">
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <span class="text-2xl">🎁</span>
+      <div>
+        <p class="font-semibold text-gray-800">{{ t.get('referral_title', 'Пригласи друзей') }}</p>
+        <p class="text-xs text-gray-500">{{ t.get('referral_subtitle', 'За каждого друга — 3 дня Premium') }}</p>
+      </div>
+    </div>
+    <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+    </svg>
+  </div>
+</a>
+
 <script>
 function deactivate() {
   fetch('/premium/deactivate', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}})

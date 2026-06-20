@@ -41,11 +41,26 @@ class User(Base):
     # Premium & boost
     is_premium = Column(Boolean, default=False, nullable=False)
     boost_until = Column(DateTime, nullable=True)
+    premium_until = Column(DateTime, nullable=True)  # time-limited bonus from referrals
+
+    # Referral system
+    referral_code = Column(String(20), unique=True, nullable=True, index=True)
+    referred_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     # Zodiac & phone
     birth_date = Column(DateTime, nullable=True)
     phone = Column(String(20), nullable=True)
     phone_verified = Column(Boolean, default=False, nullable=False)
+
+    @property
+    def is_premium_active(self) -> bool:
+        """True if user has permanent premium OR active timed referral bonus."""
+        if self.is_premium:
+            return True
+        if self.premium_until:
+            from app.utils.time import utcnow as _utcnow
+            return self.premium_until > _utcnow()
+        return False
 
     profile = relationship("Profile", back_populates="user", uselist=False, cascade="all, delete-orphan")
     likes_given = relationship("Like", foreign_keys="Like.liker_id", back_populates="liker", cascade="all, delete-orphan")

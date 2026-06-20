@@ -20,7 +20,7 @@ from app.database import Base, engine
 from app.i18n import get_lang, get_translations, is_rtl
 from app.routers import auth, profile, swipe, matches
 from app.utils.time import utcnow as _utcnow
-from app.routers import features, premium, social, stories
+from app.routers import features, premium, social, stories, referral
 from app.templates import templates
 
 Base.metadata.create_all(bind=engine)
@@ -49,6 +49,10 @@ _migrations = [
     "ALTER TABLE messages ADD COLUMN{} is_voice BOOLEAN NOT NULL DEFAULT FALSE",
     # HIGH-8: both parties should see new match notification
     "ALTER TABLE matches ALTER COLUMN seen_by_user1 SET DEFAULT FALSE",
+    # Referral system
+    "ALTER TABLE users ADD COLUMN{} referral_code VARCHAR(20)",
+    "ALTER TABLE users ADD COLUMN{} referred_by_id INTEGER",
+    "ALTER TABLE users ADD COLUMN{} premium_until TIMESTAMP",
 ]
 # MEDIUM-5: add unique constraint on profile_views to prevent duplicates
 _constraint_migrations = [
@@ -187,6 +191,7 @@ app.include_router(features.router)
 app.include_router(premium.router)
 app.include_router(social.router)
 app.include_router(stories.router)
+app.include_router(referral.router)
 
 
 @app.exception_handler(HTTPException)

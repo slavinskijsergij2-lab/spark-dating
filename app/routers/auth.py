@@ -103,10 +103,12 @@ def register_page(request: Request, user=Depends(get_optional_user)):
     if user:
         return RedirectResponse("/swipe", status_code=302)
     lang = get_lang(request)
+    ref = request.query_params.get("ref", "")
     return templates.TemplateResponse("register.html", {
         "request": request,
         "t": get_translations(lang),
         "rtl": is_rtl(lang),
+        "ref": ref,
     })
 
 
@@ -116,6 +118,7 @@ def register(
     email: str = Form(...),
     password: str = Form(...),
     language: str = Form("en"),
+    ref: str = Form(""),
     db: Session = Depends(get_db),
 ):
     email = email.lower().strip()
@@ -146,6 +149,13 @@ def register(
     smtp_active = is_smtp_configured()
     verify_token = secrets.token_urlsafe(32) if smtp_active else None
 
+    # Look up referrer before creating new user
+    ref_code = ref.strip().upper() if ref else ""
+    referrer = None
+    if ref_code:
+        referrer = db.query(User).filter(User.referral_code == ref_code).first()
+
+    from app.routers.referral import _generate_referral_code
     user = User(
         email=email,
         hashed_password=hash_password(password),
@@ -154,10 +164,17 @@ def register(
         email_verify_token=verify_token,
         # FIX H7: record when token was issued so we can enforce 24h expiry
         email_verify_created_at=_utcnow() if smtp_active else None,
+        referred_by_id=referrer.id if referrer else None,
+        referral_code=_generate_referral_code(db),
     )
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    # Reward referrer with bonus premium days
+    if referrer:
+        from app.routers.referral import apply_referral_bonus
+        apply_referral_bonus(referrer, db)
 
     if smtp_active:
         send_verification_email(email, verify_token, lang=language)

@@ -51,6 +51,12 @@
         </div>
 
         <input type="hidden" name="csrftoken" value="{{ request.state.csrf_token }}" />
+        <input type="hidden" name="ref" value="{{ ref | default('') }}" />
+        {% if ref %}
+        <div class="mb-4 bg-pink-50 border border-pink-200 rounded-xl px-4 py-2.5 text-sm text-pink-700 flex items-center gap-2">
+          🎁 {{ t.get('referral_invite_banner', 'Вас пригласили в Spark') }}
+        </div>
+        {% endif %}
         <button type="submit"
                 class="w-full gradient-pink text-white py-3 rounded-full font-semibold text-lg shadow hover:opacity-90 transition">
           {{ t.register_button }}
