@@ -1,5 +1,6 @@
 TRANSLATIONS = {
     "ru": {
+        "site_tagline": "Знакомства",
         "logout": "Выйти",
         "nav_swipe": "Искать",
         "nav_matches": "Матчи",
@@ -396,6 +397,7 @@ TRANSLATIONS = {
         "tag_boardgames": "Настолки", "tag_beach": "Пляж",
     },
     "uk": {
+        "site_tagline": "Знайомства",
         "logout": "Вийти",
         "nav_swipe": "Шукати",
         "nav_matches": "Матчі",
@@ -792,6 +794,7 @@ TRANSLATIONS = {
         "tag_boardgames": "Настільні ігри", "tag_beach": "Пляж",
     },
     "de": {
+        "site_tagline": "Dating",
         "logout": "Abmelden",
         "nav_swipe": "Entdecken",
         "nav_matches": "Matches",
@@ -1186,6 +1189,7 @@ TRANSLATIONS = {
         "tag_boardgames": "Brettspiele", "tag_beach": "Strand",
     },
     "en": {
+        "site_tagline": "Dating",
         "logout": "Sign out",
         "nav_swipe": "Discover",
         "nav_matches": "Matches",
@@ -1580,6 +1584,7 @@ TRANSLATIONS = {
         "tag_boardgames": "Board Games", "tag_beach": "Beach",
     },
     "tr": {
+        "site_tagline": "Tanışma",
         "logout": "Çıkış",
         "nav_swipe": "Keşfet",
         "nav_matches": "Eşleşmeler",
@@ -1974,6 +1979,7 @@ TRANSLATIONS = {
         "tag_boardgames": "Masa Oyunları", "tag_beach": "Plaj",
     },
     "ar": {
+        "site_tagline": "مواعدة",
         "logout": "خروج",
         "nav_swipe": "اكتشاف",
         "nav_matches": "تطابقات",
