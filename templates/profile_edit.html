@@ -75,7 +75,7 @@
   selectedIntention: '{{ profile.intention if profile and profile.intention else '' }}',
   selectedTags: {{ (profile.interests.split(',') | map('trim') | list | tojson) if profile and profile.interests else '[]' }},
   isAnonymous: {{ 'true' if profile and profile.is_anonymous else 'false' }},
-  allTags: ['Музыка','Игры','Спорт','Еда','Путешествия','Книги','Кино','Животные','Искусство','Природа','Технологии','Кулинария','Йога','Театр','Фото','Велоспорт','Языки','Концерты','Настолки','Пляж'],
+  allTags: {{ [t.get('tag_music','Музыка'),t.get('tag_games','Игры'),t.get('tag_sports','Спорт'),t.get('tag_food','Еда'),t.get('tag_travel','Путешествия'),t.get('tag_books','Книги'),t.get('tag_movies','Кино'),t.get('tag_animals','Животные'),t.get('tag_art','Искусство'),t.get('tag_nature','Природа'),t.get('tag_tech','Технологии'),t.get('tag_cooking','Кулинария'),t.get('tag_yoga','Йога'),t.get('tag_theater','Театр'),t.get('tag_photo','Фото'),t.get('tag_cycling','Велоспорт'),t.get('tag_languages','Языки'),t.get('tag_concerts','Концерты'),t.get('tag_boardgames','Настолки'),t.get('tag_beach','Пляж')] | tojson }},
   toggleTag(tag) {
     const i = this.selectedTags.indexOf(tag);
     if (i >= 0) this.selectedTags.splice(i, 1);
