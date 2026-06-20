@@ -100,9 +100,9 @@
 
 <script>
 function quizApp() {
-  const questions = {{ questions | tojson }};
-  const answeredIds = new Set({{ answered_ids | tojson }});
-  const translations = {{ t | tojson }};
+  const questions = {{ questions | tojson | safe }};
+  const answeredIds = new Set({{ answered_ids | tojson | safe }});
+  const translations = {{ t | tojson | safe }};
 
   const catMeta = {
     lifestyle:     { icon: '🌿', color: 'green' },

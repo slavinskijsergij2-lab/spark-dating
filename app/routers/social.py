@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.auth import get_current_user
 from app.csrf import validate_csrf_header
@@ -84,7 +84,7 @@ def blocked_list(request: Request, user: User = Depends(get_current_user), db: S
     lang = get_lang(request, user)
     block_records = db.query(Block).filter(Block.blocker_id == user.id).order_by(Block.created_at.desc()).all()
     blocked_ids = [b.blocked_id for b in block_records]
-    blocked_users = {u.id: u for u in db.query(User).filter(User.id.in_(blocked_ids)).all()} if blocked_ids else {}
+    blocked_users = {u.id: u for u in db.query(User).options(joinedload(User.profile)).filter(User.id.in_(blocked_ids)).all()} if blocked_ids else {}
     items = [(b, blocked_users.get(b.blocked_id)) for b in block_records if blocked_users.get(b.blocked_id)]
     return templates.TemplateResponse("settings_blocks.html", {
         "request": request,

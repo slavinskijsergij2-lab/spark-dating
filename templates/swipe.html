@@ -10,30 +10,140 @@
     cursor: grab;
   }
   .swipe-card-wrap:active { cursor: grabbing; }
-
-  /* Like / Nope overlays */
-  .stamp-like  { border: 4px solid #22c55e; color: #22c55e; transform: rotate(-15deg); }
-  .stamp-nope  { border: 4px solid #ef4444; color: #ef4444; transform: rotate(15deg); }
-
-  /* Button glow */
-  .btn-like  { box-shadow: 0 4px 20px rgba(34,197,94,.35); }
-  .btn-nope  { box-shadow: 0 4px 20px rgba(239,68,68,.35); }
-  .btn-like:hover  { box-shadow: 0 6px 28px rgba(34,197,94,.6);  transform: scale(1.1); }
-  .btn-nope:hover  { box-shadow: 0 6px 28px rgba(239,68,68,.6);  transform: scale(1.1); }
-
-  /* Intention filter */
+  .stamp-like { border: 4px solid #22c55e; color: #22c55e; transform: rotate(-15deg); }
+  .stamp-nope { border: 4px solid #ef4444; color: #ef4444; transform: rotate(15deg); }
+  .btn-like { box-shadow: 0 4px 20px rgba(34,197,94,.35); }
+  .btn-nope { box-shadow: 0 4px 20px rgba(239,68,68,.35); }
+  .btn-like:hover { box-shadow: 0 6px 28px rgba(34,197,94,.6); transform: scale(1.1); }
+  .btn-nope:hover { box-shadow: 0 6px 28px rgba(239,68,68,.6); transform: scale(1.1); }
   .intention-pill.active { background: #fce7f3; border-color: #ec4899; color: #db2777; font-weight: 700; }
-
-  /* Match popup */
   @keyframes matchPop { from { transform: scale(.5); opacity:0; } to { transform: scale(1); opacity:1; } }
   .match-pop { animation: matchPop .4s cubic-bezier(.34,1.56,.64,1) both; }
   @keyframes confettiDrop { to { transform: translateY(100vh) rotate(720deg); opacity:0; } }
+  .no-scrollbar::-webkit-scrollbar { display:none; }
+  .no-scrollbar { -ms-overflow-style:none; scrollbar-width:none; }
+  .text-gradient { background:linear-gradient(135deg,#f472b6,#ec4899,#db2777); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
 </style>
+
+<script>
+document.addEventListener('alpine:init', () => {
+  Alpine.data('swipeApp', () => ({
+    matched: false,
+    partnerName: '',
+    noMore: {{ 'true' if not candidate else 'false' }},
+    dragging: false,
+    startX: 0, startY: 0,
+    dx: 0, dy: 0,
+    flyX: 0, flyOpacity: 1,
+    swiping: false,
+    superLikesLeft: {{ super_likes_left }},
+    canUndo: {{ 'true' if can_undo else 'false' }},
+    candidateId: {{ candidate.id if candidate else 0 }},
+    profileName: {{ (profile.name if profile else '') | tojson | safe }},
+
+    get cardStyle() {
+      const rot = this.dx * 0.07;
+      if (this.swiping) {
+        return `transform: translate(${this.flyX}px, ${this.dy}px) rotate(${rot}deg); opacity: ${this.flyOpacity};`;
+      }
+      return `transform: translate(${this.dx}px, ${this.dy}px) rotate(${rot}deg);`;
+    },
+    get showLike() { return this.dx > 40; },
+    get showNope() { return this.dx < -40; },
+    get likeOpacity() { return Math.min(1, (this.dx - 40) / 60); },
+    get nopeOpacity() { return Math.min(1, (-this.dx - 40) / 60); },
+
+    onTouchStart(e) {
+      if (this.swiping || this.noMore) return;
+      this.dragging = true;
+      this.startX = e.touches ? e.touches[0].clientX : e.clientX;
+      this.startY = e.touches ? e.touches[0].clientY : e.clientY;
+    },
+    onTouchMove(e) {
+      if (!this.dragging || this.swiping) return;
+      const cx = e.touches ? e.touches[0].clientX : e.clientX;
+      const cy = e.touches ? e.touches[0].clientY : e.clientY;
+      this.dx = cx - this.startX;
+      this.dy = (cy - this.startY) * 0.3;
+    },
+    onTouchEnd() {
+      if (!this.dragging || this.swiping) return;
+      this.dragging = false;
+      if (this.dx > 90)       { this.swipe('like'); }
+      else if (this.dx < -90) { this.swipe('dislike'); }
+      else { this.dx = 0; this.dy = 0; }
+    },
+
+    async superLike() {
+      if (this.swiping || this.noMore || this.superLikesLeft <= 0) return;
+      this.superLikesLeft--;
+      await this.swipe('like', true);
+    },
+
+    async undo() {
+      if (!this.canUndo) return;
+      const r = await fetch('/swipe/undo', { method: 'POST', headers: { 'x-csrf-token': getCsrfToken() } });
+      const d = await r.json();
+      if (d.success) window.location.reload();
+    },
+
+    async swipe(action, isSuper) {
+      if (this.swiping || this.noMore) return;
+      this.swiping = true;
+      const dir = action === 'like' ? 1 : -1;
+      this.flyX = dir * (window.innerWidth + 200);
+      this.flyOpacity = 0;
+      this.dy = -30;
+      await new Promise(r => setTimeout(r, 380));
+
+      const url = '/swipe/' + this.candidateId + '?action=' + action + (isSuper ? '&is_super=1' : '');
+      try {
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'x-csrf-token': getCsrfToken() },
+        });
+        const data = await resp.json();
+        if (data.matched) {
+          this.partnerName = this.profileName;
+          this.matched = true;
+          this.spawnConfetti();
+          setTimeout(() => { this.matched = false; window.location.reload(); }, 3500);
+        } else {
+          window.location.reload();
+        }
+      } catch(e) {
+        window.location.reload();
+      }
+    },
+
+    spawnConfetti() {
+      const colors = ['#ec4899','#f43f5e','#8b5cf6','#f59e0b','#22c55e','#06b6d4'];
+      for (let i = 0; i < 60; i++) {
+        const el = document.createElement('div');
+        const color = colors[Math.floor(Math.random() * colors.length)];
+        const size = 6 + Math.random() * 8;
+        const left = Math.random() * 100;
+        const dur = 1.5 + Math.random() * 2;
+        const delay = Math.random() * 0.8;
+        const radius = Math.random() > 0.5 ? '50%' : '2px';
+        el.style.cssText = 'position:fixed;top:-10px;z-index:9999;pointer-events:none;' +
+          'width:' + size + 'px;height:' + size + 'px;' +
+          'background:' + color + ';' +
+          'left:' + left + 'vw;' +
+          'border-radius:' + radius + ';' +
+          'animation:confettiDrop ' + dur + 's ease-in ' + delay + 's forwards;';
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 4000);
+      }
+    },
+  }));
+});
+</script>
 {% endblock %}
 
 {% block content %}
 
-<!-- Intention filter bar + age filter -->
+<!-- Intention filter bar -->
 <div x-data="{ showFilters: false }" class="mb-4">
   <div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar items-center">
     <a href="/swipe{% if age_min != 18 or age_max != 100 %}?age_min={{ age_min }}&age_max={{ age_max }}{% endif %}"
@@ -52,7 +162,6 @@
     </a>
     {% endfor %}
 
-    <!-- Age filter toggle -->
     <button @click="showFilters = !showFilters"
             class="flex-shrink-0 w-9 h-9 rounded-full border-2 flex items-center justify-center transition
                    {% if filters_active %}border-pink-400 bg-pink-50 text-pink-600{% else %}border-gray-200 text-gray-500 hover:border-pink-200{% endif %}">
@@ -60,9 +169,7 @@
     </button>
   </div>
 
-  <!-- Age filter panel -->
-  <div x-show="showFilters" x-cloak
-       class="mt-3 glass rounded-2xl p-4 border border-pink-100 shadow-sm">
+  <div x-show="showFilters" x-cloak class="mt-3 glass rounded-2xl p-4 border border-pink-100 shadow-sm">
     <p class="text-sm font-semibold text-gray-700 mb-3">🎚 {{ t.get('filter_title','Фильтры') }}</p>
     <form method="GET" action="/swipe" class="flex flex-col gap-3">
       {% if current_intention %}
@@ -85,7 +192,7 @@
                class="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-300">
       </div>
       <div class="flex items-center gap-3">
-        <label class="text-sm text-gray-600 w-20">🟢 {{ t.get('filter_online_label', 'Онлайн') }}</label>
+        <label class="text-sm text-gray-600 w-20">🟢 {{ t.get('filter_online_label','Онлайн') }}</label>
         <label class="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" name="online_only" value="1" {% if online_only %}checked{% endif %}
                  class="w-4 h-4 accent-pink-500 rounded">
@@ -106,126 +213,24 @@
   </div>
 </div>
 
-<div x-data="{
-  matched: false,
-  partnerName: '',
-  noMore: {{ 'true' if not candidate else 'false' }},
-  dragging: false,
-  startX: 0, startY: 0,
-  dx: 0, dy: 0,
-  flyX: 0, flyOpacity: 1,
-  swiping: false,
-  superLikesLeft: {{ super_likes_left }},
-  canUndo: {{ 'true' if can_undo else 'false' }},
+<!-- Main swipe area -->
+<div x-data="swipeApp()">
 
-  get cardStyle() {
-    const rot = this.dx * 0.07;
-    if (this.swiping) {
-      return `transform: translate(${this.flyX}px, ${this.dy}px) rotate(${rot}deg); opacity: ${this.flyOpacity};`;
-    }
-    return `transform: translate(${this.dx}px, ${this.dy}px) rotate(${rot}deg);`;
-  },
-  get showLike()  { return this.dx >  40; },
-  get showNope()  { return this.dx < -40; },
-  get likeOpacity()  { return Math.min(1, (this.dx - 40)  / 60); },
-  get nopeOpacity()  { return Math.min(1, (-this.dx - 40) / 60); },
-
-  onTouchStart(e) {
-    if (this.swiping || this.noMore) return;
-    this.dragging = true;
-    this.startX = e.touches ? e.touches[0].clientX : e.clientX;
-    this.startY = e.touches ? e.touches[0].clientY : e.clientY;
-  },
-  onTouchMove(e) {
-    if (!this.dragging || this.swiping) return;
-    const cx = e.touches ? e.touches[0].clientX : e.clientX;
-    const cy = e.touches ? e.touches[0].clientY : e.clientY;
-    this.dx = cx - this.startX;
-    this.dy = (cy - this.startY) * 0.3;
-  },
-  onTouchEnd() {
-    if (!this.dragging || this.swiping) return;
-    this.dragging = false;
-    if (this.dx > 90)       { this.swipe('like'); }
-    else if (this.dx < -90) { this.swipe('dislike'); }
-    else { this.dx = 0; this.dy = 0; }
-  },
-
-  async superLike() {
-    if (this.swiping || this.noMore || this.superLikesLeft <= 0) return;
-    this.superLikesLeft--;
-    await this.swipe('like', true);
-  },
-
-  async undo() {
-    if (!this.canUndo) return;
-    const r = await fetch('/swipe/undo', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}});
-    const d = await r.json();
-    if (d.success) window.location.reload();
-  },
-
-  async swipe(action, isSuper) {
-    if (this.swiping || this.noMore) return;
-    this.swiping = true;
-    const dir = action === 'like' ? 1 : -1;
-    // Animate card flying off screen
-    this.flyX = dir * (window.innerWidth + 200);
-    this.flyOpacity = 0;
-    this.dy = -30;
-
-    await new Promise(r => setTimeout(r, 380));
-
-    const url = '/swipe/{{ candidate.id if candidate else 0 }}?action=' + action + (isSuper ? '&is_super=1' : '');
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'x-csrf-token': getCsrfToken() },
-    });
-    const data = await resp.json();
-
-    if (data.matched) {
-      this.partnerName = {{ (profile.name if profile else '') | tojson }};
-      this.matched = true;
-      this.spawnConfetti();
-      setTimeout(() => { this.matched = false; window.location.reload(); }, 3500);
-    } else {
-      window.location.reload();
-    }
-  },
-
-  spawnConfetti() {
-    const colors = ['#ec4899','#f43f5e','#8b5cf6','#f59e0b','#22c55e','#06b6d4'];
-    for (let i = 0; i < 60; i++) {
-      const el = document.createElement('div');
-      el.style.cssText = \`
-        position:fixed; top:-10px; z-index:9999; pointer-events:none;
-        width:\${6+Math.random()*8}px; height:\${6+Math.random()*8}px;
-        background:\${colors[Math.floor(Math.random()*colors.length)]};
-        left:\${Math.random()*100}vw;
-        border-radius:\${Math.random()>.5?'50%':'2px'};
-        animation: confettiDrop \${1.5+Math.random()*2}s ease-in \${Math.random()*0.8}s forwards;
-      \`;
-      document.body.appendChild(el);
-      setTimeout(() => el.remove(), 4000);
-    }
-  }
-}">
-
-  <!-- ── MATCH POPUP ── -->
+  <!-- Match popup -->
   <div x-show="matched" x-cloak
        class="fixed inset-0 z-[200] flex items-center justify-center"
-       style="background: rgba(0,0,0,0.65); backdrop-filter: blur(8px);">
+       style="background:rgba(0,0,0,0.65);backdrop-filter:blur(8px);">
     <div class="match-pop glass rounded-3xl p-10 text-center max-w-sm mx-4 shadow-2xl border border-pink-200">
       <div class="text-7xl mb-4">🎉</div>
       <h2 class="text-3xl font-black text-gradient mb-2">{{ t.its_a_match }}</h2>
       <p class="text-gray-500 mb-6"><strong x-text="partnerName"></strong> — {{ t.match_desc }}</p>
-      <a href="/matches"
-         class="inline-block gradient-pink text-white px-8 py-3 rounded-2xl font-bold hover:opacity-90 active:scale-95 transition-all glow-pink">
+      <a href="/matches" class="inline-block gradient-pink text-white px-8 py-3 rounded-2xl font-bold hover:opacity-90 active:scale-95 transition-all glow-pink">
         {{ t.write_message }} 💬
       </a>
     </div>
   </div>
 
-  <!-- ── NO MORE CANDIDATES ── -->
+  <!-- No more candidates -->
   <template x-if="noMore">
     <div class="flex flex-col items-center justify-center min-h-[65vh] text-center">
       <div class="glass rounded-3xl p-10 shadow-xl max-w-sm">
@@ -239,22 +244,24 @@
     </div>
   </template>
 
-  <!-- ── SWIPE CARD ── -->
+  <!-- Swipe card -->
   {% if candidate and profile %}
   <template x-if="!noMore">
     <div>
-      <!-- Card -->
       <div class="swipe-card-wrap select-none"
            :style="cardStyle"
-           @mousedown="onTouchStart"  @mousemove="dragging && onTouchMove($event)"  @mouseup="onTouchEnd"  @mouseleave="dragging && onTouchEnd()"
-           @touchstart.passive="onTouchStart"  @touchmove.prevent="onTouchMove"  @touchend="onTouchEnd">
+           @mousedown="onTouchStart"
+           @mousemove="dragging && onTouchMove($event)"
+           @mouseup="onTouchEnd"
+           @mouseleave="dragging && onTouchEnd()"
+           @touchstart.passive="onTouchStart"
+           @touchmove.prevent="onTouchMove"
+           @touchend="onTouchEnd">
 
         <div class="bg-white rounded-3xl card-shadow overflow-hidden relative">
 
-          <!-- LIKE stamp -->
           <div class="absolute top-8 left-8 z-20 stamp-like px-4 py-1 rounded-xl text-2xl font-black tracking-widest transition-opacity"
                :style="{opacity: likeOpacity}">LIKE</div>
-          <!-- NOPE stamp -->
           <div class="absolute top-8 right-8 z-20 stamp-nope px-4 py-1 rounded-xl text-2xl font-black tracking-widest transition-opacity"
                :style="{opacity: nopeOpacity}">NOPE</div>
 
@@ -274,7 +281,6 @@
               <div class="w-full h-full flex items-center justify-center text-9xl text-pink-200">👤</div>
             {% endif %}
 
-            <!-- Progress dots -->
             {% if all_photos | length > 1 %}
             <div class="absolute top-3 left-3 right-3 flex gap-1.5">
               {% for _ in all_photos %}
@@ -283,14 +289,12 @@
                    class="h-1.5 flex-1 rounded-full transition-all cursor-pointer"></div>
               {% endfor %}
             </div>
-            <!-- Tap areas for photo navigation -->
             <div class="absolute inset-0 flex pointer-events-auto">
               <div class="w-1/2 h-full" @click.stop="photoIdx = photoIdx > 0 ? photoIdx - 1 : total - 1"></div>
               <div class="w-1/2 h-full" @click.stop="photoIdx = photoIdx < total - 1 ? photoIdx + 1 : 0"></div>
             </div>
             {% endif %}
 
-            <!-- Unverified badge -->
             {% if not candidate.is_verified %}
             <div class="absolute top-3 left-0 right-0 flex justify-center z-10 pointer-events-none">
               <span class="bg-black/40 backdrop-blur-sm text-white text-[11px] font-medium px-3 py-1 rounded-full flex items-center gap-1">
@@ -299,7 +303,6 @@
             </div>
             {% endif %}
 
-            <!-- Gradient overlay + info -->
             <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/75 via-black/30 to-transparent p-5 pt-12">
               {% set os = online_status(candidate.last_seen, lang) %}
               <div class="flex items-end gap-2">
@@ -333,7 +336,6 @@
             </div>
           </div>
 
-          <!-- Bio + rating -->
           <div class="px-5 py-4">
             {% if profile.bio %}
             <p class="text-gray-600 text-sm leading-relaxed line-clamp-3">{{ profile.bio }}</p>
@@ -344,45 +346,44 @@
               <span class="text-gray-400 text-xs">({{ candidate.politeness_votes }})</span>
             </p>
             {% endif %}
+
+            <!-- Interest tags -->
+            {% if profile.interests %}
+            {% set tags = profile.interests.split(',') | map('trim') | list %}
+            {% if tags %}
+            <div class="flex flex-wrap gap-1.5 mt-3">
+              {% for tag in tags[:5] %}
+              <span class="bg-pink-50 text-pink-600 text-xs px-2.5 py-1 rounded-full"># {{ tag }}</span>
+              {% endfor %}
+              {% if tags | length > 5 %}
+              <span class="text-gray-400 text-xs px-2 py-1">+{{ tags | length - 5 }}</span>
+              {% endif %}
+            </div>
+            {% endif %}
+            {% endif %}
           </div>
         </div>
       </div>
 
       <!-- Action buttons -->
       <div class="flex justify-center items-center gap-4 mt-6">
-        <!-- Undo -->
         <button @click="undo()" :disabled="!canUndo"
                 class="w-11 h-11 rounded-full bg-white border-2 border-gray-200 flex items-center justify-center text-lg transition-all hover:scale-110 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
-                title="{{ t.get('undo_btn_title', 'Отменить (Premium)') }}">
-          ↩
-        </button>
-        <!-- Dislike -->
+                title="{{ t.get('undo_btn_title','Отменить (Premium)') }}">↩</button>
         <button @click="swipe('dislike')"
-                class="btn-nope w-16 h-16 rounded-full bg-white flex items-center justify-center text-2xl transition-all active:scale-90">
-          ✖️
-        </button>
-        <!-- View profile -->
+                class="btn-nope w-16 h-16 rounded-full bg-white flex items-center justify-center text-2xl transition-all active:scale-90">✖️</button>
         <a href="/profile/{{ candidate.id }}"
-           class="w-10 h-10 rounded-full glass border border-pink-200 flex items-center justify-center text-lg hover:scale-110 transition-all shadow-sm">
-          👁
-        </a>
-        <!-- Like -->
+           class="w-10 h-10 rounded-full glass border border-pink-200 flex items-center justify-center text-lg hover:scale-110 transition-all shadow-sm">👁</a>
         <button @click="swipe('like')"
-                class="btn-like w-16 h-16 rounded-full bg-white flex items-center justify-center text-2xl transition-all active:scale-90">
-          💚
-        </button>
-        <!-- Super-like -->
+                class="btn-like w-16 h-16 rounded-full bg-white flex items-center justify-center text-2xl transition-all active:scale-90">💚</button>
         <button @click="superLike()" :disabled="superLikesLeft <= 0"
                 class="w-11 h-11 rounded-full bg-white border-2 border-yellow-300 flex items-center justify-center text-lg transition-all hover:scale-110 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
-                :title="'{{ t.get('super_like_title', 'Супер-лайк') }} (' + superLikesLeft + ' {{ t.get('super_like_remaining', 'осталось') }})'">>
-          ⭐
-        </button>
+                :title="'{{ t.get('super_like_title','Супер-лайк') }} (' + superLikesLeft + ' {{ t.get('super_like_remaining','осталось') }})'">⭐</button>
       </div>
 
-      <!-- Hint text -->
-      <p class="text-center text-gray-400 text-xs mt-3">{{ t.get('swipe_hint', '← свайп влево / вправо →') }}</p>
+      <p class="text-center text-gray-400 text-xs mt-3">{{ t.get('swipe_hint','← свайп влево / вправо →') }}</p>
       <p class="text-center text-yellow-500 text-xs" x-show="superLikesLeft > 0">
-        ⭐ <span x-text="superLikesLeft"></span> {{ t.get('super_likes_label', 'супер-лайков') }}
+        ⭐ <span x-text="superLikesLeft"></span> {{ t.get('super_likes_label','супер-лайков') }}
       </p>
     </div>
   </template>

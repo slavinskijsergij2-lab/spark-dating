@@ -72,6 +72,7 @@ def edit_profile_page(request: Request, user: User = Depends(get_current_user), 
         "verified_flash": verified_flash,
         "saved_flash": saved_flash,
         "error": error_flash,
+        "now": _utcnow,
     })
 
 

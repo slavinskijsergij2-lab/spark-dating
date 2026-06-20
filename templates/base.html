@@ -104,11 +104,13 @@
   <!-- Support button (configure SUPPORT_URL env var) -->
 
   {% if show_nav %}
+  <!-- Nav i18n data — in a script element so " in JSON doesn't break HTML attributes -->
+  <script id="nav-i18n" type="application/json">{{ (t | tojson | safe) if t is defined else '{}' }}</script>
   <nav class="bottom-nav fixed bottom-0 left-0 right-0 glass border-t border-pink-100/60 z-50"
        x-data="{ newMatches: 0, unreadMessages: 0 }"
        x-init="
          let prev = {m: 0, msg: 0}, first = true;
-         const t = {{ (t | tojson) if t is defined else '{}' }};
+         const t = JSON.parse(document.getElementById('nav-i18n').textContent || '{}');
          if ('Notification' in window && Notification.permission === 'default') {
            setTimeout(() => Notification.requestPermission(), 4000);
          }
@@ -132,7 +134,7 @@
            } catch(e) {}
          };
          poll();
-         setInterval(poll, 30000); // FIX M6: 30s reduces DB load vs 15s with many users
+         setInterval(poll, 30000);
        ">
     <div class="max-w-lg mx-auto flex justify-around items-center py-2 px-4">
 

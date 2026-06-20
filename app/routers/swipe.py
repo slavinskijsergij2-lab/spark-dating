@@ -29,39 +29,49 @@ def _super_likes_today(user_id: int, db: Session) -> int:
     ).count()
 
 
+DISLIKE_RESHOW_DAYS = 7  # dislikes reappear after this many days
+
+
 def find_next_candidate(
     user: User, db: Session,
     intention: str = None, age_min: int = 18, age_max: int = 100,
     city: str = None, online_only: bool = False,
 ):
+    from datetime import timedelta
+
     profile = db.query(Profile).filter(Profile.user_id == user.id).first()
     if not profile:
         return None
 
-    already_seen = db.query(Like.liked_id).filter(Like.liker_id == user.id).scalar_subquery()
     now = _utcnow()
+
+    # Permanent exclusion: people already liked (no double-liking)
+    liked_ids = db.query(Like.liked_id).filter(
+        Like.liker_id == user.id, Like.is_like == True
+    ).scalar_subquery()
+
+    # Temporary exclusion: recent dislikes (reappear after DISLIKE_RESHOW_DAYS)
+    dislike_cutoff = now - timedelta(days=DISLIKE_RESHOW_DAYS)
+    recent_dislike_ids = db.query(Like.liked_id).filter(
+        Like.liker_id == user.id,
+        Like.is_like == False,
+        Like.created_at >= dislike_cutoff,
+    ).scalar_subquery()
 
     q = (
         db.query(User)
         .join(Profile, Profile.user_id == User.id)
         .filter(User.id != user.id)
         .filter(User.is_active == True)
-        .filter(not_(User.id.in_(already_seen)))
+        .filter(not_(User.id.in_(liked_ids)))
+        .filter(not_(User.id.in_(recent_dislike_ids)))
         .filter(Profile.age >= age_min)
         .filter(Profile.age <= age_max)
-        # Anonymous-mode users ARE shown in swipe (photo is blurred in the card).
-        # They are revealed only when both parties agree in chat.
     )
 
+    # Only filter by gender preference if the user has set one
     if profile.looking_for:
         q = q.filter(Profile.gender == profile.looking_for)
-        # MEDIUM-3: also require mutual compatibility — candidate must be looking for user's gender
-        q = q.filter(
-            or_(
-                Profile.looking_for == None,
-                Profile.looking_for == profile.gender,
-            )
-        )
 
     if intention and intention in VALID_INTENTIONS:
         q = q.filter(Profile.intention == intention)
@@ -70,8 +80,7 @@ def find_next_candidate(
         q = q.filter(Profile.city.ilike(f"%{city.strip()}%"))
 
     if online_only:
-        from datetime import timedelta
-        online_threshold = _utcnow() - timedelta(minutes=5)
+        online_threshold = now - timedelta(minutes=5)
         q = q.filter(User.last_seen >= online_threshold)
 
     # Exclude blocked users (both directions)

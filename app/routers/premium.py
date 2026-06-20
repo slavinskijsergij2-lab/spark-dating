@@ -4,7 +4,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import desc, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.auth import get_current_user
 from app.csrf import validate_csrf_header
@@ -103,7 +103,7 @@ def who_viewed_page(request: Request, user: User = Depends(get_current_user), db
         )
         viewer_ids = [r[0] for r in rows]
         last_seen_map = {r[0]: r[1] for r in rows}
-        users_map = {u.id: u for u in db.query(User).filter(User.id.in_(viewer_ids)).all() if u.profile}
+        users_map = {u.id: u for u in db.query(User).options(joinedload(User.profile)).filter(User.id.in_(viewer_ids)).all() if u.profile}
         viewers = [
             {"user": users_map[vid], "last_seen": last_seen_map[vid]}
             for vid in viewer_ids if vid in users_map

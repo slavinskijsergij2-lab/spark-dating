@@ -57,6 +57,7 @@ _migrations = [
 # MEDIUM-5: add unique constraint on profile_views to prevent duplicates
 _constraint_migrations = [
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_profile_view ON profile_views (viewer_id, viewed_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_referral_code ON users (referral_code) WHERE referral_code IS NOT NULL",
 ]
 _type_migrations = [
     "ALTER TABLE profiles ALTER COLUMN photo TYPE TEXT",
@@ -144,15 +145,15 @@ async def security_middleware(request: Request, call_next):
 
 def _tojson(value, indent=None):
     from datetime import datetime as _dt
-    from markupsafe import Markup
     def default(o):
         if isinstance(o, _dt):
             return o.isoformat()
         raise TypeError(f"Object of type {type(o)} is not JSON serializable")
     result = json.dumps(value, default=default, indent=indent, ensure_ascii=False)
-    # Escape `</` and `<!--` so user content can't break a <script> block.
-    # Return Markup so Jinja2 autoescape doesn't double-encode quotes in <script> tags.
-    return Markup(result.replace("</", "<\\/").replace("<!--", "<\\!--"))
+    # Escape </script> and HTML comment sequences so injected content can't break
+    # a <script> block. Return plain str so Jinja2 autoescape encodes " → &quot;
+    # in HTML attributes (x-data, x-init). Use | safe in <script> contexts.
+    return result.replace("</", "<\\/").replace("<!--", "<\\!--")
 
 
 _ONLINE_LABELS = {
