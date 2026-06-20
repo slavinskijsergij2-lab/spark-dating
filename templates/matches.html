@@ -5,7 +5,7 @@
 
 <!-- ══ STORIES ROW ══ -->
 <div x-data="{ stories: [], storyViewer: null, viewIdx: 0 }"
-     x-init="fetch('/stories/feed').then(r=>r.json()).then(d=>{ stories=d; })"
+     x-init="fetch('/stories/feed').then(r=>r.json()).then(d=>{ stories=d; }).catch(()=>{})"
      class="mb-4">
   <div class="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
 
@@ -29,10 +29,10 @@
   </div>
 
   <!-- Story viewer modal -->
-  <div x-show="storyViewer" x-cloak @click="storyViewer=null"
+  <div x-show="storyViewer" x-cloak style="display:none" @click="storyViewer=null"
        class="fixed inset-0 z-50 bg-black flex items-center justify-center">
     <div @click.stop class="relative w-full max-w-sm h-[70vh] bg-black rounded-2xl overflow-hidden">
-      <template x-if="storyViewer">
+      <template x-if="storyViewer && storyViewer.stories && storyViewer.stories[viewIdx]">
         <div class="w-full h-full">
           <template x-if="storyViewer.stories[viewIdx].media_type==='image'">
             <img :src="storyViewer.stories[viewIdx].content" class="w-full h-full object-cover" />
@@ -53,7 +53,7 @@
             </div>
             <span class="text-white text-sm font-medium" x-text="storyViewer.name"></span>
           </div>
-          <button @click="storyViewer=null" class="absolute top-4 right-3 text-white text-2xl">✕</button>
+          <button @click="storyViewer=null" class="absolute top-4 right-3 text-white text-2xl leading-none">✕</button>
           <div class="absolute inset-0 flex pointer-events-auto">
             <div class="w-1/2" @click.stop="viewIdx = viewIdx > 0 ? viewIdx-1 : 0"></div>
             <div class="w-1/2" @click.stop="viewIdx = viewIdx < storyViewer.stories.length-1 ? viewIdx+1 : (storyViewer=null,0)"></div>
