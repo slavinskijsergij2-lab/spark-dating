@@ -424,5 +424,6 @@ def get_messages(
         "sender_id": m.sender_id,
         "created_at": m.created_at.isoformat(),
         "is_read": m.is_read,
+        "is_voice": m.is_voice,
         "reactions": reactions_by_msg.get(m.id, {}),
     } for m in messages])

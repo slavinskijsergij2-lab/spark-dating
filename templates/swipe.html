@@ -175,7 +175,7 @@
 
     await new Promise(r => setTimeout(r, 380));
 
-    const url = '/swipe/{{ candidate.id if candidate else 0 }}?action=' + action + (isSuper ? '&super=1' : '');
+    const url = '/swipe/{{ candidate.id if candidate else 0 }}?action=' + action + (isSuper ? '&is_super=1' : '');
     const resp = await fetch(url, {
       method: 'POST',
       headers: { 'x-csrf-token': getCsrfToken() },

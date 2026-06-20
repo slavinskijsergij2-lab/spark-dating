@@ -140,7 +140,7 @@ def register(
             "request": request,
             "t": t,
             "rtl": is_rtl(language),
-            "error": t.get("register_password_short", "Password must be at least 6 characters"),
+            "error": t.get("register_password_short", "Password must be at least 8 characters"),
         }, status_code=400)
 
     smtp_active = is_smtp_configured()
