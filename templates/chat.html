@@ -381,7 +381,7 @@
         this.messages = raw.map(m => this.fmt(m));
         if (this.messages.length) this.lastId = this.messages.at(-1).id;
         this.$nextTick(() => this.scrollBottom());
-        setInterval(() => this.poll(), 3000);
+        setInterval(() => this.poll(), 5000);
       },
 
       fmt(m) {

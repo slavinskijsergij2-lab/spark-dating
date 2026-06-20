@@ -28,10 +28,5 @@ def rate_limit(max_calls: int, window_seconds: int = 60):
                     headers={"Retry-After": str(window_seconds)},
                 )
             calls.append(now)
-            if calls:
-                _store[key] = calls
-            elif key in _store:
-                # Remove empty entry to prevent unbounded memory growth from
-                # ephemeral IPs (scanners, bots) accumulating stale keys.
-                del _store[key]
+            _store[key] = calls
     return dependency

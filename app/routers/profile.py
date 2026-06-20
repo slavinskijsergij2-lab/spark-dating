@@ -296,7 +296,7 @@ def view_profile(user_id: int, request: Request, user: User = Depends(get_curren
 
     # Achievements
     from app.utils.achievements import get_achievements
-    achievements = get_achievements(target, db)
+    achievements = get_achievements(target, db, lang=lang)
 
     return templates.TemplateResponse("profile_view.html", {
         "request": request,
