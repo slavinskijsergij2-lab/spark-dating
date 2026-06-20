@@ -7,9 +7,9 @@
 <div x-data="{ stories: [], storyViewer: null, viewIdx: 0 }"
      x-init="fetch('/stories/feed').then(r=>r.json()).then(d=>{ stories=d; })"
      class="mb-4">
-  <div x-show="stories.length > 0" class="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+  <div class="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
 
-    <!-- My story button (always first) -->
+    <!-- My story button (always visible) -->
     <a href="/stories/page" class="flex-shrink-0 flex flex-col items-center gap-1">
       <div class="w-14 h-14 rounded-full border-2 border-dashed border-pink-300 flex items-center justify-center bg-pink-50 text-2xl hover:bg-pink-100 transition">+</div>
       <span class="text-xs text-gray-500">{{ t.get('stories_mine', 'Моя') }}</span>

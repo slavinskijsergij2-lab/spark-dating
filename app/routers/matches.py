@@ -133,20 +133,36 @@ def matches_page(request: Request, user: User = Depends(get_current_user), db: S
             m.seen_by_user2 = True
     db.commit()
 
-    # Compute compatibility in 2 queries total (not N*2)
-    partner_ids = [get_partner(m, user.id).id for m in matches]
-    compat_map = compute_compatibility_batch(user.id, partner_ids, db)
+    # Batch-load all partner User objects in 1 query to avoid N+1 lazy loads
+    partner_id_by_match = {
+        m.id: (m.user2_id if m.user1_id == user.id else m.user1_id)
+        for m in matches
+    }
+    all_partner_ids = list(partner_id_by_match.values())
+    partners_map = {
+        u.id: u
+        for u in db.query(User).filter(User.id.in_(all_partner_ids)).all()
+    } if all_partner_ids else {}
+
+    compat_map = compute_compatibility_batch(user.id, all_partner_ids, db)
 
     partners = []
     for m in matches:
-        partner = get_partner(m, user.id)
-        partners.append((m, partner, compat_map.get(partner.id)))
+        pid = partner_id_by_match[m.id]
+        partner = partners_map.get(pid)
+        if partner:
+            partners.append((m, partner, compat_map.get(pid)))
 
-    # Users who liked me but aren't matched yet and I haven't liked back
-    liker_ids = {like.liker_id for like in db.query(Like.liker_id).filter(Like.liked_id == user.id).all()}
-    i_liked_ids = {like.liked_id for like in db.query(Like.liked_id).filter(Like.liker_id == user.id).all()}
-    matched_ids = set(partner_ids)
-    pending_ids = liker_ids - matched_ids - i_liked_ids
+    # Users who LIKED me (is_like=True), not yet matched, and I haven't swiped on
+    liker_ids = {
+        like.liker_id
+        for like in db.query(Like.liker_id).filter(
+            Like.liked_id == user.id, Like.is_like == True
+        ).all()
+    }
+    i_swiped_ids = {like.liked_id for like in db.query(Like.liked_id).filter(Like.liker_id == user.id).all()}
+    matched_ids = set(all_partner_ids)
+    pending_ids = liker_ids - matched_ids - i_swiped_ids
     liked_me_users = []
     if pending_ids:
         liked_me_users = [
