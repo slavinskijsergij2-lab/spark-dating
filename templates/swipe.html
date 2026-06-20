@@ -374,7 +374,7 @@
         <!-- Super-like -->
         <button @click="superLike()" :disabled="superLikesLeft <= 0"
                 class="w-11 h-11 rounded-full bg-white border-2 border-yellow-300 flex items-center justify-center text-lg transition-all hover:scale-110 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
-                :title="'Супер-лайк (' + superLikesLeft + ' осталось)'">
+                :title="'{{ t.get('super_like_title', 'Супер-лайк') }} (' + superLikesLeft + ' {{ t.get('super_like_remaining', 'осталось') }})'">>
           ⭐
         </button>
       </div>

@@ -136,15 +136,15 @@
     <div class="flex items-center gap-2 min-w-0">
       <span class="text-base flex-shrink-0">🕵️</span>
       <p class="text-xs text-purple-700 leading-snug">
-        {% if not i_revealed and not partner_revealed %}Оба скрыты — откройтесь
-        {% elif not i_revealed %}Вы скрыты
-        {% else %}Партнёр ещё не раскрылся{% endif %}
+        {% if not i_revealed and not partner_revealed %}{{ t.get('chat_both_hidden', 'Оба скрыты — откройтесь') }}
+        {% elif not i_revealed %}{{ t.get('chat_you_hidden', 'Вы скрыты') }}
+        {% else %}{{ t.get('chat_partner_hidden', 'Партнёр ещё не раскрылся') }}{% endif %}
       </p>
     </div>
     {% if not i_revealed %}
     <button @click="reveal()"
             class="flex-shrink-0 text-xs bg-purple-500 text-white px-3 py-1.5 rounded-full font-semibold hover:bg-purple-600 transition">
-      Раскрыться
+      {{ t.get('chat_reveal_btn', 'Раскрыться') }}
     </button>
     {% endif %}
   </div>
