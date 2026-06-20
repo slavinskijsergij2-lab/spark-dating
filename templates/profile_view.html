@@ -46,7 +46,9 @@
     </div>
     {% if user.id != target.id %}
     <div class="absolute top-3 right-3 flex gap-2">
-      <button @click="blockUser()" :title="blocked ? '{{ t.get(\"blocked_status\", \"Заблокировано\") }}' : '{{ t.get(\"block_btn\", \"Заблокировать\") }}'"
+      {% set _title_blocked = t.get('blocked_status', 'Заблокировано') %}
+      {% set _title_block = t.get('block_btn', 'Заблокировать') %}
+      <button @click="blockUser()" :title="blocked ? '{{ _title_blocked }}' : '{{ _title_block }}'"
         class="w-9 h-9 rounded-full flex items-center justify-center transition"
         :class="blocked ? 'bg-gray-700 text-gray-300' : 'bg-black/40 text-white hover:bg-black/60'">
         🚫

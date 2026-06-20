@@ -138,7 +138,7 @@ def swipe_page(
     })
 
 
-@router.post("/swipe")
+@router.post("/swipe", dependencies=[Depends(validate_csrf_header)])
 def swipe_noop(user=Depends(get_current_user)):
     return JSONResponse({"matched": False})
 
