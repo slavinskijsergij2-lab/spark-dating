@@ -76,7 +76,7 @@ def get_achievements(user, db: Session, lang: str = "ru") -> list[dict]:
     if user.is_verified:
         badges.append({"icon": "✅", "label": _lbl("verified", lang)})
 
-    if user.is_premium:
+    if user.is_premium_active:
         badges.append({"icon": "⭐", "label": _lbl("premium", lang)})
 
     if (user.politeness_score or 0) >= 4.5 and (user.politeness_votes or 0) >= 3:
