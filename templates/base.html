@@ -96,7 +96,7 @@
 
   {% set show_nav = request.url.path not in ['/login', '/register', '/', '/register/check-email'] and not request.url.path.startswith('/verify-email/') %}
 
-  <main class="{% block main_class %}max-w-lg mx-auto px-4 py-6{% endblock %} page-enter {% if show_nav %}pb-24{% endif %}">
+  <main class="{% block main_class %}max-w-lg mx-auto px-4 py-6{% if show_nav %} pb-24{% endif %}{% endblock %} page-enter">
     {% block content %}{% endblock %}
   </main>
 

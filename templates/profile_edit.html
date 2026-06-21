@@ -76,6 +76,13 @@
   selectedTags: {{ (profile.interests.split(',') | map('trim') | list | tojson) if profile and profile.interests else '[]' }},
   isAnonymous: {{ 'true' if profile and profile.is_anonymous else 'false' }},
   allTags: {{ [t.get('tag_music','Музыка'),t.get('tag_games','Игры'),t.get('tag_sports','Спорт'),t.get('tag_food','Еда'),t.get('tag_travel','Путешествия'),t.get('tag_books','Книги'),t.get('tag_movies','Кино'),t.get('tag_animals','Животные'),t.get('tag_art','Искусство'),t.get('tag_nature','Природа'),t.get('tag_tech','Технологии'),t.get('tag_cooking','Кулинария'),t.get('tag_yoga','Йога'),t.get('tag_theater','Театр'),t.get('tag_photo','Фото'),t.get('tag_cycling','Велоспорт'),t.get('tag_languages','Языки'),t.get('tag_concerts','Концерты'),t.get('tag_boardgames','Настолки'),t.get('tag_beach','Пляж')] | tojson }},
+  init() {
+    /* If stored tags were saved in another language, they won't be in allTags.
+       Add them so they still appear selected and won't be lost on save. */
+    for (const tag of this.selectedTags) {
+      if (tag && !this.allTags.includes(tag)) this.allTags.unshift(tag);
+    }
+  },
   toggleTag(tag) {
     const i = this.selectedTags.indexOf(tag);
     if (i >= 0) this.selectedTags.splice(i, 1);
@@ -132,19 +139,24 @@
         {% endif %}
 
         <button type="button"
-                x-data="{ loading: false, done: false, mins: 0 }"
+                x-data="{ loading: false, done: false, mins: 0, alreadyActive: false, remaining: 0 }"
                 @click="
+                  if (done || alreadyActive) return;
                   loading = true;
                   fetch('/profile/boost', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}})
                     .then(r => r.json())
-                    .then(d => { if(d.success){ done=true; mins=d.minutes; } })
+                    .then(d => {
+                      if (d.success) { done=true; mins=d.minutes; }
+                      else if (d.error === 'boost_active') { alreadyActive=true; remaining=d.remaining_minutes||0; }
+                    })
                     .finally(() => loading=false);
                 "
-                :disabled="loading || done"
+                :disabled="loading || done || alreadyActive"
                 class="text-xs border border-pink-300 text-pink-600 px-3 py-1 rounded-full hover:bg-pink-50 transition disabled:opacity-50">
-          <span x-show="!loading && !done">⚡ {{ t.get('boost_btn','Буст') }}</span>
+          <span x-show="!loading && !done && !alreadyActive">⚡ {{ t.get('boost_btn','Буст') }}</span>
           <span x-show="loading" x-cloak>...</span>
           <span x-show="done" x-cloak>✓ <span x-text="mins"></span>{{ t.get('boost_minutes','мин') }}</span>
+          <span x-show="alreadyActive" x-cloak>⚡ <span x-text="remaining"></span>{{ t.get('boost_minutes','мин') }}</span>
         </button>
       </div>
     </div>

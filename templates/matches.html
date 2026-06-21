@@ -252,7 +252,7 @@
       <div class="absolute top-2.5 left-2.5 right-2.5 flex justify-between items-start">
         <div class="flex gap-1 flex-wrap">
           {% if partner.is_verified %}
-          <span class="bg-green-400 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow">✓ Верифицирован</span>
+          <span class="bg-green-400 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow">{{ t.get('verify_done', '✓ Верифицирован') }}</span>
           {% endif %}
           {% if os and os.is_online %}
           <span class="bg-green-400 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shadow">
