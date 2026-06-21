@@ -133,8 +133,6 @@ document.addEventListener('alpine:init', () => {
     matched: false,
     partnerName: '',
     noMore: {{ 'true' if not candidate else 'false' }},
-    photoIdx: 0,
-    totalPhotos: {{ ([profile.photo] if (profile and profile.photo) else []) | length + (extra_photos | length) }},
 
     /* drag */
     dragging: false,
@@ -283,26 +281,23 @@ document.addEventListener('alpine:init', () => {
   </div>
 
   <!-- ══ NO MORE ══ -->
-  <template x-if="noMore">
-    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:70vh;text-align:center;padding:0 24px;">
-      <div style="width:110px;height:110px;border-radius:50%;background:linear-gradient(135deg,#fce7f3,#ede9fe);display:flex;align-items:center;justify-content:center;font-size:52px;margin-bottom:24px;box-shadow:0 8px 32px rgba(236,72,153,.15);">😔</div>
-      <h2 style="font-size:22px;font-weight:800;color:#1f2937;margin-bottom:8px;">{{ t.get('no_more_title','Никого не нашлось') }}</h2>
-      <p style="color:#9ca3af;font-size:14px;max-width:260px;line-height:1.6;margin-bottom:32px;">{{ t.get('no_more_desc','Попробуйте расширить фильтры или зайдите позже — новые люди появляются каждый день!') }}</p>
-      <div style="display:flex;flex-direction:column;gap:12px;width:100%;max-width:280px;">
-        <a href="/swipe" style="background:linear-gradient(135deg,#f472b6,#ec4899);color:white;font-weight:700;padding:14px 24px;border-radius:999px;text-decoration:none;font-size:15px;box-shadow:0 6px 20px rgba(236,72,153,.35);">
-          🔄 {{ t.get('filter_reset','Сбросить фильтры') }}
-        </a>
-        <a href="/matches" style="border:2px solid #e5e7eb;color:#6b7280;font-weight:600;padding:13px 24px;border-radius:999px;text-decoration:none;font-size:15px;background:white;">
-          💌 {{ t.get('my_matches','Мои матчи') }}
-        </a>
-      </div>
+  <div x-show="noMore" x-cloak style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:70vh;text-align:center;padding:0 24px;">
+    <div style="width:110px;height:110px;border-radius:50%;background:linear-gradient(135deg,#fce7f3,#ede9fe);display:flex;align-items:center;justify-content:center;font-size:52px;margin-bottom:24px;box-shadow:0 8px 32px rgba(236,72,153,.15);">😔</div>
+    <h2 style="font-size:22px;font-weight:800;color:#1f2937;margin-bottom:8px;">{{ t.get('no_more_title','Никого не нашлось') }}</h2>
+    <p style="color:#9ca3af;font-size:14px;max-width:260px;line-height:1.6;margin-bottom:32px;">{{ t.get('no_more_desc','Попробуйте расширить фильтры или зайдите позже — новые люди появляются каждый день!') }}</p>
+    <div style="display:flex;flex-direction:column;gap:12px;width:100%;max-width:280px;">
+      <a href="/swipe" style="background:linear-gradient(135deg,#f472b6,#ec4899);color:white;font-weight:700;padding:14px 24px;border-radius:999px;text-decoration:none;font-size:15px;box-shadow:0 6px 20px rgba(236,72,153,.35);">
+        🔄 {{ t.get('filter_reset','Сбросить фильтры') }}
+      </a>
+      <a href="/matches" style="border:2px solid #e5e7eb;color:#6b7280;font-weight:600;padding:13px 24px;border-radius:999px;text-decoration:none;font-size:15px;background:white;">
+        💌 {{ t.get('my_matches','Мои матчи') }}
+      </a>
     </div>
-  </template>
+  </div>
 
   <!-- ══ SWIPE AREA ══ -->
   {% if candidate and profile %}
-  <template x-if="!noMore">
-    <div>
+  <div x-show="!noMore" x-cloak>
 
       <!-- ─── Filter bar ─── -->
       <div x-data="{ open: false }" class="mb-4">
@@ -527,7 +522,7 @@ document.addEventListener('alpine:init', () => {
       </div>
 
     </div>
-  </template>
+  </div>
   {% endif %}
 
 </div>
