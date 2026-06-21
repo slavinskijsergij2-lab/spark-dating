@@ -78,7 +78,7 @@ def boost_profile(user: User = Depends(get_current_user), db: Session = Depends(
     if user.boost_until and user.boost_until > now:
         remaining = int((user.boost_until - now).total_seconds() / 60)
         return JSONResponse({"error": "boost_active", "remaining_minutes": remaining}, status_code=400)
-    hours = 3.0 if user.is_premium else 0.5
+    hours = 3.0 if user.is_premium_active else 0.5
     user.boost_until = now + timedelta(hours=hours)
     db.commit()
     return JSONResponse({"success": True, "minutes": int(hours * 60)})
@@ -91,7 +91,7 @@ def who_viewed_page(request: Request, user: User = Depends(get_current_user), db
     total = db.query(func.count(ProfileView.id)).filter(ProfileView.viewed_id == user.id).scalar() or 0
 
     viewers = []
-    if user.is_premium:
+    if user.is_premium_active:
         # C1: use .all() directly — .subquery() + db.execute() was a runtime crash
         rows = (
             db.query(ProfileView.viewer_id, func.max(ProfileView.created_at).label("last_seen"))
@@ -117,5 +117,5 @@ def who_viewed_page(request: Request, user: User = Depends(get_current_user), db
         "lang": lang,
         "viewers": viewers,
         "total": total,
-        "is_premium": user.is_premium,
+        "is_premium": user.is_premium_active,
     })

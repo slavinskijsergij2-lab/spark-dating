@@ -110,7 +110,7 @@
   </div>
 
   <!-- Story viewer modal -->
-  <div x-show="storyViewer" x-cloak style="display:none" @click="storyViewer=null"
+  <div x-show="storyViewer" x-cloak @click="storyViewer=null"
        class="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center">
     <div @click.stop class="relative w-full max-w-sm h-[75vh] bg-black rounded-3xl overflow-hidden shadow-2xl">
       <template x-if="storyViewer && storyViewer.stories && storyViewer.stories[viewIdx]">
@@ -303,7 +303,7 @@
   <!-- No search results -->
   <div x-show="search"
        x-cloak
-       class="hidden text-center py-8 text-gray-400 text-sm">
+       class="text-center py-8 text-gray-400 text-sm">
     <div class="text-3xl mb-2">🔍</div>
     {{ t.get('search_no_results','Никого не нашлось') }}
   </div>

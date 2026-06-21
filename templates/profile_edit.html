@@ -125,7 +125,7 @@
 
       <!-- Premium badge & boost button -->
       <div class="mt-3 flex items-center gap-2 flex-wrap justify-center">
-        {% if user.is_premium %}
+        {% if user.is_premium_active %}
         <span class="text-xs bg-gradient-to-r from-yellow-400 to-orange-400 text-white font-bold px-3 py-1 rounded-full">⭐ Premium</span>
         {% else %}
         <a href="/premium" class="text-xs border border-yellow-300 text-yellow-600 px-3 py-1 rounded-full hover:bg-yellow-50 transition">⭐ Premium</a>

@@ -120,7 +120,7 @@ def swipe_page(
         city=city_filter, online_only=online_only,
     )
     lang = get_lang(request, user)
-    super_likes_left = max(0, (999 if user.is_premium else 5) - _super_likes_today(user.id, db))
+    super_likes_left = max(0, (999 if user.is_premium_active else 5) - _super_likes_today(user.id, db))
     last_like = db.query(Like).filter(Like.liker_id == user.id).order_by(Like.id.desc()).first()
     extra_photos = []
     if candidate and candidate.profile:
@@ -143,7 +143,7 @@ def swipe_page(
         "age_max": age_max,
         "filters_active": age_min != 18 or age_max != 100 or bool(city_filter) or online_only,
         "super_likes_left": super_likes_left,
-        "can_undo": last_like is not None and user.is_premium,
+        "can_undo": last_like is not None and user.is_premium_active,
     })
 
 
@@ -154,7 +154,7 @@ def swipe_noop(user=Depends(get_current_user)):
 
 @router.post("/swipe/undo", dependencies=[Depends(validate_csrf_header)])
 def undo_swipe(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not user.is_premium:
+    if not user.is_premium_active:
         return JSONResponse({"error": "Premium only"}, status_code=403)
     last_like = db.query(Like).filter(Like.liker_id == user.id).order_by(Like.id.desc()).first()
     if not last_like:
@@ -184,7 +184,7 @@ def do_swipe(
         return JSONResponse({"matched": False})
 
     is_super_like = (is_super == "1" and action == "like")
-    if is_super_like and not user.is_premium:
+    if is_super_like and not user.is_premium_active:
         daily = _super_likes_today(user.id, db)
         if daily >= 5:
             return JSONResponse({"error": "Daily super-like limit reached (5/day)", "limit": True}, status_code=429)

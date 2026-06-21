@@ -297,4 +297,5 @@ def view_profile(user_id: int, request: Request, user: User = Depends(get_curren
         "achievements": achievements,
         "t": get_translations(lang),
         "rtl": is_rtl(lang),
+        "lang": lang,
     })

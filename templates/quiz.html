@@ -157,12 +157,14 @@ function quizApp() {
       if (answerIdx === undefined || this.saving) return;
 
       this.saving = true;
-      await fetch('/quiz/answer', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'x-csrf-token': getCsrfToken()},
-        body: JSON.stringify({question_id: qid, answer_index: answerIdx}),
-      });
-      answeredIds.add(qid);
+      try {
+        await fetch('/quiz/answer', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'x-csrf-token': getCsrfToken()},
+          body: JSON.stringify({question_id: qid, answer_index: answerIdx}),
+        });
+        answeredIds.add(qid);
+      } catch(e) {}
       this.saving = false;
 
       if (this.currentIndex < questions.length - 1) {

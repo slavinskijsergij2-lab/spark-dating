@@ -443,7 +443,7 @@
             this.messages.push({
               id: d.id, content: d.content, sender_id: d.sender_id,
               time: now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
-              date: LABEL_TODAY, is_read: false,
+              date: LABEL_TODAY, is_read: false, is_voice: false, reactions: {},
             });
             this.lastId = d.id;
             this.$nextTick(() => this.scrollBottom());
