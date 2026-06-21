@@ -248,6 +248,15 @@ document.addEventListener('alpine:init', () => {
         });
         const data = await resp.json();
 
+        if (!resp.ok) {
+          // Server error (e.g. 429 super-like limit) — restore card, don't set noMore
+          if (data.limit) this.superLikesLeft = 0;
+          this.flying = false; this.flyOpacity = 1;
+          this.dx = 0; this.dy = 0; this.rot = 0;
+          this.swiping = false;
+          return;
+        }
+
         if (data.matched) {
           window.location.href = '/matches';
           return;
