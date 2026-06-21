@@ -171,11 +171,17 @@ def matches_page(request: Request, user: User = Depends(get_current_user), db: S
         ]
 
     lang = get_lang(request, user)
+    partner_names = [
+        partner.profile.name.lower()
+        for _, partner, _ in partners
+        if partner.profile
+    ]
     return templates.TemplateResponse("matches.html", {
         "request": request,
         "user": user,
         "partners": partners,
         "liked_me_users": liked_me_users,
+        "partner_names": partner_names,
         "t": get_translations(lang),
         "rtl": is_rtl(lang),
         "lang": lang,

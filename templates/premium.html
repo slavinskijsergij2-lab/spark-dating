@@ -7,7 +7,7 @@
 
 <!-- Current status -->
 <div class="bg-white rounded-2xl card-shadow p-5 mb-4">
-  {% if user.is_premium %}
+  {% if user.is_premium_active %}
   <div class="flex items-center gap-3 mb-3">
     <div class="w-10 h-10 rounded-full gradient-pink flex items-center justify-center text-xl">⭐</div>
     <div>
@@ -72,10 +72,10 @@
       ('💘', t.get('premium_benefit_badge', 'Premium badge')),
       ('📧', t.get('premium_benefit_email', 'Email notifications for new matches')),
     ] %}
-    <div class="flex items-center gap-3 {% if user.is_premium %}opacity-100{% else %}opacity-60{% endif %}">
+    <div class="flex items-center gap-3 {% if user.is_premium_active %}opacity-100{% else %}opacity-60{% endif %}">
       <span class="text-2xl">{{ item[0] }}</span>
       <span class="text-sm text-gray-700">{{ item[1] }}</span>
-      {% if user.is_premium %}
+      {% if user.is_premium_active %}
       <span class="ml-auto text-green-500 text-xs font-bold">✓</span>
       {% endif %}
     </div>
@@ -91,7 +91,7 @@
     <div>
       <p class="font-semibold text-gray-800">{{ t.get('boost_title', 'Буст профиля') }}</p>
       <p class="text-xs text-gray-400">
-        {% if user.is_premium %}
+        {% if user.is_premium_active %}
         {{ t.get('boost_sub_premium', '3 часа для Premium / 30 минут для остальных') }}
         {% else %}
         {{ t.get('boost_sub_free', '30 минут — ваш профиль будет первым в очереди') }}
@@ -129,7 +129,7 @@
       <div>
         <p class="font-semibold text-gray-800">{{ t.get('who_viewed_title', 'Кто смотрел профиль') }}</p>
         <p class="text-xs text-gray-400">
-          {% if user.is_premium %}{{ t.get('who_viewed_premium', 'Полный список доступен') }}
+          {% if user.is_premium_active %}{{ t.get('who_viewed_premium', 'Полный список доступен') }}
           {% else %}{{ t.get('who_viewed_locked', 'Только для Premium') }}{% endif %}
         </p>
       </div>

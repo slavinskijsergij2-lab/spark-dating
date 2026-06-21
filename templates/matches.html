@@ -210,7 +210,11 @@
 </div>
 
 {% else %}
-<div x-data="{ search: '' }">
+<div x-data="{
+  search: '',
+  names: {{ partner_names | tojson | safe }},
+  get noResults() { return !!this.search && !this.names.some(n => n.includes(this.search.toLowerCase())); }
+}">
 
   <!-- Search -->
   <div class="relative mb-4">
@@ -301,7 +305,7 @@
   </div>
 
   <!-- No search results -->
-  <div x-show="search"
+  <div x-show="noResults"
        x-cloak
        class="text-center py-8 text-gray-400 text-sm">
     <div class="text-3xl mb-2">🔍</div>

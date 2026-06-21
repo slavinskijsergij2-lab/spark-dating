@@ -123,97 +123,165 @@
 </style>
 
 <script>
+// i18n constants for Alpine (server-rendered once, not per-swipe)
+const INTENTION_ICONS  = {serious:'💍', casual:'😊', today:'🔥', browsing:'👀'};
+const INTENTION_LABELS = {
+  serious:  {{ t.intention_serious  | tojson | safe }},
+  casual:   {{ t.intention_casual   | tojson | safe }},
+  today:    {{ t.intention_today    | tojson | safe }},
+  browsing: {{ t.intention_browsing | tojson | safe }},
+};
+const RATINGS_LABEL = {{ t.get('ratings_label','оценок') | tojson | safe }};
+
 document.addEventListener('alpine:init', () => {
+  {% if candidate and profile %}
+  {% set all_photos = ([profile.photo] if profile.photo else []) + (extra_photos | map(attribute='url') | list) %}
+  {% set os = online_status(candidate.last_seen, lang) %}
+  {% endif %}
+
   Alpine.data('swipeApp', () => ({
-    /* state */
     noMore: {{ 'true' if not candidate else 'false' }},
 
-    /* drag */
-    dragging: false,
-    startX: 0, startY: 0,
-    dx: 0, dy: 0,
-    rot: 0,
+    /* Current card data — initialised from Jinja2, then updated via API */
+    card: {% if candidate and profile %}{
+      id:               {{ candidate.id }},
+      name:             {{ profile.name | tojson | safe }},
+      age:              {{ profile.age }},
+      bio:              {{ (profile.bio or '')   | tojson | safe }},
+      city:             {{ (profile.city or '')  | tojson | safe }},
+      photos:           {{ all_photos | tojson | safe }},
+      isVerified:       {{ 'true' if candidate.is_verified else 'false' }},
+      isOnline:         {{ 'true' if os and os.is_online else 'false' }},
+      onlineLabel:      {{ (os.label if os else '') | tojson | safe }},
+      intention:        {{ (profile.intention or '') | tojson | safe }},
+      interestsList:    {{ init_interests | tojson | safe }},
+      politenessScore:  {{ candidate.politeness_score or 0 }},
+      politenessVotes:  {{ candidate.politeness_votes or 0 }},
+    }{% else %}null{% endif %},
 
-    /* fly animation */
-    flying: false,
-    flyX: 0, flyY: 0, flyOpacity: 1,
+    photoIdx: 0,
+
+    /* Drag state */
+    dragging: false, startX: 0, startY: 0, dx: 0, dy: 0, rot: 0,
+
+    /* Fly-off animation */
+    flying: false, flyX: 0, flyY: 0, flyOpacity: 1,
     swiping: false,
 
-    /* data from server */
     superLikesLeft: {{ super_likes_left }},
-    canUndo: {{ 'true' if can_undo else 'false' }},
-    candidateId: {{ candidate.id if candidate else 0 }},
-    profileName: {{ (profile.name if profile else '') | tojson | safe }},
+    canUndo:        {{ 'true' if can_undo else 'false' }},
+
+    /* Current filter values — passed back to swipe API so page needn't reload */
+    filters: {
+      intention:   {{ current_intention | tojson | safe }},
+      age_min:     {{ age_min }},
+      age_max:     {{ age_max }},
+      city:        {{ current_city | tojson | safe }},
+      online_only: {{ 'true' if online_only else 'false' }},
+    },
 
     /* ── computed ── */
     get cardStyle() {
       if (this.flying) {
-        return 'transform:translate(' + this.flyX + 'px,' + this.flyY + 'px) rotate(' + this.rot + 'deg);opacity:' + this.flyOpacity + ';transition:transform .38s cubic-bezier(.22,.61,.36,1),opacity .38s ease;';
+        return 'transform:translate('+this.flyX+'px,'+this.flyY+'px) rotate('+this.rot+'deg);opacity:'+this.flyOpacity+';transition:transform .38s cubic-bezier(.22,.61,.36,1),opacity .38s ease;';
       }
-      return 'transform:translate(' + this.dx + 'px,' + this.dy + 'px) rotate(' + this.rot + 'deg);';
+      return 'transform:translate('+this.dx+'px,'+this.dy+'px) rotate('+this.rot+'deg);';
     },
-    get likeOpacity()  { return Math.max(0, Math.min(1, (this.dx - 35) / 70)); },
-    get nopeOpacity()  { return Math.max(0, Math.min(1, (-this.dx - 35) / 70)); },
+    get likeOpacity() { return Math.max(0, Math.min(1, (this.dx - 35) / 70)); },
+    get nopeOpacity() { return Math.max(0, Math.min(1, (-this.dx - 35) / 70)); },
+    get intentionDisplay() {
+      if (!this.card || !this.card.intention) return '';
+      const icon  = INTENTION_ICONS[this.card.intention]  || '';
+      const label = INTENTION_LABELS[this.card.intention] || '';
+      return (icon + ' ' + label).trim();
+    },
 
     /* ── drag handlers ── */
     dragStart(e) {
-      if (this.swiping || this.noMore) return;
+      if (this.swiping || this.noMore || !this.card) return;
       this.dragging = true;
       const t = e.touches ? e.touches[0] : e;
-      this.startX = t.clientX;
-      this.startY = t.clientY;
+      this.startX = t.clientX; this.startY = t.clientY;
     },
     dragMove(e) {
       if (!this.dragging || this.swiping) return;
       const t = e.touches ? e.touches[0] : e;
-      this.dx = t.clientX - this.startX;
-      this.dy = (t.clientY - this.startY) * 0.25;
+      this.dx  = t.clientX - this.startX;
+      this.dy  = (t.clientY - this.startY) * 0.25;
       this.rot = this.dx * 0.06;
     },
     dragEnd() {
       if (!this.dragging || this.swiping) return;
       this.dragging = false;
-      if (this.dx > 95)       { this.swipe('like'); }
+      if      (this.dx >  95) { this.swipe('like'); }
       else if (this.dx < -95) { this.swipe('dislike'); }
-      else {
-        this.dx = 0; this.dy = 0; this.rot = 0;
-      }
+      else { this.dx = 0; this.dy = 0; this.rot = 0; }
     },
 
-    /* ── swipe ── */
+    /* ── swipe — no page reload, loads next card from API ── */
     async swipe(action, isSuper) {
-      if (this.swiping || this.noMore) return;
+      if (this.swiping || this.noMore || !this.card) return;
       this.swiping = true;
 
-      /* fly off screen */
-      const dir = (action === 'like') ? 1 : -1;
-      this.flying = true;
-      this.flyX = dir * (window.innerWidth + 220);
-      this.flyY = -40;
+      /* Fly off screen */
+      const dir = action === 'like' ? 1 : -1;
+      this.flying   = true;
+      this.flyX     = dir * (window.innerWidth + 220);
+      this.flyY     = -40;
       this.flyOpacity = 0;
-      this.rot = dir * 28;
+      this.rot      = dir * 28;
 
       await new Promise(r => setTimeout(r, 400));
 
       try {
-        const url = '/swipe/' + this.candidateId + '?action=' + action + (isSuper ? '&is_super=1' : '');
-        const resp = await fetch(url, {
+        const params = new URLSearchParams({ action });
+        if (isSuper) params.set('is_super', '1');
+        if (this.filters.intention)   params.set('intention',   this.filters.intention);
+        params.set('age_min', this.filters.age_min);
+        params.set('age_max', this.filters.age_max);
+        if (this.filters.city)        params.set('city',        this.filters.city);
+        if (this.filters.online_only) params.set('online_only', '1');
+
+        const resp = await fetch('/swipe/' + this.card.id + '?' + params, {
           method: 'POST',
           headers: { 'x-csrf-token': getCsrfToken() },
         });
         const data = await resp.json();
+
         if (data.matched) {
           window.location.href = '/matches';
+          return;
+        }
+
+        if (data.super_likes_left !== undefined) this.superLikesLeft = data.super_likes_left;
+        if (data.can_undo         !== undefined) this.canUndo        = data.can_undo;
+
+        if (data.next) {
+          const n = data.next;
+          this.card = {
+            id: n.id, name: n.name, age: n.age, bio: n.bio, city: n.city,
+            photos: n.photos, isVerified: n.is_verified,
+            isOnline: n.is_online, onlineLabel: n.online_label,
+            intention: n.intention, interestsList: n.interests_list,
+            politenessScore: n.politeness_score, politenessVotes: n.politeness_votes,
+          };
+          this.photoIdx   = 0;
+          this.flying     = false;
+          this.flyOpacity = 1;
+          this.dx = 0; this.dy = 0; this.rot = 0;
         } else {
-          window.location.reload();
+          this.noMore = true;
         }
       } catch(_) {
         window.location.reload();
+        return;
       }
+
+      this.swiping = false;
     },
 
     async superLike() {
-      if (this.swiping || this.noMore || this.superLikesLeft <= 0) return;
+      if (this.swiping || this.noMore || this.superLikesLeft <= 0 || !this.card) return;
       this.superLikesLeft--;
       await this.swipe('like', true);
     },
@@ -224,7 +292,6 @@ document.addEventListener('alpine:init', () => {
       const d = await r.json();
       if (d.success) window.location.reload();
     },
-
   }));
 });
 </script>
@@ -321,9 +388,7 @@ document.addEventListener('alpine:init', () => {
         </div>
       </div>
 
-      <!-- ─── CARD ─── -->
-      {% set all_photos = ([profile.photo] if profile.photo else []) + (extra_photos | map(attribute='url') | list) %}
-
+      <!-- ─── CARD (fully Alpine-driven — no reload between swipes) ─── -->
       <div class="card-physics"
            :style="cardStyle"
            @mousedown.prevent="dragStart"
@@ -340,105 +405,86 @@ document.addEventListener('alpine:init', () => {
           <div class="stamp stamp-like" :style="{ opacity: likeOpacity }">LIKE 💚</div>
           <div class="stamp stamp-nope" :style="{ opacity: nopeOpacity }">NOPE ✖</div>
 
-          <!-- Photo -->
-          <div style="position:relative;height:min(72vw,480px);overflow:hidden;"
-               x-data="{ idx: 0, total: {{ all_photos | length }} }">
+          <!-- Photo section -->
+          <div style="position:relative;height:min(72vw,480px);overflow:hidden;">
 
-            {% for photo_url in all_photos %}
-            <img src="{{ photo_url }}" alt="{{ profile.name }}"
-                 style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:opacity .25s;"
-                 x-show="idx === {{ loop.index0 }}" />
-            {% endfor %}
-            {% if not all_photos %}
-            <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:100px;background:linear-gradient(135deg,#fce7f3,#ede9fe);">👤</div>
-            {% endif %}
+            <!-- Photos (Alpine x-for — swaps instantly without reload) -->
+            <template x-if="card && card.photos.length === 0">
+              <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:100px;background:linear-gradient(135deg,#fce7f3,#ede9fe);">👤</div>
+            </template>
+            <template x-for="(url, i) in (card ? card.photos : [])" :key="'p-' + i">
+              <img :src="url" :alt="card ? card.name : ''"
+                   style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:opacity .25s;"
+                   x-show="photoIdx === i" />
+            </template>
 
-            <!-- Photo navigation dots -->
-            {% if all_photos | length > 1 %}
-            <div style="position:absolute;top:12px;left:12px;right:12px;display:flex;gap:5px;z-index:10;">
-              {% for _ in all_photos %}
-              <div @click.stop="idx={{ loop.index0 }}"
-                   class="photo-dot"
-                   :class="idx === {{ loop.index0 }} ? 'active' : ''"
-                   style="flex:1;cursor:pointer;"></div>
-              {% endfor %}
-            </div>
+            <!-- Photo dots -->
+            <template x-if="card && card.photos.length > 1">
+              <div style="position:absolute;top:12px;left:12px;right:12px;display:flex;gap:5px;z-index:10;">
+                <template x-for="(_, i) in card.photos" :key="'d-' + i">
+                  <div @click.stop="photoIdx = i"
+                       class="photo-dot"
+                       :class="photoIdx === i ? 'active' : ''"
+                       style="flex:1;cursor:pointer;"></div>
+                </template>
+              </div>
+            </template>
+
             <!-- Tap left/right to switch photos -->
-            <div style="position:absolute;inset:0;display:flex;z-index:9;">
-              <div style="flex:1;" @click.stop="idx = idx > 0 ? idx-1 : total-1"></div>
-              <div style="flex:1;" @click.stop="idx = idx < total-1 ? idx+1 : 0"></div>
-            </div>
-            {% endif %}
+            <template x-if="card && card.photos.length > 1">
+              <div style="position:absolute;inset:0;display:flex;z-index:9;">
+                <div style="flex:1;" @click.stop="photoIdx = photoIdx > 0 ? photoIdx-1 : card.photos.length-1"></div>
+                <div style="flex:1;" @click.stop="photoIdx = photoIdx < card.photos.length-1 ? photoIdx+1 : 0"></div>
+              </div>
+            </template>
 
             <!-- Gradient overlay -->
             <div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.82) 0%,rgba(0,0,0,.15) 45%,transparent 70%);pointer-events:none;z-index:8;"></div>
 
             <!-- Bottom info -->
             <div style="position:absolute;bottom:0;left:0;right:0;padding:20px 20px 18px;z-index:9;pointer-events:none;">
-              {% set os = online_status(candidate.last_seen, lang) %}
-
-              <!-- Name row -->
               <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;">
                 <div>
                   <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-                    <span style="color:white;font-size:26px;font-weight:900;text-shadow:0 2px 8px rgba(0,0,0,.4);">
-                      {{ profile.name }}, {{ profile.age }}
-                    </span>
-                    {% if candidate.is_verified %}
-                    <span style="background:#22c55e;color:white;font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;">✓</span>
-                    {% endif %}
-                    {% if os and os.is_online %}
-                    <span style="width:10px;height:10px;background:#4ade80;border-radius:50%;border:2px solid rgba(255,255,255,.6);display:inline-block;"></span>
-                    {% endif %}
+                    <span x-text="card ? (card.name + ', ' + card.age) : ''"
+                          style="color:white;font-size:26px;font-weight:900;text-shadow:0 2px 8px rgba(0,0,0,.4);"></span>
+                    <span x-show="card && card.isVerified"
+                          style="background:#22c55e;color:white;font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;">✓</span>
+                    <span x-show="card && card.isOnline"
+                          style="width:10px;height:10px;background:#4ade80;border-radius:50%;border:2px solid rgba(255,255,255,.6);display:inline-block;"></span>
                   </div>
-                  {% if profile.city %}
-                  <p style="color:rgba(255,255,255,.7);font-size:13px;margin-top:3px;">📍 {{ profile.city }}</p>
-                  {% endif %}
-                  {% if os and not os.is_online %}
-                  <p style="color:rgba(255,255,255,.5);font-size:11px;margin-top:2px;">{{ os.label }}</p>
-                  {% endif %}
+                  <p x-show="card && card.city" x-text="card ? ('📍 ' + card.city) : ''"
+                     style="color:rgba(255,255,255,.7);font-size:13px;margin-top:3px;"></p>
+                  <p x-show="card && !card.isOnline && card.onlineLabel" x-text="card ? card.onlineLabel : ''"
+                     style="color:rgba(255,255,255,.5);font-size:11px;margin-top:2px;"></p>
                 </div>
-                {% if profile.intention %}
-                <span class="info-tag" style="margin-left:auto;align-self:flex-start;margin-top:4px;">
-                  {% if profile.intention == 'serious' %}💍 {{ t.get('intention_serious','Серьёзные') }}
-                  {% elif profile.intention == 'casual' %}😊 {{ t.get('intention_casual','Общение') }}
-                  {% elif profile.intention == 'today' %}🔥 {{ t.get('intention_today','Сегодня') }}
-                  {% elif profile.intention == 'browsing' %}👀 {{ t.get('intention_browsing','Смотрю') }}
-                  {% endif %}
-                </span>
-                {% endif %}
+                <span x-show="card && card.intention" x-text="intentionDisplay"
+                      class="info-tag" style="margin-left:auto;align-self:flex-start;margin-top:4px;"></span>
               </div>
 
-              <!-- Tags -->
-              {% if profile.interests %}
-              {% set tags = profile.interests.split(',') | map('trim') | list %}
-              {% if tags %}
-              <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;">
-                {% for tag in tags[:4] %}
-                <span style="background:rgba(255,255,255,.18);backdrop-filter:blur(8px);color:white;font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;"># {{ tag }}</span>
-                {% endfor %}
-                {% if tags | length > 4 %}<span style="color:rgba(255,255,255,.5);font-size:11px;padding:3px 6px;">+{{ tags|length - 4 }}</span>{% endif %}
+              <!-- Interest tags -->
+              <div x-show="card && card.interestsList && card.interestsList.length"
+                   style="display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;">
+                <template x-for="tag in (card ? card.interestsList : [])" :key="tag">
+                  <span style="background:rgba(255,255,255,.18);backdrop-filter:blur(8px);color:white;font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;">
+                    # <span x-text="tag"></span>
+                  </span>
+                </template>
               </div>
-              {% endif %}
-              {% endif %}
             </div>
           </div>
 
           <!-- Bio section -->
-          {% if profile.bio %}
-          <div style="padding:14px 18px 10px;background:white;">
-            <p style="color:#4b5563;font-size:14px;line-height:1.55;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">{{ profile.bio }}</p>
+          <div x-show="card && card.bio" style="padding:14px 18px 10px;background:white;">
+            <p x-text="card ? card.bio : ''" style="color:#4b5563;font-size:14px;line-height:1.55;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;"></p>
           </div>
-          {% endif %}
 
           <!-- Rating -->
-          {% if candidate.politeness_votes and candidate.politeness_votes > 0 %}
-          <div style="padding:0 18px 14px;background:white;display:flex;align-items:center;gap:4px;">
+          <div x-show="card && card.politenessVotes > 0" style="padding:0 18px 14px;background:white;display:flex;align-items:center;gap:4px;">
             <span style="color:#f59e0b;font-size:13px;">⭐</span>
-            <span style="font-weight:700;font-size:13px;color:#374151;">{{ "%.1f"|format(candidate.politeness_score) }}</span>
-            <span style="color:#9ca3af;font-size:12px;">({{ candidate.politeness_votes }} {{ t.get('ratings_label','оценок') }})</span>
+            <span x-text="card ? card.politenessScore.toFixed(1) : ''" style="font-weight:700;font-size:13px;color:#374151;"></span>
+            <span x-text="card ? ('(' + card.politenessVotes + ' ' + RATINGS_LABEL + ')') : ''" style="color:#9ca3af;font-size:12px;"></span>
           </div>
-          {% endif %}
         </div>
       </div>
 
@@ -455,7 +501,7 @@ document.addEventListener('alpine:init', () => {
         <button @click="swipe('dislike')" class="action-btn btn-dislike">✖️</button>
 
         <!-- View profile -->
-        <a href="/profile/{{ candidate.id }}" class="btn-eye">👁</a>
+        <a :href="card ? ('/profile/' + card.id) : '#'" class="btn-eye">👁</a>
 
         <!-- Like -->
         <button @click="swipe('like')" class="action-btn btn-like">💚</button>
