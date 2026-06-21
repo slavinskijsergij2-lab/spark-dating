@@ -20,7 +20,7 @@ from app.database import Base, engine
 from app.i18n import get_lang, get_translations, is_rtl
 from app.routers import auth, profile, swipe, matches
 from app.utils.time import utcnow as _utcnow
-from app.routers import features, premium, social, stories, referral, admin_seed
+from app.routers import features, premium, social, stories, referral
 from app.templates import templates
 
 Base.metadata.create_all(bind=engine)
@@ -193,7 +193,6 @@ app.include_router(premium.router)
 app.include_router(social.router)
 app.include_router(stories.router)
 app.include_router(referral.router)
-app.include_router(admin_seed.router)
 
 
 @app.exception_handler(HTTPException)
