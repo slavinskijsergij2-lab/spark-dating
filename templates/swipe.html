@@ -267,8 +267,7 @@ document.addEventListener('alpine:init', () => {
 
   <!-- ══ MATCH POPUP ══ -->
   <div x-show="matched" x-cloak
-       style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.7);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;"
-       x-show="matched">
+       style="position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.7);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;">
     <div class="match-pop text-center px-6 py-10 mx-4 max-w-xs w-full"
          style="background:linear-gradient(160deg,#fff5f8,#fdf2ff);border-radius:32px;box-shadow:0 32px 80px rgba(236,72,153,.35);">
       <div style="font-size:72px;margin-bottom:8px;animation:matchPop .6s .1s both;">💘</div>
@@ -308,7 +307,7 @@ document.addEventListener('alpine:init', () => {
       <!-- ─── Filter bar ─── -->
       <div x-data="{ open: false }" class="mb-4">
         <div class="flex gap-2 items-center overflow-x-auto pb-0.5 no-scrollbar">
-          <a href="/swipe{% if current_intention %}?intention={{ current_intention }}{% endif %}"
+          <a href="/swipe"
              class="filter-pill {% if not age_min != 18 and not age_max != 100 and not current_city and not online_only and not current_intention %}active{% endif %}">
             {{ t.get('filter_all','Все') }}
           </a>
@@ -365,7 +364,7 @@ document.addEventListener('alpine:init', () => {
                       style="flex:1;background:linear-gradient(135deg,#f472b6,#ec4899);color:white;font-weight:700;font-size:13px;padding:11px;border-radius:999px;border:none;cursor:pointer;">
                 {{ t.get('filter_apply','Применить') }}
               </button>
-              <a href="/swipe{% if current_intention %}?intention={{ current_intention }}{% endif %}"
+              <a href="/swipe"
                  style="flex:1;border:1.5px solid #e5e7eb;color:#6b7280;font-weight:600;font-size:13px;padding:11px;border-radius:999px;text-align:center;text-decoration:none;background:white;">
                 {{ t.get('filter_reset','Сбросить') }}
               </a>
@@ -383,7 +382,7 @@ document.addEventListener('alpine:init', () => {
            @mousemove.prevent="dragging && dragMove($event)"
            @mouseup="dragEnd"
            @mouseleave="dragging && dragEnd()"
-           @touchstart.passive="dragStart"
+           @touchstart="dragStart"
            @touchmove.prevent="dragMove"
            @touchend="dragEnd">
 
