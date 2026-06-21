@@ -315,7 +315,7 @@ async def send_voice(
         "id": msg.id,
         "content": msg.content,
         "sender_id": msg.sender_id,
-        "created_at": msg.created_at.strftime("%H:%M"),
+        "created_at": msg.created_at.isoformat(),
         "is_voice": True,
     })
 
