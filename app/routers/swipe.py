@@ -121,9 +121,12 @@ def find_next_candidate(
         .filter(Profile.age <= age_max)
     )
 
-    # Only filter by gender preference if the user has set one
+    # Filter by mutual gender preference: candidate must want the user's gender too
     if profile.looking_for:
         q = q.filter(Profile.gender == profile.looking_for)
+        q = q.filter(
+            or_(Profile.looking_for == None, Profile.looking_for == profile.gender)
+        )
 
     if intention and intention in VALID_INTENTIONS:
         q = q.filter(Profile.intention == intention)

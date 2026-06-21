@@ -14,7 +14,7 @@
     <p class="text-pink-600 text-xs font-bold">{{ bonus_until.strftime('%d.%m.%Y %H:%M') }} UTC</p>
   </div>
 </div>
-{% elif user.is_premium %}
+{% elif user.is_premium_active %}
 <div class="bg-gradient-to-r from-pink-50 to-purple-50 border border-pink-200 rounded-2xl p-4 mb-4 flex items-center gap-3">
   <span class="text-2xl">⭐</span>
   <p class="font-semibold text-pink-700 text-sm">{{ t.get('premium_active', 'Premium активен') }}</p>
