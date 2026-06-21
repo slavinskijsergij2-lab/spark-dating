@@ -265,9 +265,13 @@ document.addEventListener('alpine:init', () => {
 
   <!-- ══ MATCH POPUP ══ -->
   <div x-show="matched" x-cloak
+       @click.self="matched = false; window.location.reload()"
        style="position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.7);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;">
     <div class="match-pop text-center px-6 py-10 mx-4 max-w-xs w-full"
-         style="background:linear-gradient(160deg,#fff5f8,#fdf2ff);border-radius:32px;box-shadow:0 32px 80px rgba(236,72,153,.35);">
+         style="position:relative;background:linear-gradient(160deg,#fff5f8,#fdf2ff);border-radius:32px;box-shadow:0 32px 80px rgba(236,72,153,.35);">
+      <!-- Close button -->
+      <button @click="matched = false; window.location.reload()"
+              style="position:absolute;top:14px;right:14px;width:32px;height:32px;border-radius:50%;border:none;background:rgba(0,0,0,.08);color:#9ca3af;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">✕</button>
       <div style="font-size:72px;margin-bottom:8px;animation:matchPop .6s .1s both;">💘</div>
       <h2 class="text-gradient" style="font-size:36px;font-weight:900;margin-bottom:6px;">{{ t.get('its_a_match','Это Матч!') }}</h2>
       <p style="color:#9ca3af;margin-bottom:24px;font-size:15px;">

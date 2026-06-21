@@ -157,7 +157,7 @@
   </div>
   <div class="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
     {% for lu in liked_me_users %}
-    <div x-data="{hidden:false, loading:false}" x-show="!hidden" class="liked-card">
+    <div x-data="{hidden:false, loading:false, err:false}" x-show="!hidden" class="liked-card">
       <div class="relative h-24">
         {% if lu.profile.photo %}
         <img src="{{ lu.profile.photo }}" class="w-full h-full object-cover" />
@@ -171,13 +171,17 @@
       </div>
       <div class="px-2 pt-1.5 pb-2">
         <p class="text-[11px] font-bold text-gray-800 truncate">{{ lu.profile.name }}, {{ lu.profile.age }}</p>
+        <p x-show="err" x-cloak class="text-[9px] text-red-400 mb-1">{{ t.get('error_try_again','Ошибка, попробуй ещё') }}</p>
         <button :disabled="loading"
                 @click="
-                  loading = true;
+                  loading = true; err = false;
                   fetch('/swipe/{{ lu.id }}?action=like', {method:'POST', headers:{'x-csrf-token':getCsrfToken()}})
-                    .then(r=>r.json())
-                    .then(d=>{ hidden=true; if(d.matched) window.location.reload(); })
-                    .catch(()=>{ loading=false; });
+                    .then(r => { if(!r.ok) throw new Error(r.status); return r.json(); })
+                    .then(d => {
+                      if(d.matched) { window.location.href='/matches'; }
+                      else { hidden = true; }
+                    })
+                    .catch(() => { loading = false; err = true; });
                 "
                 class="mt-1.5 w-full gradient-pink text-white text-[10px] font-bold py-1.5 rounded-full hover:opacity-90 transition disabled:opacity-50">
           <span x-show="!loading">💚 {{ t.get('like_back','В ответ') }}</span>
