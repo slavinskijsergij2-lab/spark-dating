@@ -11,7 +11,7 @@
       <p class="text-gray-400 text-sm leading-relaxed mb-6">{{ t.check_email_desc }}</p>
 
       <!-- Resend verification -->
-      <div x-data="{ open: false, sent: false, email: '', loading: false }" class="mb-6">
+      <div x-data="{ open: false, sent: false, email: '', loading: false, rateLimited: false }" class="mb-6">
         <button @click="open = !open"
                 class="text-sm text-pink-500 hover:text-pink-700 font-medium underline underline-offset-2 transition">
           {{ t.get('check_email_not_arrived', 'Письмо не пришло?') }}
@@ -19,16 +19,18 @@
         <div x-show="open" x-cloak class="mt-4 text-left">
           <template x-if="!sent">
             <form @submit.prevent="
-              loading = true;
+              loading = true; rateLimited = false;
               fetch('/resend-verification', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/x-www-form-urlencoded'},
                 body: 'email=' + encodeURIComponent(email) + '&csrftoken=' + getCsrfToken()
-              }).then(r => { if (r.ok) sent = true; loading = false; }).catch(() => { loading = false; });
+              }).then(r => { if (r.ok) sent = true; else if (r.status === 429) rateLimited = true; loading = false; })
+                .catch(() => { loading = false; });
             ">
               <input x-model="email" type="email" required
                      placeholder="{{ t.get('your_email', 'Ваш email') }}"
                      class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm mb-3 focus:outline-none focus:border-pink-400 transition">
+              <p x-show="rateLimited" x-cloak class="text-amber-600 text-xs mb-2">⏳ {{ t.get('rate_limit_msg', 'Слишком много попыток. Попробуйте через несколько минут.') }}</p>
               <button type="submit" :disabled="loading"
                       class="w-full gradient-pink text-white py-2.5 rounded-full text-sm font-semibold hover:opacity-90 transition disabled:opacity-50">
                 <span x-show="!loading">📨 {{ t.get('resend_verification', 'Отправить заново') }}</span>
