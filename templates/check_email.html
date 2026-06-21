@@ -24,7 +24,7 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/x-www-form-urlencoded'},
                 body: 'email=' + encodeURIComponent(email) + '&csrftoken=' + getCsrfToken()
-              }).then(() => { sent = true; loading = false; }).catch(() => { loading = false; });
+              }).then(r => { if (r.ok) sent = true; loading = false; }).catch(() => { loading = false; });
             ">
               <input x-model="email" type="email" required
                      placeholder="{{ t.get('your_email', 'Ваш email') }}"

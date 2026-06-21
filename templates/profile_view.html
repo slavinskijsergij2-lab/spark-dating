@@ -8,18 +8,16 @@
   blocked: false,
   reported: false,
   async blockUser() {
-    await fetch('/user/{{ target.id }}/block', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}});
-    this.blocked = true;
+    const r = await fetch('/user/{{ target.id }}/block', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}});
+    if (r.ok) this.blocked = true;
   },
   async reportUser() {
-    await fetch('/user/{{ target.id }}/report', {
+    const r = await fetch('/user/{{ target.id }}/report', {
       method:'POST',
       headers:{'x-csrf-token': getCsrfToken(), 'Content-Type':'application/json'},
       body: JSON.stringify({reason: this.reportReason, comment: this.reportComment})
     });
-    this.reported = true;
-    this.reportOpen = false;
-    this.blocked = true;
+    if (r.ok) { this.reported = true; this.reportOpen = false; this.blocked = true; }
   }
 }">
 
