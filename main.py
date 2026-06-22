@@ -44,17 +44,16 @@ def _run_alembic_migrations() -> None:
             # Detect pre-Alembic deployment: schema already exists
             with engine.connect() as conn:
                 conn.execute(_text("SELECT 1 FROM users LIMIT 1"))
-            # Stamp at 001 (not head) so any newer migrations still run below
             command.stamp(alembic_cfg, "001")
             logging.info("alembic: stamped existing database as 001")
         except Exception:
-            # Fresh database — create schema via migrations
+            # Fresh database — run full migration from scratch
             command.upgrade(alembic_cfg, "head")
             logging.info("alembic: created schema via migrations")
-    else:
-        command.upgrade(alembic_cfg, "head")
-        if current != "head":
-            logging.info("alembic: applied pending migrations (was at %s)", current)
+            return
+
+    # Always upgrade to head (runs pending migrations after stamp or on restart)
+    command.upgrade(alembic_cfg, "head")
 
 
 try:
