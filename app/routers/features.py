@@ -4,7 +4,7 @@ import random
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func as _func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -15,6 +15,7 @@ from app.database import get_db
 from app.i18n import get_lang, get_translations, is_rtl
 from app.models.models import Match, PolitenessVote, Profile, QuizAnswer, User
 from app.quiz_questions import QUIZ_QUESTIONS, TOTAL_QUESTIONS
+from app.rate_limit import rate_limit
 from app.templates import templates
 
 router = APIRouter()
@@ -43,7 +44,7 @@ def _sanitize_prompt_field(text: str, max_len: int = 200) -> str:
     return text.replace("\n", " ").replace("\r", " ").replace("```", "").strip()[:max_len]
 
 
-@router.get("/chat/{match_id}/icebreakers")
+@router.get("/chat/{match_id}/icebreakers", dependencies=[Depends(rate_limit(5, 60))])
 async def get_icebreakers(
     match_id: int,
     user: User = Depends(get_current_user),
@@ -231,9 +232,9 @@ async def quiz_answer(
         await db.rollback()
 
     result = await db.execute(
-        select(QuizAnswer).where(QuizAnswer.user_id == user.id)
+        select(_func.count(QuizAnswer.id)).where(QuizAnswer.user_id == user.id)
     )
-    answered_count = len(result.scalars().all())
+    answered_count = result.scalar() or 0
     return JSONResponse({"success": True, "answered": answered_count, "total": TOTAL_QUESTIONS})
 
 

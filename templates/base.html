@@ -218,7 +218,7 @@
 <script>
 function getCsrfToken() {
   const c = document.cookie.split('; ').find(r => r.startsWith('csrftoken='));
-  return c ? c.split('=')[1] : '';
+  return c ? c.slice('csrftoken='.length) : '';
 }
 function toggleDark() {
   const isDark = document.documentElement.classList.toggle('dark');
