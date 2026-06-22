@@ -26,6 +26,7 @@
     pointer-events: none;
     z-index: 30;
     transition: opacity .15s;
+    opacity: 0;
   }
   .stamp-like  { left: 18px;  color: #22c55e; border-color: #22c55e; transform: rotate(-15deg); }
   .stamp-nope  { right: 18px; color: #ef4444; border-color: #ef4444; transform: rotate(15deg); }
@@ -193,6 +194,12 @@ document.addEventListener('alpine:init', () => {
     flying: false, flyX: 0, flyY: 0, flyOpacity: 1,
     swiping: false,
 
+    init() {
+      window.addEventListener('pageshow', (e) => {
+        if (e.persisted) window.location.reload();
+      });
+    },
+
     superLikesLeft: {{ super_likes_left }},
     canUndo:        {{ 'true' if can_undo else 'false' }},
 
@@ -260,10 +267,14 @@ document.addEventListener('alpine:init', () => {
         if (this.filters.city)        params.set('city',        this.filters.city);
         if (this.filters.online_only) params.set('online_only', '1');
 
+        const _ctrl = new AbortController();
+        const _tid  = setTimeout(() => _ctrl.abort(), 10000);
         const resp = await fetch('/swipe/' + this.card.id + '?' + params, {
           method: 'POST',
           headers: { 'x-csrf-token': getCsrfToken() },
+          signal: _ctrl.signal,
         });
+        clearTimeout(_tid);
         const data = await resp.json();
 
         if (!resp.ok) {
