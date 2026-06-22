@@ -51,7 +51,7 @@ def test_upload_valid_png():
 
 
 def test_upload_photo_url_saved(db):
-    """After upload, profile.photo starts with /photos/."""
+    """After upload, profile.photo is stored as base64 data URL."""
     from app.models.models import Profile
 
     client, email, csrf = make_auth_client(f"phurl_{_tag()}")
@@ -62,7 +62,7 @@ def test_upload_photo_url_saved(db):
     profile = db.query(Profile).filter(Profile.user_id == uid).first()
     assert profile is not None
     assert profile.photo is not None
-    assert profile.photo.startswith("/photos/")
+    assert profile.photo.startswith("data:image/")
 
 
 def test_upload_invalid_extension():
@@ -123,7 +123,7 @@ def test_add_gallery_photo_persisted(db):
     db.expire_all()
     photos = db.query(ProfilePhoto).filter(ProfilePhoto.profile_id == profile.id).all()
     assert len(photos) == 1
-    assert photos[0].url.startswith("/photos/")
+    assert photos[0].url.startswith("data:image/")
 
 
 def test_add_gallery_photo_limit(db):

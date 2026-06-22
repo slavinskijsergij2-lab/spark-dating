@@ -335,13 +335,14 @@ def test_reactions_appear_in_messages_endpoint(db):
 
 def test_rate_limit_logic_unit():
     """Unit test for rate_limit(): verifies 429 is raised after max_calls exceeded."""
+    import asyncio
     import os
-    # Temporarily disable TESTING flag so the limiter runs
+    from fastapi import HTTPException
+    from unittest.mock import MagicMock
+
     os.environ.pop("TESTING", None)
     try:
-        from app.rate_limit import rate_limit, _store, _lock
-        from fastapi import HTTPException
-        from unittest.mock import MagicMock
+        from app.rate_limit import rate_limit
 
         limiter = rate_limit(3, 60)
         ip = f"unit_test_{secrets.token_hex(8)}"
@@ -351,13 +352,13 @@ def test_rate_limit_logic_unit():
         req.client.host = ip
         req.headers.get.return_value = None  # no X-Forwarded-For
 
-        # First 3 calls must succeed
-        for _ in range(3):
-            limiter(req)
+        async def _run():
+            for _ in range(3):
+                await limiter(req)
+            with pytest.raises(HTTPException) as exc_info:
+                await limiter(req)
+            assert exc_info.value.status_code == 429
 
-        # 4th call must raise 429
-        with pytest.raises(HTTPException) as exc_info:
-            limiter(req)
-        assert exc_info.value.status_code == 429
+        asyncio.run(_run())
     finally:
-        os.environ["TESTING"] = "1"  # restore
+        os.environ["TESTING"] = "1"
