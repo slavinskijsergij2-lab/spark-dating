@@ -58,7 +58,6 @@ class User(Base):
         if self.is_premium:
             return True
         if self.premium_until:
-            from app.utils.time import utcnow as _utcnow
             return self.premium_until > _utcnow()
         return False
 
@@ -108,6 +107,7 @@ class Like(Base):
 
     __table_args__ = (
         UniqueConstraint("liker_id", "liked_id", name="uq_like_pair"),
+        Index("ix_like_liker_created", "liker_id", "created_at"),
     )
 
 
@@ -153,6 +153,13 @@ class Message(Base):
 
     match = relationship("Match", back_populates="messages")
     sender = relationship("User", foreign_keys=[sender_id], back_populates="messages_sent")
+
+    __table_args__ = (
+        # Covers: WHERE match_id=X AND id>Y ORDER BY created_at  (SSE + polling)
+        Index("ix_message_match_id", "match_id", "id", "created_at"),
+        # Covers: unread count query — WHERE match_id=X AND sender_id!=Y AND is_read=False
+        Index("ix_message_unread", "match_id", "is_read", "sender_id"),
+    )
 
 
 # Function 3: Politeness vote tracking

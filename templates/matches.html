@@ -82,7 +82,7 @@
 
 <!-- ══ STORIES ROW ══ -->
 <div x-data="{ stories: [], storyViewer: null, viewIdx: 0 }"
-     x-init="fetch('/stories/feed').then(r=>r.json()).then(d=>{ stories=d; }).catch(()=>{})"
+     x-init="void fetch('/stories/feed').then(r=>r.json()).then(d=>{ stories=d; }).catch(()=>{})"
      class="mb-5">
   <div class="flex gap-3 overflow-x-auto pb-1 no-scrollbar">
 
@@ -110,7 +110,7 @@
   </div>
 
   <!-- Story viewer modal -->
-  <div x-show="storyViewer" x-cloak @click="storyViewer=null"
+  <div x-show="storyViewer" x-cloak style="display:none" @click="storyViewer=null"
        class="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center">
     <div @click.stop class="relative w-full max-w-sm h-[75vh] bg-black rounded-3xl overflow-hidden shadow-2xl">
       <template x-if="storyViewer && storyViewer.stories && storyViewer.stories[viewIdx]">
@@ -153,14 +153,14 @@
 <div class="mb-5">
   <div class="flex items-center gap-2 mb-3">
     <span class="text-sm font-bold text-gray-700">❤️ {{ t.get('liked_you_title','Лайкнули тебя') }}</span>
-    <span class="badge-pulse bg-pink-500 text-white text-[10px] font-black rounded-full px-2 py-0.5 shadow">{{ liked_me_users | length }}</span>
+    <span class="badge-pulse bg-pink-500 text-white text-[10px] font-black rounded-full px-2 py-0.5 shadow">{{ liked_me_total }}</span>
   </div>
   <div class="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
     {% for lu in liked_me_users %}
     <div x-data="{hidden:false, loading:false, err:false}" x-show="!hidden" class="liked-card">
       <div class="relative h-24">
         {% if lu.profile.photo %}
-        <img src="{{ lu.profile.photo }}" class="w-full h-full object-cover" />
+        <img src="{{ lu.profile.photo }}" class="w-full h-full object-cover" loading="lazy" />
         {% else %}
         <div class="w-full h-full bg-gradient-to-br from-pink-100 to-rose-100 flex items-center justify-center text-3xl">👤</div>
         {% endif %}
@@ -238,7 +238,7 @@
 
       <!-- Photo -->
       {% if partner.profile.photo %}
-      <img src="{{ partner.profile.photo }}" class="match-card-img" alt="{{ partner.profile.name }}" />
+      <img src="{{ partner.profile.photo }}" class="match-card-img" alt="{{ partner.profile.name }}" loading="lazy" />
       {% else %}
       <div class="match-card-img bg-gradient-to-br from-pink-200 to-rose-300 flex items-center justify-center">
         <span class="text-6xl">👤</span>
@@ -303,6 +303,25 @@
     {% endif %}
     {% endfor %}
   </div>
+
+  <!-- Pagination -->
+  {% if total_pages > 1 %}
+  <div class="flex items-center justify-center gap-3 mt-5 pb-2">
+    {% if page > 1 %}
+    <a href="/matches?page={{ page - 1 }}"
+       class="px-4 py-2 rounded-xl bg-white border border-gray-200 text-sm font-medium text-gray-600 hover:border-pink-300 hover:text-pink-500 transition shadow-sm">
+      ← {{ t.get('prev_page', 'Назад') }}
+    </a>
+    {% endif %}
+    <span class="text-xs text-gray-400">{{ page }} / {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a href="/matches?page={{ page + 1 }}"
+       class="px-4 py-2 rounded-xl bg-white border border-gray-200 text-sm font-medium text-gray-600 hover:border-pink-300 hover:text-pink-500 transition shadow-sm">
+      {{ t.get('next_page', 'Далее') }} →
+    </a>
+    {% endif %}
+  </div>
+  {% endif %}
 
   <!-- No search results -->
   <div x-show="noResults"

@@ -375,13 +375,15 @@
       reactionPicker: null,
       REACTIONS: ['❤️','😂','😮','😢','👍','🔥'],
       recording: false, mediaRecorder: null, audioChunks: [],
+      sse: null,
 
       init() {
         const raw = {{ messages | tojson | safe }};
         this.messages = raw.map(m => this.fmt(m));
         if (this.messages.length) this.lastId = this.messages.at(-1).id;
         this.$nextTick(() => this.scrollBottom());
-        setInterval(() => this.poll(), 5000);
+        this.connectSSE();
+        window.addEventListener('beforeunload', () => { if (this.sse) this.sse.close(); });
       },
 
       fmt(m) {
@@ -452,17 +454,29 @@
         this.loading = false;
       },
 
-      async poll() {
-        try {
-          const r = await fetch('/chat/'+this.matchId+'/messages?after_id='+this.lastId);
-          const data = await r.json();
-          if (Array.isArray(data) && data.length) {
-            data.forEach(m => this.messages.push(this.fmt(m)));
-            this.lastId = data.at(-1).id;
-            this.$nextTick(() => this.scrollBottom());
-          }
-          this.messages.forEach(m => { if (m.sender_id === this.userId) m.is_read = true; });
-        } catch(e) {}
+      connectSSE() {
+        if (this.sse) { this.sse.close(); this.sse = null; }
+        this.sse = new EventSource('/chat/' + this.matchId + '/stream?after_id=' + this.lastId);
+        this.sse.onmessage = (e) => {
+          try {
+            const msgs = JSON.parse(e.data);
+            if (Array.isArray(msgs) && msgs.length) {
+              msgs.forEach(m => {
+                if (!this.messages.find(x => x.id === m.id)) {
+                  this.messages.push(this.fmt(m));
+                }
+              });
+              this.lastId = msgs.at(-1).id;
+              this.$nextTick(() => this.scrollBottom());
+              this.messages.forEach(m => { if (m.sender_id === this.userId) m.is_read = true; });
+            }
+          } catch(err) {}
+        };
+        this.sse.onerror = () => {
+          this.sse.close();
+          this.sse = null;
+          setTimeout(() => this.connectSSE(), 3000);
+        };
       },
 
       async loadIcebreakers() {

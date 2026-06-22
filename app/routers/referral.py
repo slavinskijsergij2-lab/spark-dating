@@ -4,7 +4,8 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
 from app.database import get_db
@@ -19,29 +20,31 @@ APP_URL = os.getenv("APP_URL", "https://spark-dating.club")
 REFERRAL_BONUS_DAYS = 3
 
 
-def _generate_referral_code(db: Session) -> str:
+async def _generate_referral_code(db: AsyncSession) -> str:
     """Generate a unique 8-character uppercase referral code."""
     while True:
         code = secrets.token_urlsafe(6).upper()[:8]
-        if not db.query(User).filter(User.referral_code == code).first():
+        result = await db.execute(select(User).where(User.referral_code == code))
+        if not result.scalar_one_or_none():
             return code
 
 
-def apply_referral_bonus(referrer: User, db: Session) -> None:
+async def apply_referral_bonus(referrer: User, db: AsyncSession) -> None:
     """Add REFERRAL_BONUS_DAYS days of premium_until to the referrer."""
     now = _utcnow()
     base = referrer.premium_until if referrer.premium_until and referrer.premium_until > now else now
     referrer.premium_until = base + timedelta(days=REFERRAL_BONUS_DAYS)
-    db.commit()
+    await db.commit()
 
 
 @router.get("/referral", response_class=HTMLResponse)
-def referral_page(request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def referral_page(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if not user.referral_code:
-        user.referral_code = _generate_referral_code(db)
-        db.commit()
+        user.referral_code = await _generate_referral_code(db)
+        await db.commit()
 
-    referred_count = db.query(User).filter(User.referred_by_id == user.id).count()
+    result = await db.execute(select(User).where(User.referred_by_id == user.id))
+    referred_count = len(result.scalars().all())
     days_earned = referred_count * REFERRAL_BONUS_DAYS
 
     now = _utcnow()
@@ -49,8 +52,7 @@ def referral_page(request: Request, user: User = Depends(get_current_user), db: 
     bonus_until = user.premium_until
 
     lang = get_lang(request, user)
-    return templates.TemplateResponse("referral.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "referral.html", {
         "user": user,
         "t": get_translations(lang),
         "rtl": is_rtl(lang),

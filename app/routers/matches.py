@@ -1,84 +1,75 @@
+import asyncio
 import base64
 import io
+import json as _json
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from PIL import Image
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, func, or_, select, update, delete
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.auth import get_current_user
 from app.csrf import validate_csrf_header
-from app.database import get_db
+from app.database import get_db, AsyncSessionLocal
 from app.utils.time import utcnow as _utcnow
 from app.i18n import get_lang, get_translations, is_rtl
 from app.models.models import Like, Match, Message, MessageReaction, QuizAnswer, User
 from app.quiz_questions import CATEGORY_ORDER, QID_TO_CATEGORY
+from app.rate_limit import rate_limit
 from app.templates import templates
 
 router = APIRouter()
 
 MAX_MESSAGE_LENGTH = 2000
 CHAT_PAGE_SIZE = 100
-MAX_VOICE_BYTES = 5 * 1024 * 1024  # 5 MB
-POLL_PAGE_SIZE = 50   # MEDIUM-19: cap polling response
-# HIGH-1: only allow real audio MIME types for voice messages
+MAX_VOICE_BYTES = 5 * 1024 * 1024
+POLL_PAGE_SIZE = 50
+MATCHES_PAGE_SIZE = 20
+LIKED_ME_PREVIEW = 12
 ALLOWED_AUDIO_MIMES = {"audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav"}
 
 
 def _update_streak(match: "Match", db):
-    """Update streak_days and last_streak_date on a match when a message is sent."""
     today = _utcnow().date()
     if match.last_streak_date:
         last = match.last_streak_date.date()
         if last == today:
-            return  # Already counted today
+            return
         if last == today - timedelta(days=1):
             match.streak_days = (match.streak_days or 0) + 1
         else:
-            match.streak_days = 1  # Streak broken
+            match.streak_days = 1
     else:
         match.streak_days = 1
     match.last_streak_date = _utcnow()
 
 
-def get_user_matches(user_id: int, db: Session):
-    return (
-        db.query(Match)
-        .filter(or_(Match.user1_id == user_id, Match.user2_id == user_id))
-        .order_by(Match.created_at.desc())
-        .all()
-    )
-
-
-def get_partner(match: Match, user_id: int) -> User:
-    return match.user2 if match.user1_id == user_id else match.user1
-
-
-def compute_compatibility_batch(user_id: int, partner_ids: list, db: Session) -> dict:
-    """Return {partner_id: {"overall": N, "categories": {cat: N, ...}} | None}. 2 queries total."""
+async def compute_compatibility_batch(user_id: int, partner_ids: list, db: AsyncSession) -> dict:
     if not partner_ids:
         return {}
 
     all_ids = [user_id] + list(partner_ids)
-    all_answers = db.query(QuizAnswer).filter(QuizAnswer.user_id.in_(all_ids)).all()
+    result = await db.execute(select(QuizAnswer).where(QuizAnswer.user_id.in_(all_ids)))
+    all_answers = result.scalars().all()
 
     answers_by_user: dict = {}
     for qa in all_answers:
         answers_by_user.setdefault(qa.user_id, {})[qa.question_id] = qa.answer_index
 
     user_answers = answers_by_user.get(user_id, {})
-    result = {}
+    out = {}
 
     for partner_id in partner_ids:
         partner_answers = answers_by_user.get(partner_id, {})
         if not user_answers or not partner_answers:
-            result[partner_id] = None
+            out[partner_id] = None
             continue
         common_qids = set(user_answers.keys()) & set(partner_answers.keys())
         if not common_qids:
-            result[partner_id] = None
+            out[partner_id] = None
             continue
 
         cat_matched: dict = {}
@@ -94,57 +85,83 @@ def compute_compatibility_batch(user_id: int, partner_ids: list, db: Session) ->
             for cat in CATEGORY_ORDER
             if cat_total.get(cat, 0) > 0
         }
-
         total_matched = sum(cat_matched.values())
         overall = round(100 * total_matched / len(common_qids))
+        out[partner_id] = {"overall": overall, "categories": categories}
 
-        result[partner_id] = {"overall": overall, "categories": categories}
-
-    return result
+    return out
 
 
-@router.get("/api/notifications")
-def notifications(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    new_matches = db.query(func.count(Match.id)).filter(
-        or_(
-            and_(Match.user1_id == user.id, Match.seen_by_user1 == False),
-            and_(Match.user2_id == user.id, Match.seen_by_user2 == False),
+@router.get("/api/notifications", dependencies=[Depends(rate_limit(120, 60))])
+async def notifications(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(func.count(Match.id)).where(
+            or_(
+                and_(Match.user1_id == user.id, Match.seen_by_user1 == False),
+                and_(Match.user2_id == user.id, Match.seen_by_user2 == False),
+            )
         )
-    ).scalar() or 0
+    )
+    new_matches = result.scalar() or 0
 
-    unread_messages = db.query(func.count(Message.id)).join(Match).filter(
-        or_(Match.user1_id == user.id, Match.user2_id == user.id),
-        Message.sender_id != user.id,
-        Message.is_read == False,
-    ).scalar() or 0
+    result = await db.execute(
+        select(func.count(Message.id))
+        .join(Match, Message.match_id == Match.id)
+        .where(
+            or_(Match.user1_id == user.id, Match.user2_id == user.id),
+            Message.sender_id != user.id,
+            Message.is_read == False,
+        )
+    )
+    unread_messages = result.scalar() or 0
 
     return JSONResponse({"new_matches": new_matches, "unread_messages": unread_messages})
 
 
 @router.get("/matches", response_class=HTMLResponse)
-def matches_page(request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    matches = get_user_matches(user.id, db)
+async def matches_page(
+    request: Request,
+    page: int = Query(1, ge=1),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    base_where = or_(Match.user1_id == user.id, Match.user2_id == user.id)
 
-    # Mark all as seen
+    result = await db.execute(select(func.count(Match.id)).where(base_where))
+    total_matches = result.scalar() or 0
+    total_pages = max(1, (total_matches + MATCHES_PAGE_SIZE - 1) // MATCHES_PAGE_SIZE)
+    page = min(page, total_pages)
+
+    result = await db.execute(
+        select(Match)
+        .where(base_where)
+        .order_by(Match.created_at.desc())
+        .offset((page - 1) * MATCHES_PAGE_SIZE)
+        .limit(MATCHES_PAGE_SIZE)
+    )
+    matches = result.scalars().all()
+
     for m in matches:
         if m.user1_id == user.id and not m.seen_by_user1:
             m.seen_by_user1 = True
         elif m.user2_id == user.id and not m.seen_by_user2:
             m.seen_by_user2 = True
-    db.commit()
+    await db.commit()
 
-    # Batch-load all partner User objects in 1 query to avoid N+1 lazy loads
     partner_id_by_match = {
         m.id: (m.user2_id if m.user1_id == user.id else m.user1_id)
         for m in matches
     }
     all_partner_ids = list(partner_id_by_match.values())
-    partners_map = {
-        u.id: u
-        for u in db.query(User).options(joinedload(User.profile)).filter(User.id.in_(all_partner_ids)).all()
-    } if all_partner_ids else {}
+    if all_partner_ids:
+        result = await db.execute(
+            select(User).options(joinedload(User.profile)).where(User.id.in_(all_partner_ids))
+        )
+        partners_map = {u.id: u for u in result.scalars().unique().all()}
+    else:
+        partners_map = {}
 
-    compat_map = compute_compatibility_batch(user.id, all_partner_ids, db)
+    compat_map = await compute_compatibility_batch(user.id, all_partner_ids, db)
 
     partners = []
     for m in matches:
@@ -153,22 +170,31 @@ def matches_page(request: Request, user: User = Depends(get_current_user), db: S
         if partner:
             partners.append((m, partner, compat_map.get(pid)))
 
-    # Users who LIKED me (is_like=True), not yet matched, and I haven't swiped on
-    liker_ids = {
-        like.liker_id
-        for like in db.query(Like.liker_id).filter(
-            Like.liked_id == user.id, Like.is_like == True
-        ).all()
+    # Users who liked me — pending (not yet matched, not yet swiped)
+    result = await db.execute(
+        select(Match.user1_id, Match.user2_id).where(base_where)
+    )
+    all_matched_ids = {
+        (row.user2_id if row.user1_id == user.id else row.user1_id)
+        for row in result.all()
     }
-    i_swiped_ids = {like.liked_id for like in db.query(Like.liked_id).filter(Like.liker_id == user.id).all()}
-    matched_ids = set(all_partner_ids)
-    pending_ids = liker_ids - matched_ids - i_swiped_ids
+
+    result = await db.execute(select(Like.liked_id).where(Like.liker_id == user.id))
+    i_swiped_ids = set(result.scalars().all())
+
+    result = await db.execute(
+        select(Like.liker_id).where(Like.liked_id == user.id, Like.is_like == True)
+    )
+    pending_ids_raw = set(result.scalars().all()) - all_matched_ids - i_swiped_ids
+
+    liked_me_total = len(pending_ids_raw)
     liked_me_users = []
-    if pending_ids:
-        liked_me_users = [
-            u for u in db.query(User).options(joinedload(User.profile)).filter(User.id.in_(pending_ids)).all()
-            if u.profile
-        ]
+    if pending_ids_raw:
+        preview_ids = list(pending_ids_raw)[:LIKED_ME_PREVIEW]
+        result = await db.execute(
+            select(User).options(joinedload(User.profile)).where(User.id.in_(preview_ids))
+        )
+        liked_me_users = [u for u in result.scalars().unique().all() if u.profile]
 
     lang = get_lang(request, user)
     partner_names = [
@@ -176,12 +202,15 @@ def matches_page(request: Request, user: User = Depends(get_current_user), db: S
         for _, partner, _ in partners
         if partner.profile
     ]
-    return templates.TemplateResponse("matches.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "matches.html", {
         "user": user,
         "partners": partners,
         "liked_me_users": liked_me_users,
+        "liked_me_total": liked_me_total,
         "partner_names": partner_names,
+        "page": page,
+        "total_pages": total_pages,
+        "total_matches": total_matches,
         "t": get_translations(lang),
         "rtl": is_rtl(lang),
         "lang": lang,
@@ -189,36 +218,46 @@ def matches_page(request: Request, user: User = Depends(get_current_user), db: S
 
 
 @router.get("/chat/{match_id}", response_class=HTMLResponse)
-def chat_page(match_id: int, request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    match = db.query(Match).filter(Match.id == match_id).first()
+async def chat_page(match_id: int, request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Match)
+        .options(selectinload(Match.user1).selectinload(User.profile),
+                 selectinload(Match.user2).selectinload(User.profile))
+        .where(Match.id == match_id)
+    )
+    match = result.scalar_one_or_none()
     if not match or (match.user1_id != user.id and match.user2_id != user.id):
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    db.query(Message).filter(
-        Message.match_id == match_id,
-        Message.sender_id != user.id,
-        Message.is_read == False,
-    ).update({"is_read": True})
-    db.commit()
+    await db.execute(
+        update(Message)
+        .where(
+            Message.match_id == match_id,
+            Message.sender_id != user.id,
+            Message.is_read == False,
+        )
+        .values(is_read=True)
+    )
+    await db.commit()
 
-    # FIX H4: load only the most recent CHAT_PAGE_SIZE messages to prevent OOM.
-    # The polling endpoint (/chat/{id}/messages?after_id=N) delivers new messages incrementally.
-    messages_raw = (
-        db.query(Message)
-        .filter(Message.match_id == match_id)
+    result = await db.execute(
+        select(Message)
+        .where(Message.match_id == match_id)
         .order_by(Message.created_at.desc())
         .limit(CHAT_PAGE_SIZE)
-        .all()
     )
-    messages_raw = list(reversed(messages_raw))  # back to chronological order
+    messages_raw = list(reversed(result.scalars().all()))
 
-    partner = get_partner(match, user.id)
+    partner = match.user2 if match.user1_id == user.id else match.user1
     msg_ids = [m.id for m in messages_raw]
-    all_reactions = db.query(MessageReaction).filter(MessageReaction.message_id.in_(msg_ids)).all() if msg_ids else []
     reactions_by_msg: dict = {}
-    for r in all_reactions:
-        reactions_by_msg.setdefault(r.message_id, {})[r.emoji] = \
-            reactions_by_msg.get(r.message_id, {}).get(r.emoji, 0) + 1
+    if msg_ids:
+        result = await db.execute(
+            select(MessageReaction).where(MessageReaction.message_id.in_(msg_ids))
+        )
+        for r in result.scalars().all():
+            reactions_by_msg.setdefault(r.message_id, {})[r.emoji] = \
+                reactions_by_msg.get(r.message_id, {}).get(r.emoji, 0) + 1
 
     messages_data = [
         {
@@ -227,7 +266,7 @@ def chat_page(match_id: int, request: Request, user: User = Depends(get_current_
             "sender_id": m.sender_id,
             "created_at": m.created_at.isoformat(),
             "is_read": m.is_read,
-            "is_voice": m.is_voice,  # C2: was missing — voice messages showed as raw base64
+            "is_voice": m.is_voice,
             "reactions": reactions_by_msg.get(m.id, {}),
         }
         for m in messages_raw
@@ -236,8 +275,7 @@ def chat_page(match_id: int, request: Request, user: User = Depends(get_current_
     is_user1 = match.user1_id == user.id
     i_revealed = match.user1_revealed if is_user1 else match.user2_revealed
     partner_revealed = match.user2_revealed if is_user1 else match.user1_revealed
-    return templates.TemplateResponse("chat.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "chat.html", {
         "user": user,
         "match": match,
         "partner": partner,
@@ -251,12 +289,12 @@ def chat_page(match_id: int, request: Request, user: User = Depends(get_current_
     })
 
 
-@router.post("/chat/{match_id}/send", dependencies=[Depends(validate_csrf_header)])
-def send_message(
+@router.post("/chat/{match_id}/send", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(30, 60))])
+async def send_message(
     match_id: int,
     content: str = Form(...),
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     content = content.strip()
     if not content:
@@ -264,15 +302,16 @@ def send_message(
     if len(content) > MAX_MESSAGE_LENGTH:
         return JSONResponse({"error": f"Message too long (max {MAX_MESSAGE_LENGTH} chars)"}, status_code=400)
 
-    match = db.query(Match).filter(Match.id == match_id).first()
+    result = await db.execute(select(Match).where(Match.id == match_id))
+    match = result.scalar_one_or_none()
     if not match or (match.user1_id != user.id and match.user2_id != user.id):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
 
     msg = Message(match_id=match_id, sender_id=user.id, content=content)
     db.add(msg)
     _update_streak(match, db)
-    db.commit()
-    db.refresh(msg)
+    await db.commit()
+    await db.refresh(msg)
 
     return JSONResponse({
         "id": msg.id,
@@ -283,14 +322,15 @@ def send_message(
     })
 
 
-@router.post("/chat/{match_id}/voice", dependencies=[Depends(validate_csrf_header)])
+@router.post("/chat/{match_id}/voice", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(5, 60))])
 async def send_voice(
     match_id: int,
     audio: UploadFile = File(...),
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    match = db.query(Match).filter(Match.id == match_id).first()
+    result = await db.execute(select(Match).where(Match.id == match_id))
+    match = result.scalar_one_or_none()
     if not match or (match.user1_id != user.id and match.user2_id != user.id):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
 
@@ -298,7 +338,6 @@ async def send_voice(
     if len(raw) > MAX_VOICE_BYTES:
         return JSONResponse({"error": "Audio too large (max 5 MB)"}, status_code=400)
 
-    # HIGH-1: whitelist MIME types — reject anything that could be rendered as HTML/SVG
     mime = audio.content_type or "audio/webm"
     if mime not in ALLOWED_AUDIO_MIMES:
         mime = "audio/webm"
@@ -308,8 +347,8 @@ async def send_voice(
     msg = Message(match_id=match_id, sender_id=user.id, content=content, is_voice=True)
     db.add(msg)
     _update_streak(match, db)
-    db.commit()
-    db.refresh(msg)
+    await db.commit()
+    await db.refresh(msg)
 
     return JSONResponse({
         "id": msg.id,
@@ -321,12 +360,13 @@ async def send_voice(
 
 
 @router.post("/chat/{match_id}/reveal", dependencies=[Depends(validate_csrf_header)])
-def reveal_anonymous(
+async def reveal_anonymous(
     match_id: int,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    match = db.query(Match).filter(Match.id == match_id).first()
+    result = await db.execute(select(Match).where(Match.id == match_id))
+    match = result.scalar_one_or_none()
     if not match or (match.user1_id != user.id and match.user2_id != user.id):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
 
@@ -334,59 +374,70 @@ def reveal_anonymous(
         match.user1_revealed = True
     else:
         match.user2_revealed = True
-    db.commit()
+    await db.commit()
 
     both = match.user1_revealed and match.user2_revealed
     return JSONResponse({"success": True, "both_revealed": both})
 
 
 @router.post("/match/{match_id}/unmatch", dependencies=[Depends(validate_csrf_header)])
-def unmatch(
+async def unmatch(
     match_id: int,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    match = db.query(Match).filter(Match.id == match_id).first()
+    result = await db.execute(select(Match).where(Match.id == match_id))
+    match = result.scalar_one_or_none()
     if not match or (match.user1_id != user.id and match.user2_id != user.id):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
-    db.query(Message).filter(Message.match_id == match_id).delete()
-    db.delete(match)
-    db.commit()
+    await db.execute(delete(Message).where(Message.match_id == match_id))
+    await db.delete(match)
+    await db.commit()
     return JSONResponse({"success": True})
 
 
 ALLOWED_REACTIONS = {"❤️", "😂", "😮", "😢", "👍", "🔥"}
 
 
-@router.post("/chat/{match_id}/message/{msg_id}/react", dependencies=[Depends(validate_csrf_header)])
+@router.post("/chat/{match_id}/message/{msg_id}/react", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(30, 60))])
 async def react_to_message(
     match_id: int,
     msg_id: int,
     request: Request,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    match = db.query(Match).filter(Match.id == match_id).first()
+    result = await db.execute(select(Match).where(Match.id == match_id))
+    match = result.scalar_one_or_none()
     if not match or (match.user1_id != user.id and match.user2_id != user.id):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
 
-    msg = db.query(Message).filter(Message.id == msg_id, Message.match_id == match_id).first()
+    result = await db.execute(
+        select(Message).where(Message.id == msg_id, Message.match_id == match_id)
+    )
+    msg = result.scalar_one_or_none()
     if not msg:
         return JSONResponse({"error": "Not found"}, status_code=404)
 
-    data = await request.json()
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
     emoji = data.get("emoji", "")
     if emoji not in ALLOWED_REACTIONS:
         return JSONResponse({"error": "Invalid reaction"}, status_code=400)
 
-    existing = db.query(MessageReaction).filter(
-        MessageReaction.message_id == msg_id,
-        MessageReaction.user_id == user.id,
-    ).first()
+    result = await db.execute(
+        select(MessageReaction).where(
+            MessageReaction.message_id == msg_id,
+            MessageReaction.user_id == user.id,
+        )
+    )
+    existing = result.scalar_one_or_none()
 
     if existing:
         if existing.emoji == emoji:
-            db.delete(existing)
+            await db.delete(existing)
         else:
             existing.emoji = emoji
     else:
@@ -394,49 +445,58 @@ async def react_to_message(
 
     from sqlalchemy.exc import IntegrityError
     try:
-        db.commit()
+        await db.commit()
     except IntegrityError:
-        db.rollback()
+        await db.rollback()
 
-    reactions = db.query(MessageReaction).filter(MessageReaction.message_id == msg_id).all()
+    result = await db.execute(
+        select(MessageReaction).where(MessageReaction.message_id == msg_id)
+    )
     summary: dict = {}
-    for r in reactions:
+    for r in result.scalars().all():
         summary[r.emoji] = summary.get(r.emoji, 0) + 1
 
     return JSONResponse({"reactions": summary})
 
 
 @router.get("/chat/{match_id}/messages")
-def get_messages(
+async def get_messages(
     match_id: int,
     after_id: int = 0,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    match = db.query(Match).filter(Match.id == match_id).first()
+    result = await db.execute(select(Match).where(Match.id == match_id))
+    match = result.scalar_one_or_none()
     if not match or (match.user1_id != user.id and match.user2_id != user.id):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
 
-    # MEDIUM-19: always limit polling results to prevent OOM on very long chats
-    messages = (
-        db.query(Message)
-        .filter(Message.match_id == match_id, Message.id > after_id)
+    result = await db.execute(
+        select(Message)
+        .where(Message.match_id == match_id, Message.id > after_id)
         .order_by(Message.created_at)
         .limit(POLL_PAGE_SIZE)
-        .all()
     )
+    messages = result.scalars().all()
 
-    db.query(Message).filter(
-        Message.match_id == match_id,
-        Message.sender_id != user.id,
-        Message.is_read == False,
-    ).update({"is_read": True})
-    db.commit()
+    await db.execute(
+        update(Message)
+        .where(
+            Message.match_id == match_id,
+            Message.sender_id != user.id,
+            Message.is_read == False,
+        )
+        .values(is_read=True)
+    )
+    await db.commit()
 
     msg_ids = [m.id for m in messages]
     reactions_by_msg: dict = {}
     if msg_ids:
-        for r in db.query(MessageReaction).filter(MessageReaction.message_id.in_(msg_ids)).all():
+        result = await db.execute(
+            select(MessageReaction).where(MessageReaction.message_id.in_(msg_ids))
+        )
+        for r in result.scalars().all():
             reactions_by_msg.setdefault(r.message_id, {})[r.emoji] = \
                 reactions_by_msg.get(r.message_id, {}).get(r.emoji, 0) + 1
 
@@ -449,3 +509,94 @@ def get_messages(
         "is_voice": m.is_voice,
         "reactions": reactions_by_msg.get(m.id, {}),
     } for m in messages])
+
+
+async def _fetch_new_messages(match_id: int, last_id: int, user_id: int) -> tuple:
+    """Native async DB fetch — no thread pool needed."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Message)
+            .where(Message.match_id == match_id, Message.id > last_id)
+            .order_by(Message.created_at)
+            .limit(POLL_PAGE_SIZE)
+        )
+        msgs = result.scalars().all()
+        if not msgs:
+            return None, last_id
+
+        await session.execute(
+            update(Message)
+            .where(
+                Message.match_id == match_id,
+                Message.sender_id != user_id,
+                Message.is_read == False,
+            )
+            .values(is_read=True)
+        )
+        await session.commit()
+
+        msg_ids = [m.id for m in msgs]
+        reactions_by_msg: dict = {}
+        result = await session.execute(
+            select(MessageReaction).where(MessageReaction.message_id.in_(msg_ids))
+        )
+        for r in result.scalars().all():
+            reactions_by_msg.setdefault(r.message_id, {})[r.emoji] = \
+                reactions_by_msg.get(r.message_id, {}).get(r.emoji, 0) + 1
+
+        payload = _json.dumps([{
+            "id": m.id,
+            "content": m.content,
+            "sender_id": m.sender_id,
+            "created_at": m.created_at.isoformat(),
+            "is_read": m.is_read,
+            "is_voice": m.is_voice,
+            "reactions": reactions_by_msg.get(m.id, {}),
+        } for m in msgs])
+        return payload, msgs[-1].id
+
+
+@router.get("/chat/{match_id}/stream")
+async def chat_stream(
+    match_id: int,
+    after_id: int = 0,
+    request: Request = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """SSE endpoint — native async, no thread pool."""
+    result = await db.execute(select(Match).where(Match.id == match_id))
+    match = result.scalar_one_or_none()
+    if not match or (match.user1_id != user.id and match.user2_id != user.id):
+        raise HTTPException(403, "Forbidden")
+
+    user_id = user.id
+
+    async def generator():
+        import logging as _log
+        last_id = after_id
+        while True:
+            try:
+                if await request.is_disconnected():
+                    break
+            except Exception:
+                break
+
+            try:
+                payload, last_id = await _fetch_new_messages(match_id, last_id, user_id)
+            except Exception as exc:
+                _log.error("SSE stream error match=%s: %s", match_id, exc)
+                break
+
+            yield f"data: {payload}\n\n" if payload else ": heartbeat\n\n"
+            await asyncio.sleep(2)
+
+    return StreamingResponse(
+        generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )

@@ -1,6 +1,13 @@
 """Compute user achievement badges from existing data."""
-from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from sqlalchemy import func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from app.models.models import User
 
 _LABELS: dict[str, dict[str, str]] = {
     "first_match": {
@@ -56,15 +63,18 @@ def _lbl(key: str, lang: str) -> str:
     return translations.get(lang) or translations.get("en") or key
 
 
-def get_achievements(user, db: Session, lang: str = "ru") -> list[dict]:
+async def get_achievements(user: "User", db: AsyncSession, lang: str = "ru") -> list[dict]:
     from app.models.models import Match, QuizAnswer
     from app.quiz_questions import TOTAL_QUESTIONS
 
     badges = []
 
-    match_count = db.query(func.count(Match.id)).filter(
-        or_(Match.user1_id == user.id, Match.user2_id == user.id)
-    ).scalar() or 0
+    r = await db.execute(
+        select(func.count(Match.id)).where(
+            or_(Match.user1_id == user.id, Match.user2_id == user.id)
+        )
+    )
+    match_count = r.scalar() or 0
 
     if match_count >= 1:
         badges.append({"icon": "💘", "label": _lbl("first_match", lang)})
@@ -82,9 +92,10 @@ def get_achievements(user, db: Session, lang: str = "ru") -> list[dict]:
     if (user.politeness_score or 0) >= 4.5 and (user.politeness_votes or 0) >= 3:
         badges.append({"icon": "😊", "label": _lbl("polite", lang)})
 
-    quiz_count = db.query(func.count(QuizAnswer.id)).filter(
-        QuizAnswer.user_id == user.id
-    ).scalar() or 0
+    r = await db.execute(
+        select(func.count(QuizAnswer.id)).where(QuizAnswer.user_id == user.id)
+    )
+    quiz_count = r.scalar() or 0
     if quiz_count >= TOTAL_QUESTIONS:
         badges.append({"icon": "🎯", "label": _lbl("quiz_done", lang)})
 

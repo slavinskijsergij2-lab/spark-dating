@@ -6,7 +6,9 @@ from typing import Optional
 from fastapi import Depends, HTTPException, Request, status
 import bcrypt as _bcrypt
 import jwt as _jwt
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.models import User
@@ -29,10 +31,7 @@ SECRET_KEY = _SECRET_KEY
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
-# FIX H1: pre-computed dummy hash for timing-safe login (prevents email enumeration).
-# Always run bcrypt even when the user does not exist so response time is constant.
 DUMMY_HASH = _bcrypt.hashpw(b"timing-safe-dummy-spark", _bcrypt.gensalt()).decode()
-
 
 from app.utils.time import utcnow as _utcnow
 
@@ -53,7 +52,7 @@ def create_access_token(user_id: int) -> str:
     return _jwt.encode({"sub": str(user_id), "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
+async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
     token = request.cookies.get("access_token")
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
@@ -63,21 +62,25 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     except (_jwt.InvalidTokenError, TypeError, ValueError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
-    # FIX H9: filter by is_active so banned users cannot authenticate
-    user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.profile))
+        .where(User.id == user_id, User.is_active == True)
+    )
+    user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     now = _utcnow()
     if not user.last_seen or (now - user.last_seen).total_seconds() > 60:
         user.last_seen = now
-        db.commit()
+        await db.commit()
 
     return user
 
 
-def get_optional_user(request: Request, db: Session = Depends(get_db)) -> Optional[User]:
+async def get_optional_user(request: Request, db: AsyncSession = Depends(get_db)) -> Optional[User]:
     try:
-        return get_current_user(request, db)
+        return await get_current_user(request, db)
     except HTTPException:
         return None

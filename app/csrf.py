@@ -15,7 +15,7 @@ CSRF_COOKIE = "csrftoken"
 def validate_csrf_form(
     request: Request,
     csrftoken: str = Form(None),
-):
+) -> None:
     """Dependency for HTML form POST endpoints (multipart or urlencoded)."""
     cookie_token = request.cookies.get(CSRF_COOKIE)
     if (
@@ -26,7 +26,7 @@ def validate_csrf_form(
         raise HTTPException(status_code=403, detail="CSRF validation failed")
 
 
-def validate_csrf_header(request: Request):
+def validate_csrf_header(request: Request) -> None:
     """Dependency for fetch()/AJAX POST endpoints that send x-csrf-token header."""
     cookie_token = request.cookies.get(CSRF_COOKIE)
     header_token = request.headers.get("x-csrf-token", "")

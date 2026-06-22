@@ -3,8 +3,9 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from sqlalchemy import desc, func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import desc, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.auth import get_current_user
 from app.csrf import validate_csrf_header
@@ -16,24 +17,20 @@ from app.utils.time import utcnow as _utcnow
 
 router = APIRouter()
 
-# H2: Premium requires an activation code if PREMIUM_CODES env var is set.
-# Set PREMIUM_CODES=code1,code2,code3 in Railway environment to enable code-gating.
-# Without PREMIUM_CODES set, activation is open (dev / test mode).
 _PREMIUM_CODES: set[str] = set(
     c.strip() for c in (os.getenv("PREMIUM_CODES") or "").split(",") if c.strip()
 )
 
 
 @router.get("/premium", response_class=HTMLResponse)
-def premium_page(request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def premium_page(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     lang = get_lang(request, user)
     now = _utcnow()
     boost_active = bool(user.boost_until and user.boost_until > now)
     boost_remaining = 0
     if boost_active:
         boost_remaining = int((user.boost_until - now).total_seconds() / 60)
-    return templates.TemplateResponse("premium.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "premium.html", {
         "user": user,
         "t": get_translations(lang),
         "rtl": is_rtl(lang),
@@ -48,7 +45,7 @@ def premium_page(request: Request, user: User = Depends(get_current_user), db: S
 async def activate_premium(
     request: Request,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     if _PREMIUM_CODES:
         try:
@@ -61,57 +58,65 @@ async def activate_premium(
             t = get_translations(lang)
             return JSONResponse({"error": t.get("premium_code_invalid", "Invalid activation code")}, status_code=400)
     user.is_premium = True
-    db.commit()
+    await db.commit()
     return JSONResponse({"success": True})
 
 
 @router.post("/premium/deactivate", dependencies=[Depends(validate_csrf_header)])
-def deactivate_premium(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def deactivate_premium(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     user.is_premium = False
     user.premium_until = None
-    db.commit()
+    await db.commit()
     return JSONResponse({"success": True})
 
 
 @router.post("/profile/boost", dependencies=[Depends(validate_csrf_header)])
-def boost_profile(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def boost_profile(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(User).where(User.id == user.id).with_for_update()
+    )
+    locked = result.scalar_one_or_none()
     now = _utcnow()
-    if user.boost_until and user.boost_until > now:
-        remaining = int((user.boost_until - now).total_seconds() / 60)
+    if locked.boost_until and locked.boost_until > now:
+        remaining = int((locked.boost_until - now).total_seconds() / 60)
         return JSONResponse({"error": "boost_active", "remaining_minutes": remaining}, status_code=400)
-    hours = 3.0 if user.is_premium_active else 0.5
-    user.boost_until = now + timedelta(hours=hours)
-    db.commit()
+    hours = 3.0 if locked.is_premium_active else 0.5
+    locked.boost_until = now + timedelta(hours=hours)
+    await db.commit()
     return JSONResponse({"success": True, "minutes": int(hours * 60)})
 
 
 @router.get("/profile/who-viewed", response_class=HTMLResponse)
-def who_viewed_page(request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def who_viewed_page(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     lang = get_lang(request, user)
 
-    total = db.query(func.count(ProfileView.id)).filter(ProfileView.viewed_id == user.id).scalar() or 0
+    result = await db.execute(
+        select(func.count(ProfileView.id)).where(ProfileView.viewed_id == user.id)
+    )
+    total = result.scalar() or 0
 
     viewers = []
     if user.is_premium_active:
-        # C1: use .all() directly — .subquery() + db.execute() was a runtime crash
-        rows = (
-            db.query(ProfileView.viewer_id, func.max(ProfileView.created_at).label("last_seen"))
-            .filter(ProfileView.viewed_id == user.id)
+        result = await db.execute(
+            select(ProfileView.viewer_id, func.max(ProfileView.created_at).label("last_seen"))
+            .where(ProfileView.viewed_id == user.id)
             .group_by(ProfileView.viewer_id)
             .order_by(desc("last_seen"))
             .limit(50)
-            .all()
         )
+        rows = result.all()
         viewer_ids = [r[0] for r in rows]
         last_seen_map = {r[0]: r[1] for r in rows}
-        users_map = {u.id: u for u in db.query(User).options(joinedload(User.profile)).filter(User.id.in_(viewer_ids)).all() if u.profile}
+        result = await db.execute(
+            select(User).options(joinedload(User.profile)).where(User.id.in_(viewer_ids))
+        )
+        users_map = {u.id: u for u in result.scalars().unique().all() if u.profile}
         viewers = [
             {"user": users_map[vid], "last_seen": last_seen_map[vid]}
             for vid in viewer_ids if vid in users_map
         ]
 
-    return templates.TemplateResponse("who_viewed.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "who_viewed.html", {
         "user": user,
         "t": get_translations(lang),
         "rtl": is_rtl(lang),

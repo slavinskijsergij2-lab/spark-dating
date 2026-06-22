@@ -4,8 +4,10 @@ import random
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy.orm import Session
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.auth import get_current_user
 from app.csrf import validate_csrf_form, validate_csrf_header
@@ -25,7 +27,6 @@ VERIFY_GESTURES = [
     "🖐️ open palm",
 ]
 
-# Singleton Anthropic client — created once at import time if API key is set
 _anthropic_client = None
 _ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 if _ANTHROPIC_API_KEY:
@@ -37,30 +38,32 @@ if _ANTHROPIC_API_KEY:
 
 
 def _sanitize_prompt_field(text: str, max_len: int = 200) -> str:
-    """FIX H3: strip newlines and limit length to mitigate prompt injection."""
     if not text:
         return ""
     return text.replace("\n", " ").replace("\r", " ").replace("```", "").strip()[:max_len]
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Function 2: AI Icebreakers
-# ─────────────────────────────────────────────────────────────────────────────
-
 @router.get("/chat/{match_id}/icebreakers")
 async def get_icebreakers(
     match_id: int,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    match = db.query(Match).filter(Match.id == match_id).first()
+    result = await db.execute(
+        select(Match)
+        .options(
+            selectinload(Match.user1).selectinload(User.profile),
+            selectinload(Match.user2).selectinload(User.profile),
+        )
+        .where(Match.id == match_id)
+    )
+    match = result.scalar_one_or_none()
     if not match or (match.user1_id != user.id and match.user2_id != user.id):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
 
     partner = match.user2 if match.user1_id == user.id else match.user1
     profile = partner.profile
 
-    # FIX H2: guard every profile field — profile may be None
     def _fallback():
         name = profile.name if profile else "them"
         city = (profile.city if profile else None) or "their city"
@@ -88,7 +91,6 @@ async def get_icebreakers(
             f"Profile: Name: {name}, Age: {age}, City: {city}, About: {bio}"
         )
 
-        # H1: wrap synchronous Anthropic SDK call in a thread so it doesn't block the event loop
         def _call_api():
             return _anthropic_client.messages.create(
                 model="claude-haiku-4-5-20251001",
@@ -112,18 +114,13 @@ async def get_icebreakers(
     return JSONResponse({"suggestions": suggestions})
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Function 3: Politeness Rating
-# ─────────────────────────────────────────────────────────────────────────────
-
 @router.post("/chat/{match_id}/rate", dependencies=[Depends(validate_csrf_header)])
 async def rate_politeness(
     match_id: int,
     request: Request,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
-    # FIX M4: resolve lang once, not twice
     lang = get_lang(request, user)
     t = get_translations(lang)
 
@@ -132,7 +129,12 @@ async def rate_politeness(
     if not isinstance(stars, int) or stars < 1 or stars > 5:
         return JSONResponse({"error": "Invalid stars value"}, status_code=400)
 
-    match = db.query(Match).filter(Match.id == match_id).first()
+    result = await db.execute(
+        select(Match)
+        .options(selectinload(Match.user1), selectinload(Match.user2))
+        .where(Match.id == match_id)
+    )
+    match = result.scalar_one_or_none()
     if not match or (match.user1_id != user.id and match.user2_id != user.id):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
 
@@ -140,49 +142,50 @@ async def rate_politeness(
     if partner.id == user.id:
         return JSONResponse({"error": "Cannot rate yourself"}, status_code=400)
 
-    existing = db.query(PolitenessVote).filter(
-        PolitenessVote.voter_id == user.id,
-        PolitenessVote.target_id == partner.id,
-    ).first()
-    if existing:
+    result = await db.execute(
+        select(PolitenessVote).where(
+            PolitenessVote.voter_id == user.id,
+            PolitenessVote.target_id == partner.id,
+        )
+    )
+    if result.scalar_one_or_none():
         return JSONResponse({"error": t.get("already_rated", "Already rated")}, status_code=409)
 
     vote = PolitenessVote(voter_id=user.id, target_id=partner.id, stars=stars)
     db.add(vote)
 
-    old_score = partner.politeness_score or 5.0
-    old_votes = partner.politeness_votes or 0
-    new_votes = old_votes + 1
-    new_score = (old_score * old_votes + stars) / new_votes
-    partner.politeness_score = round(new_score, 2)
-    partner.politeness_votes = new_votes
+    result = await db.execute(
+        select(User).where(User.id == partner.id).with_for_update()
+    )
+    locked_partner = result.scalar_one_or_none()
+    if locked_partner:
+        old_score = locked_partner.politeness_score or 5.0
+        old_votes = locked_partner.politeness_votes or 0
+        new_votes = old_votes + 1
+        locked_partner.politeness_score = round((old_score * old_votes + stars) / new_votes, 2)
+        locked_partner.politeness_votes = new_votes
 
     try:
-        db.commit()
+        await db.commit()
     except IntegrityError:
-        db.rollback()
+        await db.rollback()
         return JSONResponse({"error": t.get("already_rated", "Already rated")}, status_code=409)
 
     return JSONResponse({"success": True, "message": t.get("rate_success", "Rated!")})
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Function 6: Quiz
-# ─────────────────────────────────────────────────────────────────────────────
-
 @router.get("/quiz", response_class=HTMLResponse)
-def quiz_page(request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    answered_ids = {
-        qa.question_id
-        for qa in db.query(QuizAnswer).filter(QuizAnswer.user_id == user.id).all()
-    }
+async def quiz_page(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(QuizAnswer).where(QuizAnswer.user_id == user.id)
+    )
+    answered_ids = {qa.question_id for qa in result.scalars().all()}
     if len(answered_ids) >= TOTAL_QUESTIONS:
         return RedirectResponse("/matches", status_code=302)
 
     lang = get_lang(request, user)
     t = get_translations(lang)
-    return templates.TemplateResponse("quiz.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "quiz.html", {
         "user": user,
         "questions": QUIZ_QUESTIONS,
         "answered_ids": list(answered_ids),
@@ -196,7 +199,7 @@ def quiz_page(request: Request, user: User = Depends(get_current_user), db: Sess
 async def quiz_answer(
     request: Request,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     data = await request.json()
     question_id = data.get("question_id")
@@ -204,45 +207,44 @@ async def quiz_answer(
 
     if question_id is None or answer_index is None:
         return JSONResponse({"error": "Missing fields"}, status_code=400)
-    # MEDIUM-2: validate against actual question IDs (1-based), not 0-based index
     valid_question_ids = {q["id"] for q in QUIZ_QUESTIONS}
     if not isinstance(question_id, int) or question_id not in valid_question_ids:
         return JSONResponse({"error": "Invalid question_id"}, status_code=400)
     if not isinstance(answer_index, int) or answer_index < 0 or answer_index > 3:
         return JSONResponse({"error": "Invalid answer_index"}, status_code=400)
 
-    existing = db.query(QuizAnswer).filter(
-        QuizAnswer.user_id == user.id,
-        QuizAnswer.question_id == question_id,
-    ).first()
+    result = await db.execute(
+        select(QuizAnswer).where(
+            QuizAnswer.user_id == user.id,
+            QuizAnswer.question_id == question_id,
+        )
+    )
+    existing = result.scalar_one_or_none()
     if existing:
         existing.answer_index = answer_index
     else:
-        qa = QuizAnswer(user_id=user.id, question_id=question_id, answer_index=answer_index)
-        db.add(qa)
+        db.add(QuizAnswer(user_id=user.id, question_id=question_id, answer_index=answer_index))
 
     try:
-        db.commit()
+        await db.commit()
     except IntegrityError:
-        db.rollback()
+        await db.rollback()
 
-    answered_count = db.query(QuizAnswer).filter(QuizAnswer.user_id == user.id).count()
+    result = await db.execute(
+        select(QuizAnswer).where(QuizAnswer.user_id == user.id)
+    )
+    answered_count = len(result.scalars().all())
     return JSONResponse({"success": True, "answered": answered_count, "total": TOTAL_QUESTIONS})
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Function 7: Photo Verification
-# ─────────────────────────────────────────────────────────────────────────────
-
 @router.get("/verify", response_class=HTMLResponse)
-def verify_page(request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def verify_page(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if not user.verify_gesture:
         user.verify_gesture = random.choice(VERIFY_GESTURES)
-        db.commit()
+        await db.commit()
     lang = get_lang(request, user)
     t = get_translations(lang)
-    return templates.TemplateResponse("verify.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "verify.html", {
         "user": user,
         "gesture": user.verify_gesture,
         "t": t,
@@ -255,14 +257,13 @@ async def verify_submit(
     request: Request,
     photo: UploadFile = File(...),
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     lang = get_lang(request, user)
     t = get_translations(lang)
 
     def _err(msg: str):
-        return templates.TemplateResponse("verify.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "verify.html", {
             "user": user,
             "gesture": user.verify_gesture or random.choice(VERIFY_GESTURES),
             "error": msg,
@@ -273,7 +274,6 @@ async def verify_submit(
     if not photo or not photo.filename:
         return _err("Please upload a photo")
 
-    # Read up to 10MB and validate it's a real image
     try:
         import base64
         from PIL import Image as PILImage
@@ -284,8 +284,6 @@ async def verify_submit(
     except Exception:
         return _err("Invalid image file. Please upload a valid photo.")
 
-    # H3: use Anthropic Vision to confirm the required gesture is present.
-    # Falls back to auto-approve when ANTHROPIC_API_KEY is not set.
     if _anthropic_client and user.verify_gesture:
         try:
             import asyncio
@@ -302,7 +300,6 @@ async def verify_submit(
                 "is there a human hand or person clearly showing that gesture?"
             )
 
-            # H1: wrap sync Anthropic call in thread so event loop isn't blocked
             def _call_vision():
                 return _anthropic_client.messages.create(
                     model="claude-haiku-4-5-20251001",
@@ -323,10 +320,10 @@ async def verify_submit(
                     t.get("verify_gesture_not_found", "Gesture not detected. Please try again with better lighting.")
                 )
         except Exception:
-            pass  # Vision unavailable — proceed to auto-approve
+            pass
 
     user.is_verified = True
-    user.verify_gesture = None  # Clear gesture so a new one is assigned next time
-    db.commit()
+    user.verify_gesture = None
+    await db.commit()
 
     return RedirectResponse("/profile/edit?verified=1", status_code=302)

@@ -1,20 +1,25 @@
+import html as _html
 import json
 import logging
 import os
 import secrets
+import time
 import traceback
+from collections import defaultdict
 from pathlib import Path
+from threading import Lock
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Request
+from app.logging_config import setup_logging
+setup_logging()
+
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text as _text
-
-logging.basicConfig(level=logging.INFO)
 
 from app.database import Base, engine
 from app.i18n import get_lang, get_translations, is_rtl
@@ -23,79 +28,166 @@ from app.utils.time import utcnow as _utcnow
 from app.routers import features, premium, social, stories, referral
 from app.templates import templates
 
-Base.metadata.create_all(bind=engine)
 
-# Inline DB migrations — safe to run on every startup (IF NOT EXISTS / try-except)
-_is_pg = str(engine.url).startswith("postgresql")
-_migrations = [
-    "ALTER TABLE users ADD COLUMN{} last_seen TIMESTAMP",
-    "ALTER TABLE users ADD COLUMN{} email_verified BOOLEAN NOT NULL DEFAULT TRUE",
-    "ALTER TABLE users ADD COLUMN{} email_verify_token VARCHAR(100)",
-    "ALTER TABLE users ADD COLUMN{} email_verify_created_at TIMESTAMP",
-    "ALTER TABLE users ADD COLUMN{} is_premium BOOLEAN NOT NULL DEFAULT FALSE",
-    "ALTER TABLE users ADD COLUMN{} boost_until TIMESTAMP",
-    "ALTER TABLE users ADD COLUMN{} birth_date TIMESTAMP",
-    "ALTER TABLE users ADD COLUMN{} phone VARCHAR(20)",
-    "ALTER TABLE users ADD COLUMN{} phone_verified BOOLEAN NOT NULL DEFAULT FALSE",
-    "ALTER TABLE profiles ADD COLUMN{} interests VARCHAR(500)",
-    "ALTER TABLE profiles ADD COLUMN{} is_anonymous BOOLEAN NOT NULL DEFAULT FALSE",
-    "ALTER TABLE likes ADD COLUMN{} is_super BOOLEAN NOT NULL DEFAULT FALSE",
-    "ALTER TABLE matches ADD COLUMN{} seen_by_user1 BOOLEAN NOT NULL DEFAULT TRUE",
-    "ALTER TABLE matches ADD COLUMN{} seen_by_user2 BOOLEAN NOT NULL DEFAULT FALSE",
-    "ALTER TABLE matches ADD COLUMN{} streak_days INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE matches ADD COLUMN{} last_streak_date TIMESTAMP",
-    "ALTER TABLE matches ADD COLUMN{} user1_revealed BOOLEAN NOT NULL DEFAULT TRUE",
-    "ALTER TABLE matches ADD COLUMN{} user2_revealed BOOLEAN NOT NULL DEFAULT TRUE",
-    "ALTER TABLE messages ADD COLUMN{} is_voice BOOLEAN NOT NULL DEFAULT FALSE",
-    # HIGH-8: both parties should see new match notification
-    "ALTER TABLE matches ALTER COLUMN seen_by_user1 SET DEFAULT FALSE",
-    # Referral system
-    "ALTER TABLE users ADD COLUMN{} referral_code VARCHAR(20)",
-    "ALTER TABLE users ADD COLUMN{} referred_by_id INTEGER",
-    "ALTER TABLE users ADD COLUMN{} premium_until TIMESTAMP",
-]
-# MEDIUM-5: add unique constraint on profile_views to prevent duplicates
-_constraint_migrations = [
-    "CREATE UNIQUE INDEX IF NOT EXISTS uq_profile_view ON profile_views (viewer_id, viewed_id)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS uq_referral_code ON users (referral_code) WHERE referral_code IS NOT NULL",
-]
-_type_migrations = [
-    "ALTER TABLE profiles ALTER COLUMN photo TYPE TEXT",
-    "ALTER TABLE profile_photos ALTER COLUMN url TYPE TEXT",
-]
-for _m in _migrations:
-    _sql = _m.format(" IF NOT EXISTS" if _is_pg else "")
-    try:
-        with engine.begin() as _c:
-            _c.execute(_text(_sql))
-    except Exception:
-        pass
+def _run_alembic_migrations() -> None:
+    from alembic.config import Config
+    from alembic import command
+    from alembic.runtime.migration import MigrationContext
 
-if _is_pg:
-    for _sql in _type_migrations:
+    alembic_cfg = Config("alembic.ini")
+
+    with engine.connect() as conn:
+        current = MigrationContext.configure(conn).get_current_revision()
+
+    if current is None:
         try:
-            with engine.begin() as _c:
-                _c.execute(_text(_sql))
+            # Detect pre-Alembic deployment: schema already exists
+            with engine.connect() as conn:
+                conn.execute(_text("SELECT 1 FROM users LIMIT 1"))
+            # Stamp at 001 (not head) so any newer migrations still run below
+            command.stamp(alembic_cfg, "001")
+            logging.info("alembic: stamped existing database as 001")
         except Exception:
-            pass
+            # Fresh database — create schema via migrations
+            command.upgrade(alembic_cfg, "head")
+            logging.info("alembic: created schema via migrations")
+    else:
+        command.upgrade(alembic_cfg, "head")
+        if current != "head":
+            logging.info("alembic: applied pending migrations (was at %s)", current)
 
-for _sql in _constraint_migrations:
-    try:
-        with engine.begin() as _c:
-            _c.execute(_text(_sql))
-    except Exception:
-        pass
+
+try:
+    _run_alembic_migrations()
+except Exception as _alembic_err:
+    logging.error("alembic: migration failed — %s", _alembic_err)
+    raise
 
 app = FastAPI(title="Spark — сайт знакомств")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# C3: If PHOTO_DIR is set (e.g. Railway Volume /data/photos), serve photos from there.
-# Without it, photos go to ./static/photos/ which is already covered by the /static mount.
-_PHOTO_ENV_DIR = os.getenv("PHOTO_DIR", "")
-if _PHOTO_ENV_DIR:
-    from pathlib import Path as _Path
-    _Path(_PHOTO_ENV_DIR).mkdir(parents=True, exist_ok=True)
-    app.mount("/photos", StaticFiles(directory=_PHOTO_ENV_DIR), name="photos")
+# ── Simple in-process metrics ─────────────────────────────────────────────────
+_m_lock = Lock()
+_m: dict = {
+    "started_at": time.time(),
+    "requests_total": 0,
+    "status_counts": defaultdict(int),
+    "errors_5xx": 0,
+}
+
+_SKIP_LOG = ("/static/", "/photos/", "/health", "/favicon", "/metrics")
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    t0 = time.perf_counter()
+    response = await call_next(request)
+    ms = round((time.perf_counter() - t0) * 1000)
+    status = response.status_code
+    path = request.url.path
+    with _m_lock:
+        _m["requests_total"] += 1
+        _m["status_counts"][str(status)] += 1
+        if status >= 500:
+            _m["errors_5xx"] += 1
+    if not any(path.startswith(p) for p in _SKIP_LOG):
+        logging.info("http", extra={
+            "method": request.method,
+            "path": path,
+            "status": status,
+            "ms": ms,
+        })
+    return response
+# ─────────────────────────────────────────────────────────────────────────────
+
+# /photos is always mounted.
+# On Railway with a Volume: set PHOTO_DIR=/data/photos — files survive redeploys.
+# In local dev (or Railway without a Volume): falls back to static/photos/ inside the container.
+_PHOTO_DIR = os.getenv("PHOTO_DIR", "static/photos")
+Path(_PHOTO_DIR).mkdir(parents=True, exist_ok=True)
+app.mount("/photos", StaticFiles(directory=_PHOTO_DIR), name="photos")
+
+
+def _migrate_base64_photos() -> None:
+    """
+    One-time startup migration: converts base64 data URIs stored in PostgreSQL
+    to real files on disk.  Safe to call on every startup — bails out immediately
+    if no base64 rows remain.
+    """
+    import base64 as _b64
+    import uuid as _uuid
+    from sqlalchemy import text as _t
+
+    photo_dir = Path(_PHOTO_DIR)
+    photo_dir.mkdir(parents=True, exist_ok=True)
+
+    def _flush(b64_str: str) -> str:
+        if not b64_str or not b64_str.startswith("data:image/"):
+            return b64_str
+        try:
+            _hdr, data = b64_str.split(",", 1)
+            raw = _b64.b64decode(data)
+            fname = f"{_uuid.uuid4().hex}.jpg"
+            (photo_dir / fname).write_bytes(raw)
+            return f"/photos/{fname}"
+        except Exception as exc:
+            logging.warning("migrate_photos: could not decode entry: %s", exc)
+            return b64_str
+
+    with engine.begin() as conn:
+        # Fast check — skip migration entirely if nothing to do
+        n_profiles = conn.execute(_t(
+            "SELECT COUNT(*) FROM profiles WHERE photo LIKE 'data:image/%'"
+        )).scalar() or 0
+        n_gallery = conn.execute(_t(
+            "SELECT COUNT(*) FROM profile_photos WHERE url LIKE 'data:image/%'"
+        )).scalar() or 0
+        n_stories = conn.execute(_t(
+            "SELECT COUNT(*) FROM stories WHERE media_type='image' AND content LIKE 'data:image/%'"
+        )).scalar() or 0
+
+        total = n_profiles + n_gallery + n_stories
+        if total == 0:
+            return
+
+        logging.info("migrate_photos: found %d base64 rows — converting to files …", total)
+
+        # Profiles
+        if n_profiles:
+            rows = conn.execute(_t(
+                "SELECT id, photo FROM profiles WHERE photo LIKE 'data:image/%'"
+            )).fetchall()
+            for row_id, photo in rows:
+                new_url = _flush(photo)
+                conn.execute(_t("UPDATE profiles SET photo=:u WHERE id=:id"),
+                             {"u": new_url, "id": row_id})
+
+        # Gallery
+        if n_gallery:
+            rows = conn.execute(_t(
+                "SELECT id, url FROM profile_photos WHERE url LIKE 'data:image/%'"
+            )).fetchall()
+            for row_id, url in rows:
+                new_url = _flush(url)
+                conn.execute(_t("UPDATE profile_photos SET url=:u WHERE id=:id"),
+                             {"u": new_url, "id": row_id})
+
+        # Stories
+        if n_stories:
+            rows = conn.execute(_t(
+                "SELECT id, content FROM stories WHERE media_type='image' AND content LIKE 'data:image/%'"
+            )).fetchall()
+            for row_id, content in rows:
+                new_url = _flush(content)
+                conn.execute(_t("UPDATE stories SET content=:u WHERE id=:id"),
+                             {"u": new_url, "id": row_id})
+
+    logging.info("migrate_photos: done — %d records converted to /photos/", total)
+
+
+try:
+    _migrate_base64_photos()
+except Exception as _mig_err:
+    logging.error("migrate_photos: startup migration failed: %s", _mig_err)
 
 # HIGH-6: Reject oversized request bodies before they reach route handlers.
 # Prevents DoS via 100 MB audio/image uploads buffered into memory.
@@ -139,6 +231,13 @@ async def security_middleware(request: Request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    # HSTS only in production (Railway sets RAILWAY_ENVIRONMENT)
+    if os.getenv("RAILWAY_ENVIRONMENT"):
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
 
     return response
 
@@ -185,11 +284,11 @@ templates.env.globals["online_status"] = _online_status
 templates.env.globals["now"] = _utcnow
 
 app.include_router(auth.router)
+app.include_router(premium.router)   # before profile.router: /profile/who-viewed must not be caught by /profile/{user_id}
 app.include_router(profile.router)
 app.include_router(swipe.router)
 app.include_router(matches.router)
 app.include_router(features.router)
-app.include_router(premium.router)
 app.include_router(social.router)
 app.include_router(stories.router)
 app.include_router(referral.router)
@@ -243,9 +342,9 @@ async def global_exception_handler(request: Request, exc: Exception):
             err_title, err_body, err_home = "Something went wrong 😔", "Please try again later.", "Home"
         return HTMLResponse(
             f"<html><body style='font-family:sans-serif;text-align:center;padding:80px 20px;'>"
-            f"<h2 style='color:#ef4444;'>{err_title}</h2>"
-            f"<p style='color:#6b7280;'>{err_body}</p>"
-            f"<a href='/' style='color:#ec4899;font-weight:600;'>{err_home}</a>"
+            f"<h2 style='color:#ef4444;'>{_html.escape(err_title)}</h2>"
+            f"<p style='color:#6b7280;'>{_html.escape(err_body)}</p>"
+            f"<a href='/' style='color:#ec4899;font-weight:600;'>{_html.escape(err_home)}</a>"
             f"</body></html>",
             status_code=500,
         )
@@ -259,7 +358,6 @@ def favicon():
 
 @app.get("/health")
 def health():
-    # FIX H6: do not expose DB host/credentials in response
     try:
         with engine.connect() as conn:
             conn.execute(_text("SELECT 1"))
@@ -269,6 +367,20 @@ def health():
         return JSONResponse(status_code=500, content={"status": "error"})
 
 
+@app.get("/metrics")
+def app_metrics(token: str = Query(default="")):
+    required = os.getenv("METRICS_TOKEN", "")
+    if required and token != required:
+        raise HTTPException(403, "Forbidden")
+    with _m_lock:
+        return JSONResponse({
+            "uptime_seconds": int(time.time() - _m["started_at"]),
+            "requests_total": _m["requests_total"],
+            "errors_5xx": _m["errors_5xx"],
+            "status_counts": dict(_m["status_counts"]),
+        })
+
+
 @app.get("/", response_class=HTMLResponse)
 @app.head("/")
 def index(request: Request):
@@ -276,8 +388,7 @@ def index(request: Request):
     if token:
         return RedirectResponse("/swipe", status_code=302)
     lang = get_lang(request)
-    return templates.TemplateResponse("index.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "index.html", {
         "t": get_translations(lang),
         "rtl": is_rtl(lang),
         "lang": lang,

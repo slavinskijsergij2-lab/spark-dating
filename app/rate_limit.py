@@ -1,9 +1,13 @@
 """
 In-memory rate limiter (IP + path based). Suitable for a single Railway dyno.
 For multi-instance deployments, swap _store for Redis.
+
+Set TESTING=1 to disable limiting in the test suite.
 """
+import os
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from threading import Lock
 
 from fastapi import HTTPException, Request
@@ -12,9 +16,11 @@ _store: dict[str, list[float]] = defaultdict(list)
 _lock = Lock()
 
 
-def rate_limit(max_calls: int, window_seconds: int = 60):
+def rate_limit(max_calls: int, window_seconds: int = 60) -> Callable[[Request], None]:
     """Returns a FastAPI dependency that enforces a rate limit per IP + path."""
-    def dependency(request: Request):
+    def dependency(request: Request) -> None:
+        if os.getenv("TESTING"):
+            return  # no-op in test suite
         # Behind Railway/Nginx proxy the real IP is in X-Forwarded-For
         forwarded = request.headers.get("X-Forwarded-For") or request.headers.get("X-Real-IP")
         if forwarded:
