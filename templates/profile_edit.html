@@ -99,18 +99,15 @@
     <div class="flex flex-col items-center mb-6">
       <label class="cursor-pointer group">
         <div class="w-32 h-32 rounded-full overflow-hidden bg-pink-100 flex items-center justify-center border-4 border-pink-200 group-hover:border-pink-400 transition relative">
-          <template x-if="preview">
-            <img :src="preview" class="w-full h-full object-cover" />
-          </template>
-          <template x-if="!preview">
-            {% if profile and profile.photo %}
-            <img src="{{ profile.photo }}" class="w-full h-full object-cover" />
-            {% else %}
-            <span class="text-5xl">👤</span>
-            {% endif %}
-          </template>
+          {% if profile and profile.photo %}
+          <img id="photo-preview-img" src="{{ profile.photo }}" class="w-full h-full object-cover" />
+          {% else %}
+          <img id="photo-preview-img" src="" class="w-full h-full object-cover" style="display:none" />
+          <span id="photo-placeholder" class="text-5xl">👤</span>
+          {% endif %}
         </div>
-        <input type="file" name="photo" accept="image/*" class="hidden" @change="setPreview" />
+        <input id="photo-file-input" type="file" name="photo" accept="image/*" class="hidden"
+               onchange="(function(f){if(!f)return;var r=new FileReader();r.onload=function(e){var img=document.getElementById('photo-preview-img');img.src=e.target.result;img.style.display='block';var ph=document.getElementById('photo-placeholder');if(ph)ph.style.display='none';}; r.readAsDataURL(f);})(this.files[0])" />
         <p class="text-center text-pink-500 text-sm mt-2 group-hover:underline">{{ t.upload_photo }}</p>
       </label>
 

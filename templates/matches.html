@@ -218,9 +218,10 @@ function likeBack(id, btn) {
 </div>
 
 {% else %}
+<script>var _matchNames = {{ partner_names | tojson | safe }};</script>
 <div x-data="{
   search: '',
-  names: {{ partner_names | tojson | safe }},
+  names: window._matchNames || [],
   get noResults() { return !!this.search && !this.names.some(n => n.includes(this.search.toLowerCase())); }
 }">
 
