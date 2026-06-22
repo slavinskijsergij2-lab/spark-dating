@@ -42,6 +42,9 @@
     .nav-icon svg { transition: transform .2s, stroke .2s; }
     .nav-icon.active svg { stroke: #ec4899; }
     .nav-icon:active svg { transform: scale(0.85); }
+    /* Prevent label text from overflowing on narrow phones (6 nav items) */
+    .bottom-nav .nav-icon { padding-left: 0.25rem; padding-right: 0.25rem; }
+    .bottom-nav .nav-icon > span:last-child { max-width: 46px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     /* ── Swipe card ── */
     .swipe-card { transform-origin: center bottom; will-change: transform; }

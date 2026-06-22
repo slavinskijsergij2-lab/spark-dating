@@ -121,7 +121,7 @@ function doUnmatchAction(matchId, btn) {
   </div>
 
   <!-- Unmatch confirmation modal -->
-  <div x-show="showUnmatchModal" x-cloak
+  <div x-show="showUnmatchModal" x-cloak style="display:none"
        class="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
     <div class="glass rounded-2xl p-6 max-w-xs w-full text-center shadow-2xl border border-red-100">
       <div class="text-4xl mb-3">💔</div>
@@ -335,7 +335,7 @@ function doUnmatchAction(matchId, btn) {
 </div>
 
 <!-- ══ RATE MODAL ══════════════════════════════════════════ -->
-<div x-show="showRateModal" x-cloak
+<div x-show="showRateModal" x-cloak style="display:none"
      @click.self="showRateModal = false"
      class="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm">
   <div class="bg-white w-full sm:max-w-sm sm:mx-4 rounded-t-3xl sm:rounded-3xl p-8 shadow-2xl text-center">
@@ -394,6 +394,12 @@ function doUnmatchAction(matchId, btn) {
         this.$nextTick(() => this.scrollBottom());
         this.connectSSE();
         window.addEventListener('beforeunload', () => { if (this.sse) this.sse.close(); });
+        window.addEventListener('pageshow', (e) => {
+          if (e.persisted) {
+            this.showUnmatchModal = false;
+            this.showRateModal = false;
+          }
+        });
       },
 
       fmt(m) {
