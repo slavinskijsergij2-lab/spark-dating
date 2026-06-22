@@ -13,6 +13,7 @@ from sqlalchemy.orm import joinedload
 from app.auth import get_current_user
 from app.csrf import validate_csrf_form, validate_csrf_header
 from app.database import get_db
+from app.rate_limit import rate_limit
 from app.utils.time import utcnow as _utcnow
 from app.models.models import Match, Story, User
 from app.templates import templates
@@ -28,7 +29,7 @@ def _active_stories_stmt():
     return select(Story).where(Story.expires_at > _utcnow())
 
 
-@router.post("/stories", dependencies=[Depends(validate_csrf_form)])
+@router.post("/stories", dependencies=[Depends(validate_csrf_form), Depends(rate_limit(5, 60))])
 async def create_story(
     request: Request,
     text: str = Form(None),
@@ -101,7 +102,7 @@ async def delete_story(story_id: int, user: User = Depends(get_current_user), db
     return JSONResponse({"success": True})
 
 
-@router.get("/stories/feed")
+@router.get("/stories/feed", dependencies=[Depends(rate_limit(30, 60))])
 async def stories_feed(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Stories from my matches + my own."""
     result = await db.execute(

@@ -92,7 +92,7 @@ async def edit_profile_page(request: Request, user: User = Depends(get_current_u
     })
 
 
-@router.post("/profile/edit", dependencies=[Depends(validate_csrf_form)])
+@router.post("/profile/edit", dependencies=[Depends(validate_csrf_form), Depends(rate_limit(20, 60))])
 async def edit_profile(
     request: Request,
     name: str = Form(...),
@@ -232,7 +232,7 @@ async def add_photo(
     return RedirectResponse("/profile/edit", status_code=302)
 
 
-@router.post("/profile/photos/delete/{photo_id}", dependencies=[Depends(validate_csrf_form)])
+@router.post("/profile/photos/delete/{photo_id}", dependencies=[Depends(validate_csrf_form), Depends(rate_limit(20, 60))])
 async def delete_photo(
     photo_id: int,
     user: User = Depends(get_current_user),
