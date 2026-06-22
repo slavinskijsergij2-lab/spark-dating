@@ -188,6 +188,85 @@ try:
 except Exception as _mig_err:
     logging.error("migrate_photos: startup migration failed: %s", _mig_err)
 
+
+def _regenerate_missing_bot_photos() -> None:
+    """Regenerate avatar files for bot accounts whose photo files are missing on disk."""
+    try:
+        from PIL import Image as _PILImage, ImageDraw as _Draw, ImageFont as _Font
+        import io as _io
+        import uuid as _uuid
+        from sqlalchemy import text as _t
+
+        photo_dir = Path(_PHOTO_DIR)
+        photo_dir.mkdir(parents=True, exist_ok=True)
+
+        _BOT_COLORS = {
+            "anna_bot@spark.test":   (236, 72, 153),
+            "masha_bot@spark.test":  (167, 139, 250),
+            "kate_bot@spark.test":   (251, 146, 60),
+            "sofia_bot@spark.test":  (34, 197, 94),
+            "alina_bot@spark.test":  (6, 182, 212),
+            "dmitry_bot@spark.test": (59, 130, 246),
+            "alex_bot@spark.test":   (16, 185, 129),
+            "max_bot@spark.test":    (245, 158, 11),
+        }
+
+        def _make_avatar(initial: str, bg: tuple) -> str:
+            size = 400
+            img = _PILImage.new("RGB", (size, size), bg)
+            draw = _Draw.Draw(img)
+            margin = size // 6
+            draw.ellipse([margin, margin, size - margin, size - margin],
+                         fill=tuple(min(255, c + 40) for c in bg))
+            font_size = size // 3
+            font = None
+            for path in ("/System/Library/Fonts/Helvetica.ttc",
+                         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"):
+                try:
+                    font = _Font.truetype(path, font_size); break
+                except Exception:
+                    pass
+            if font is None:
+                font = _Font.load_default()
+            bbox = draw.textbbox((0, 0), initial, font=font)
+            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            draw.text(((size - tw) // 2, (size - th) // 2 - bbox[1] // 2),
+                      initial, fill=(255, 255, 255, 220), font=font)
+            buf = _io.BytesIO()
+            img.save(buf, "JPEG", quality=85)
+            fname = f"bot_{_uuid.uuid4().hex}.jpg"
+            (photo_dir / fname).write_bytes(buf.getvalue())
+            return f"/photos/{fname}"
+
+        with engine.connect() as conn:
+            rows = conn.execute(_t(
+                "SELECT u.id, u.email, p.id AS pid, p.photo, p.name "
+                "FROM users u JOIN profiles p ON p.user_id = u.id "
+                "WHERE u.email LIKE '%_bot@spark.test'"
+            )).fetchall()
+
+        for row in rows:
+            uid, email, pid, photo_url, name = row
+            if photo_url and photo_url.startswith("/photos/"):
+                fname = photo_url.split("/")[-1]
+                if (photo_dir / fname).exists():
+                    continue
+            initial = (name or "?")[0].upper()
+            bg = _BOT_COLORS.get(email, (156, 163, 175))
+            new_url = _make_avatar(initial, bg)
+            with engine.begin() as conn:
+                conn.execute(_t("UPDATE profiles SET photo=:u WHERE id=:id"),
+                             {"u": new_url, "id": pid})
+            logging.info("regenerate_bot_photos: %s → %s", email, new_url)
+    except Exception as _e:
+        logging.warning("regenerate_bot_photos: %s", _e)
+
+
+try:
+    _regenerate_missing_bot_photos()
+except Exception as _bp_err:
+    logging.warning("regenerate_bot_photos failed: %s", _bp_err)
+
 # HIGH-6: Reject oversized request bodies before they reach route handlers.
 # Prevents DoS via 100 MB audio/image uploads buffered into memory.
 _MAX_BODY_BYTES = 12 * 1024 * 1024  # 12 MB ceiling
