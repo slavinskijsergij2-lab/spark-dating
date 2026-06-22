@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from PIL import Image
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -77,8 +78,19 @@ async def create_story(
 
     story = Story(user_id=user.id, content=content, media_type=media_type, expires_at=expires)
     db.add(story)
-    await db.commit()
-    await db.refresh(story)
+    try:
+        await db.commit()
+        await db.refresh(story)
+    except IntegrityError:
+        # Race: another concurrent request already inserted — update it instead
+        await db.rollback()
+        result2 = await db.execute(select(Story).where(Story.user_id == user.id))
+        story = result2.scalar_one()
+        story.content = content
+        story.media_type = media_type
+        story.expires_at = expires
+        await db.commit()
+        await db.refresh(story)
     return JSONResponse({"success": True, "id": story.id})
 
 

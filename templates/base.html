@@ -115,9 +115,8 @@
        x-init="
          let prev = {m: 0, msg: 0}, first = true;
          const t = JSON.parse(document.getElementById('nav-i18n').textContent || '{}');
-         if ('Notification' in window && Notification.permission === 'default') {
-           setTimeout(() => Notification.requestPermission(), 4000);
-         }
+         // Notification permission must be requested on a user gesture, not a timer.
+         // The toggle button in the nav handles requestPermission() on click instead.
          const notify = (title, body) => {
            if ('Notification' in window && Notification.permission === 'granted') {
              try { new Notification(title, {body}); } catch(e) {}
@@ -223,7 +222,8 @@ function getCsrfToken() {
 }
 function toggleDark() {
   const isDark = document.documentElement.classList.toggle('dark');
-  document.cookie = 'theme=' + (isDark ? 'dark' : 'light') + '; path=/; max-age=31536000; samesite=lax';
+  const _isSecure = location.protocol === 'https:' ? '; secure' : '';
+  document.cookie = 'theme=' + (isDark ? 'dark' : 'light') + '; path=/; max-age=31536000; samesite=lax' + _isSecure;
 }
 // Sync moon/sun icon
 (function() {

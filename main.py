@@ -106,166 +106,76 @@ Path(_PHOTO_DIR).mkdir(parents=True, exist_ok=True)
 app.mount("/photos", StaticFiles(directory=_PHOTO_DIR), name="photos")
 
 
-def _migrate_base64_photos() -> None:
+def _fix_broken_photo_urls() -> None:
     """
-    One-time startup migration: converts base64 data URIs stored in PostgreSQL
-    to real files on disk.  Safe to call on every startup — bails out immediately
-    if no base64 rows remain.
+    Startup check: photos are stored as base64 data URLs in the DB.
+    Any leftover /photos/xxx.jpg URLs where the file no longer exists
+    on disk (e.g. after a Railway redeploy without a Volume) are cleared
+    to NULL so the UI shows the 👤 placeholder instead of a broken image.
     """
-    import base64 as _b64
-    import uuid as _uuid
     from sqlalchemy import text as _t
 
     photo_dir = Path(_PHOTO_DIR)
-    photo_dir.mkdir(parents=True, exist_ok=True)
 
-    def _flush(b64_str: str) -> str:
-        if not b64_str or not b64_str.startswith("data:image/"):
-            return b64_str
-        try:
-            _hdr, data = b64_str.split(",", 1)
-            raw = _b64.b64decode(data)
-            fname = f"{_uuid.uuid4().hex}.jpg"
-            (photo_dir / fname).write_bytes(raw)
-            return f"/photos/{fname}"
-        except Exception as exc:
-            logging.warning("migrate_photos: could not decode entry: %s", exc)
-            return b64_str
+    def _is_broken(url: str | None) -> bool:
+        if not url:
+            return False
+        if url.startswith("data:image/"):
+            return False  # base64 data URLs are always valid
+        if url.startswith("/photos/"):
+            fname = url.split("/")[-1]
+            return not (photo_dir / fname).exists()
+        return False  # external URLs or unknown — leave as-is
 
-    with engine.begin() as conn:
-        # Fast check — skip migration entirely if nothing to do
-        n_profiles = conn.execute(_t(
-            "SELECT COUNT(*) FROM profiles WHERE photo LIKE 'data:image/%'"
-        )).scalar() or 0
-        n_gallery = conn.execute(_t(
-            "SELECT COUNT(*) FROM profile_photos WHERE url LIKE 'data:image/%'"
-        )).scalar() or 0
-        n_stories = conn.execute(_t(
-            "SELECT COUNT(*) FROM stories WHERE media_type='image' AND content LIKE 'data:image/%'"
-        )).scalar() or 0
-
-        total = n_profiles + n_gallery + n_stories
-        if total == 0:
-            return
-
-        logging.info("migrate_photos: found %d base64 rows — converting to files …", total)
-
-        # Profiles
-        if n_profiles:
-            rows = conn.execute(_t(
-                "SELECT id, photo FROM profiles WHERE photo LIKE 'data:image/%'"
-            )).fetchall()
-            for row_id, photo in rows:
-                new_url = _flush(photo)
-                conn.execute(_t("UPDATE profiles SET photo=:u WHERE id=:id"),
-                             {"u": new_url, "id": row_id})
-
-        # Gallery
-        if n_gallery:
-            rows = conn.execute(_t(
-                "SELECT id, url FROM profile_photos WHERE url LIKE 'data:image/%'"
-            )).fetchall()
-            for row_id, url in rows:
-                new_url = _flush(url)
-                conn.execute(_t("UPDATE profile_photos SET url=:u WHERE id=:id"),
-                             {"u": new_url, "id": row_id})
-
-        # Stories
-        if n_stories:
-            rows = conn.execute(_t(
-                "SELECT id, content FROM stories WHERE media_type='image' AND content LIKE 'data:image/%'"
-            )).fetchall()
-            for row_id, content in rows:
-                new_url = _flush(content)
-                conn.execute(_t("UPDATE stories SET content=:u WHERE id=:id"),
-                             {"u": new_url, "id": row_id})
-
-    logging.info("migrate_photos: done — %d records converted to /photos/", total)
-
-
-try:
-    _migrate_base64_photos()
-except Exception as _mig_err:
-    logging.error("migrate_photos: startup migration failed: %s", _mig_err)
-
-
-def _regenerate_missing_bot_photos() -> None:
-    """Regenerate avatar files for bot accounts whose photo files are missing on disk."""
     try:
-        from PIL import Image as _PILImage, ImageDraw as _Draw, ImageFont as _Font
-        import io as _io
-        import uuid as _uuid
-        from sqlalchemy import text as _t
+        with engine.begin() as conn:
+            rows = conn.execute(_t("SELECT id, photo FROM profiles WHERE photo IS NOT NULL")).fetchall()
+            fixed = 0
+            for row_id, photo in rows:
+                if _is_broken(photo):
+                    conn.execute(_t("UPDATE profiles SET photo=NULL WHERE id=:id"), {"id": row_id})
+                    fixed += 1
+            if fixed:
+                logging.info("fix_photos: cleared %d broken profile photo URLs", fixed)
 
-        photo_dir = Path(_PHOTO_DIR)
-        photo_dir.mkdir(parents=True, exist_ok=True)
-
-        _BOT_COLORS = {
-            "anna_bot@spark.test":   (236, 72, 153),
-            "masha_bot@spark.test":  (167, 139, 250),
-            "kate_bot@spark.test":   (251, 146, 60),
-            "sofia_bot@spark.test":  (34, 197, 94),
-            "alina_bot@spark.test":  (6, 182, 212),
-            "dmitry_bot@spark.test": (59, 130, 246),
-            "alex_bot@spark.test":   (16, 185, 129),
-            "max_bot@spark.test":    (245, 158, 11),
-        }
-
-        def _make_avatar(initial: str, bg: tuple) -> str:
-            size = 400
-            img = _PILImage.new("RGB", (size, size), bg)
-            draw = _Draw.Draw(img)
-            margin = size // 6
-            draw.ellipse([margin, margin, size - margin, size - margin],
-                         fill=tuple(min(255, c + 40) for c in bg))
-            font_size = size // 3
-            font = None
-            for path in ("/System/Library/Fonts/Helvetica.ttc",
-                         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"):
-                try:
-                    font = _Font.truetype(path, font_size); break
-                except Exception:
-                    pass
-            if font is None:
-                font = _Font.load_default()
-            bbox = draw.textbbox((0, 0), initial, font=font)
-            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-            draw.text(((size - tw) // 2, (size - th) // 2 - bbox[1] // 2),
-                      initial, fill=(255, 255, 255, 220), font=font)
-            buf = _io.BytesIO()
-            img.save(buf, "JPEG", quality=85)
-            fname = f"bot_{_uuid.uuid4().hex}.jpg"
-            (photo_dir / fname).write_bytes(buf.getvalue())
-            return f"/photos/{fname}"
-
-        with engine.connect() as conn:
-            rows = conn.execute(_t(
-                "SELECT u.id, u.email, p.id AS pid, p.photo, p.name "
-                "FROM users u JOIN profiles p ON p.user_id = u.id "
-                "WHERE u.email LIKE '%_bot@spark.test'"
-            )).fetchall()
-
-        for row in rows:
-            uid, email, pid, photo_url, name = row
-            if photo_url and photo_url.startswith("/photos/"):
-                fname = photo_url.split("/")[-1]
-                if (photo_dir / fname).exists():
-                    continue
-            initial = (name or "?")[0].upper()
-            bg = _BOT_COLORS.get(email, (156, 163, 175))
-            new_url = _make_avatar(initial, bg)
-            with engine.begin() as conn:
-                conn.execute(_t("UPDATE profiles SET photo=:u WHERE id=:id"),
-                             {"u": new_url, "id": pid})
-            logging.info("regenerate_bot_photos: %s → %s", email, new_url)
+            rows2 = conn.execute(_t("SELECT id, url FROM profile_photos WHERE url IS NOT NULL")).fetchall()
+            fixed2 = 0
+            for row_id, url in rows2:
+                if _is_broken(url):
+                    conn.execute(_t("DELETE FROM profile_photos WHERE id=:id"), {"id": row_id})
+                    fixed2 += 1
+            if fixed2:
+                logging.info("fix_photos: removed %d broken gallery photo rows", fixed2)
     except Exception as _e:
-        logging.warning("regenerate_bot_photos: %s", _e)
+        logging.warning("fix_broken_photo_urls: %s", _e)
 
 
 try:
-    _regenerate_missing_bot_photos()
+    _fix_broken_photo_urls()
+except Exception as _mig_err:
+    logging.error("fix_broken_photo_urls failed: %s", _mig_err)
+
+
+
+def _delete_bot_accounts() -> None:
+    """Remove all bot test accounts and their data (CASCADE deletes related rows)."""
+    from sqlalchemy import text as _t
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(_t(
+                "DELETE FROM users WHERE email LIKE '%_bot@spark.test'"
+            ))
+            deleted = result.rowcount
+            if deleted:
+                logging.info("delete_bots: removed %d bot accounts", deleted)
+    except Exception as _e:
+        logging.warning("delete_bots: %s", _e)
+
+
+try:
+    _delete_bot_accounts()
 except Exception as _bp_err:
-    logging.warning("regenerate_bot_photos failed: %s", _bp_err)
+    logging.warning("delete_bots failed: %s", _bp_err)
 
 # HIGH-6: Reject oversized request bodies before they reach route handlers.
 # Prevents DoS via 100 MB audio/image uploads buffered into memory.
@@ -274,8 +184,13 @@ _MAX_BODY_BYTES = 12 * 1024 * 1024  # 12 MB ceiling
 @app.middleware("http")
 async def max_body_size_middleware(request: Request, call_next):
     content_length = request.headers.get("content-length")
-    if content_length and int(content_length) > _MAX_BODY_BYTES:
-        return JSONResponse({"detail": "Request body too large (max 12 MB)"}, status_code=413)
+    if content_length:
+        try:
+            cl_int = int(content_length)
+        except (ValueError, TypeError):
+            return JSONResponse({"detail": "Invalid Content-Length"}, status_code=400)
+        if cl_int > _MAX_BODY_BYTES:
+            return JSONResponse({"detail": "Request body too large (max 12 MB)"}, status_code=413)
     return await call_next(request)
 
 _CSRF_COOKIE = "csrftoken"
@@ -291,9 +206,10 @@ async def security_middleware(request: Request, call_next):
 
     # Set cookie on first visit (httponly=False — JS needs to read it for AJAX)
     if not request.cookies.get(_CSRF_COOKIE):
+        _secure = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("SECURE_COOKIES"))
         response.set_cookie(
             _CSRF_COOKIE, csrf_token,
-            httponly=False, samesite="lax", max_age=60 * 60 * 24 * 7,
+            httponly=False, samesite="lax", max_age=60 * 60 * 24 * 7, secure=_secure,
         )
 
     # Security headers
@@ -448,7 +364,7 @@ def health():
 @app.get("/metrics")
 def app_metrics(token: str = Query(default="")):
     required = os.getenv("METRICS_TOKEN", "")
-    if required and token != required:
+    if not required or token != required:
         raise HTTPException(403, "Forbidden")
     with _m_lock:
         return JSONResponse({

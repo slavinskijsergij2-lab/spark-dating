@@ -1,3 +1,4 @@
+import base64
 import io
 import os
 import uuid
@@ -10,6 +11,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError as _IE
 from sqlalchemy.ext.asyncio import AsyncSession
 from PIL import Image
+Image.MAX_IMAGE_PIXELS = 25_000_000  # ~5000×5000 — blocks decompression bomb attacks
 try:
     import pillow_heif
     pillow_heif.register_heif_opener()
@@ -55,9 +57,9 @@ async def save_photo(file: UploadFile) -> str:
     except Exception:
         raise HTTPException(400, "photo_process_error")
 
-    filename = f"{uuid.uuid4().hex}.jpg"
-    (_photo_dir() / filename).write_bytes(buf.getvalue())
-    return f"/photos/{filename}"
+    # Store as base64 data URL — survives Railway redeploys without a Volume.
+    data = base64.b64encode(buf.getvalue()).decode()
+    return f"data:image/jpeg;base64,{data}"
 
 
 @router.get("/profile/edit", response_class=HTMLResponse)
@@ -260,6 +262,8 @@ async def view_profile(user_id: int, request: Request, user: User = Depends(get_
     )
     target = result.scalar_one_or_none()
     if not target or not target.profile:
+        raise HTTPException(404, "Profile not found")
+    if target.profile.is_anonymous and user.id != user_id:
         raise HTTPException(404, "Profile not found")
     lang = get_lang(request, user)
 

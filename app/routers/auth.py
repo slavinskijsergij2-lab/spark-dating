@@ -81,14 +81,10 @@ async def login(
             "resent": "",
         }, status_code=400)
 
-    if not user.email_verified and is_smtp_configured():
-        encoded_email = quote(user.email, safe="")
-        return RedirectResponse(
-            f"/login?not_verified=1&email={encoded_email}",
-            status_code=302,
-        )
+    if not user.email_verified:
+        return RedirectResponse("/login?not_verified=1", status_code=302)
 
-    token = create_access_token(user.id)
+    token = create_access_token(user.id, token_version=user.token_version or 0)
     lang = user.language or "en"
     redirect = RedirectResponse("/swipe", status_code=302)
     _set_auth_cookie(redirect, token)
@@ -135,10 +131,8 @@ async def register(
 
     result = await db.execute(select(User).where(User.email == email))
     if result.scalar_one_or_none():
-        return templates.TemplateResponse(request, "register.html", {
-            "t": t, "rtl": is_rtl(language), "lang": language, "ref": ref,
-            "error": t.get("register_email_taken", "Email already registered"),
-        }, status_code=400)
+        # Don't reveal whether this email is registered — redirect to check-email page
+        return RedirectResponse("/login?check_email=1", status_code=302)
 
     if len(password) < 8:
         return templates.TemplateResponse(request, "register.html", {
@@ -270,6 +264,7 @@ async def resend_verification(
 @router.post("/logout", dependencies=[Depends(validate_csrf_form)])
 def logout():
     redirect = RedirectResponse("/login", status_code=302)
-    redirect.delete_cookie("access_token")
-    redirect.delete_cookie("lang")
+    # Must match the same attributes used in _set_auth_cookie, otherwise browsers ignore deletion
+    redirect.delete_cookie("access_token", httponly=True, samesite="lax", secure=_SECURE_COOKIES)
+    redirect.delete_cookie("lang", samesite="lax")
     return redirect

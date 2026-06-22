@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Enum, Float, Index, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Enum, Float, Index, UniqueConstraint, CheckConstraint
 from sqlalchemy.orm import relationship
 import enum
 
@@ -31,7 +31,7 @@ class User(Base):
     verify_gesture = Column(String(50), nullable=True)
 
     # Online status
-    last_seen = Column(DateTime, nullable=True)
+    last_seen = Column(DateTime, nullable=True, index=True)
 
     # Email verification
     email_verified = Column(Boolean, default=False, nullable=False)
@@ -45,12 +45,15 @@ class User(Base):
 
     # Referral system
     referral_code = Column(String(20), unique=True, nullable=True, index=True)
-    referred_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    referred_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Zodiac & phone
     birth_date = Column(DateTime, nullable=True)
     phone = Column(String(20), nullable=True)
     phone_verified = Column(Boolean, default=False, nullable=False)
+
+    # Token version — increment on password change to invalidate old JWTs
+    token_version = Column(Integer, default=0, nullable=False)
 
     @property
     def is_premium_active(self) -> bool:
@@ -71,7 +74,7 @@ class Profile(Base):
     __tablename__ = "profiles"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
     name = Column(String(100), nullable=False)
     age = Column(Integer, nullable=False)
     gender = Column(Enum(GenderEnum), nullable=False)
@@ -91,13 +94,18 @@ class Profile(Base):
     user = relationship("User", back_populates="profile")
     photos = relationship("ProfilePhoto", back_populates="profile", cascade="all, delete-orphan", order_by="ProfilePhoto.position")
 
+    __table_args__ = (
+        # Composite index covering swipe candidate filter: gender + age + intention
+        Index("ix_profile_swipe", "gender", "age", "intention"),
+    )
+
 
 class Like(Base):
     __tablename__ = "likes"
 
     id = Column(Integer, primary_key=True, index=True)
-    liker_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    liked_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    liker_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    liked_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     is_like = Column(Boolean, nullable=False)  # True = like, False = dislike
     is_super = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=_utcnow)
@@ -108,6 +116,7 @@ class Like(Base):
     __table_args__ = (
         UniqueConstraint("liker_id", "liked_id", name="uq_like_pair"),
         Index("ix_like_liker_created", "liker_id", "created_at"),
+        Index("ix_like_liked_is_like", "liked_id", "is_like"),  # "who liked me" query
     )
 
 
@@ -115,11 +124,11 @@ class Match(Base):
     __tablename__ = "matches"
 
     id = Column(Integer, primary_key=True, index=True)
-    user1_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    user2_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user1_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user2_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime, default=_utcnow)
 
-    # Notification: who has seen this match (both start as unseen — HIGH-8 fix)
+    # Notification: who has seen this match
     seen_by_user1 = Column(Boolean, default=False, nullable=False)
     seen_by_user2 = Column(Boolean, default=False, nullable=False)
 
@@ -137,6 +146,8 @@ class Match(Base):
 
     __table_args__ = (
         UniqueConstraint("user1_id", "user2_id", name="uq_match_pair"),
+        # Enforce that user1_id < user2_id so (A,B) and (B,A) can't both exist
+        CheckConstraint("user1_id < user2_id", name="ck_match_user_order"),
     )
 
 
@@ -144,8 +155,8 @@ class Message(Base):
     __tablename__ = "messages"
 
     id = Column(Integer, primary_key=True, index=True)
-    match_id = Column(Integer, ForeignKey("matches.id"), nullable=False, index=True)
-    sender_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    match_id = Column(Integer, ForeignKey("matches.id", ondelete="CASCADE"), nullable=False, index=True)
+    sender_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=_utcnow)
     is_read = Column(Boolean, default=False)
@@ -167,8 +178,8 @@ class PolitenessVote(Base):
     __tablename__ = "politeness_votes"
 
     id = Column(Integer, primary_key=True, index=True)
-    voter_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    target_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    voter_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    target_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     stars = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=_utcnow)
 
@@ -180,7 +191,7 @@ class ProfilePhoto(Base):
     __tablename__ = "profile_photos"
 
     id = Column(Integer, primary_key=True, index=True)
-    profile_id = Column(Integer, ForeignKey("profiles.id"), nullable=False, index=True)
+    profile_id = Column(Integer, ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
     url = Column(Text, nullable=False)
     position = Column(Integer, default=0)
     created_at = Column(DateTime, default=_utcnow)
@@ -193,8 +204,8 @@ class Block(Base):
     __tablename__ = "blocks"
 
     id = Column(Integer, primary_key=True, index=True)
-    blocker_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    blocked_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    blocker_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    blocked_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime, default=_utcnow)
 
     __table_args__ = (UniqueConstraint("blocker_id", "blocked_id", name="uq_block"),)
@@ -204,8 +215,8 @@ class Report(Base):
     __tablename__ = "reports"
 
     id = Column(Integer, primary_key=True, index=True)
-    reporter_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    reported_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    reporter_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    reported_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     reason = Column(String(50), nullable=False)
     comment = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=_utcnow)
@@ -218,11 +229,15 @@ class Story(Base):
     __tablename__ = "stories"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    content = Column(Text, nullable=False)       # text or "img:base64..."
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    content = Column(Text, nullable=False)       # text or "/photos/story_xxx.jpg"
     media_type = Column(String(10), default="text")  # "text" | "image"
-    expires_at = Column(DateTime, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
     created_at = Column(DateTime, default=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_story_per_user"),  # one story per user at a time
+    )
 
 
 # Who viewed my profile
@@ -230,12 +245,14 @@ class ProfileView(Base):
     __tablename__ = "profile_views"
 
     id = Column(Integer, primary_key=True, index=True)
-    viewer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    viewed_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    viewer_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    viewed_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime, default=_utcnow)
 
-    # MEDIUM-5: prevent duplicate rows from TOCTOU race in view_profile
-    __table_args__ = (UniqueConstraint("viewer_id", "viewed_id", name="uq_profile_view"),)
+    __table_args__ = (
+        UniqueConstraint("viewer_id", "viewed_id", name="uq_profile_view"),
+        Index("ix_profile_view_viewed", "viewed_id", "viewer_id", "created_at"),
+    )
 
 
 # Message reactions (emoji)
@@ -243,8 +260,8 @@ class MessageReaction(Base):
     __tablename__ = "message_reactions"
 
     id = Column(Integer, primary_key=True, index=True)
-    message_id = Column(Integer, ForeignKey("messages.id"), nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    message_id = Column(Integer, ForeignKey("messages.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     emoji = Column(String(10), nullable=False)
     created_at = Column(DateTime, default=_utcnow)
 
@@ -256,7 +273,7 @@ class QuizAnswer(Base):
     __tablename__ = "quiz_answers"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     question_id = Column(Integer, nullable=False)
     answer_index = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=_utcnow)

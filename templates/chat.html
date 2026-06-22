@@ -393,11 +393,15 @@ function doUnmatchAction(matchId, btn) {
         if (this.messages.length) this.lastId = this.messages.at(-1).id;
         this.$nextTick(() => this.scrollBottom());
         this.connectSSE();
+        window.addEventListener('pagehide', () => { if (this.sse) { this.sse.close(); this.sse = null; } });
         window.addEventListener('beforeunload', () => { if (this.sse) this.sse.close(); });
         window.addEventListener('pageshow', (e) => {
           if (e.persisted) {
             this.showUnmatchModal = false;
             this.showRateModal = false;
+            this._sseRetries = 0;
+            if (this.sse) { this.sse.close(); this.sse = null; }
+            this.connectSSE();
           }
         });
       },
@@ -488,10 +492,17 @@ function doUnmatchAction(matchId, btn) {
             }
           } catch(err) {}
         };
+        this.sse.addEventListener('reconnect', () => {
+          // Server sent graceful reconnect signal (e.g. max stream lifetime reached)
+          this.sse.close(); this.sse = null;
+          setTimeout(() => this.connectSSE(), 500);
+        });
         this.sse.onerror = () => {
           this.sse.close();
           this.sse = null;
-          setTimeout(() => this.connectSSE(), 3000);
+          this._sseRetries = (this._sseRetries || 0) + 1;
+          if (this._sseRetries > 8) return; // give up after ~8 attempts, avoids auth-error loop
+          setTimeout(() => this.connectSSE(), Math.min(3000 * this._sseRetries, 30000));
         };
       },
 

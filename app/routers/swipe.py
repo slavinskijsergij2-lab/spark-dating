@@ -1,6 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy import and_, case, func, not_, or_, select
+from sqlalchemy import and_, case, delete, func, not_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -135,9 +135,6 @@ async def find_next_candidate(
 
     if profile.looking_for:
         q = q.where(Profile.gender == profile.looking_for)
-        q = q.where(
-            or_(Profile.looking_for == None, Profile.looking_for == profile.gender)
-        )
 
     if intention and intention in VALID_INTENTIONS:
         q = q.where(Profile.intention == intention)
@@ -238,7 +235,11 @@ async def undo_swipe(user: User = Depends(get_current_user), db: AsyncSession = 
     last_like = result.scalar_one_or_none()
     if not last_like:
         return JSONResponse({"error": "Nothing to undo"}, status_code=400)
+    liked_id = last_like.liked_id
     await db.delete(last_like)
+    # If the like created a match, delete it too so the undo is complete
+    u1, u2 = min(user.id, liked_id), max(user.id, liked_id)
+    await db.execute(delete(Match).where(Match.user1_id == u1, Match.user2_id == u2))
     await db.commit()
     return JSONResponse({"success": True})
 
@@ -260,6 +261,9 @@ async def do_swipe(
     if action not in ("like", "dislike"):
         return JSONResponse({"error": "Invalid action"}, status_code=400)
 
+    if target_id == user.id:
+        return JSONResponse({"error": "Cannot swipe yourself"}, status_code=400)
+
     result = await db.execute(
         select(User).options(selectinload(User.profile)).where(User.id == target_id, User.is_active == True)
     )
@@ -274,54 +278,60 @@ async def do_swipe(
     existing = result.scalar_one_or_none()
     if not existing:
         is_super_like = (is_super == "1" and action == "like")
-        if is_super_like and not user.is_premium_active:
-            daily = await _super_likes_today(user.id, db)
-            if daily >= 5:
-                return JSONResponse({"error": "Daily super-like limit reached (5/day)", "limit": True}, status_code=429)
+        # Cache the count so we don't query it twice below
+        daily_super = await _super_likes_today(user.id, db) if is_super_like and not user.is_premium_active else 0
+        if is_super_like and not user.is_premium_active and daily_super >= 5:
+            return JSONResponse({"error": "Daily super-like limit reached (5/day)", "limit": True}, status_code=429)
 
         like = Like(liker_id=user.id, liked_id=target_id, is_like=(action == "like"), is_super=is_super_like)
         db.add(like)
+        like_committed = False
         try:
             await db.commit()
+            like_committed = True
         except IntegrityError:
             await db.rollback()
-        else:
-            if action == "like":
-                result = await db.execute(
-                    select(Like).where(
-                        Like.liker_id == target_id,
-                        Like.liked_id == user.id,
-                        Like.is_like == True,
-                    )
+
+        # Check for mutual like and create match regardless of whether this was a new
+        # Like or a duplicate (IntegrityError) — handles double-tap race condition
+        if action == "like":
+            result = await db.execute(
+                select(Like).where(
+                    Like.liker_id == target_id,
+                    Like.liked_id == user.id,
+                    Like.is_like == True,
                 )
-                mutual = result.scalar_one_or_none()
-                if mutual:
-                    u1_id, u2_id = min(user.id, target_id), max(user.id, target_id)
-                    result = await db.execute(
-                        select(Match).where(Match.user1_id == u1_id, Match.user2_id == u2_id)
-                    )
-                    existing_match = result.scalar_one_or_none()
-                    if not existing_match:
-                        match = Match(user1_id=u1_id, user2_id=u2_id)
-                        db.add(match)
-                        try:
-                            await db.commit()
-                            await db.refresh(match)
-                            matched = True
-                            if is_smtp_configured():
-                                user_name = user.profile.name if user.profile else "Someone"
-                                target_name = target.profile.name if target.profile else "Someone"
-                                background_tasks.add_task(
-                                    send_match_email, target.email, user_name,
-                                    lang=target.language or "en"
-                                )
-                                background_tasks.add_task(
-                                    send_match_email, user.email, target_name,
-                                    lang=user.language or "en"
-                                )
-                        except IntegrityError:
-                            await db.rollback()
-                            matched = True
+            )
+            mutual = result.scalar_one_or_none()
+            if mutual:
+                u1_id, u2_id = min(user.id, target_id), max(user.id, target_id)
+                result = await db.execute(
+                    select(Match).where(Match.user1_id == u1_id, Match.user2_id == u2_id)
+                )
+                existing_match = result.scalar_one_or_none()
+                if existing_match:
+                    matched = True
+                else:
+                    match = Match(user1_id=u1_id, user2_id=u2_id)
+                    db.add(match)
+                    try:
+                        await db.commit()
+                        await db.refresh(match)
+                        matched = True
+                        if is_smtp_configured() and like_committed:
+                            user_name = user.profile.name if user.profile else "Someone"
+                            target_name = target.profile.name if target.profile else "Someone"
+                            background_tasks.add_task(
+                                send_match_email, target.email, user_name,
+                                lang=target.language or "en"
+                            )
+                            background_tasks.add_task(
+                                send_match_email, user.email, target_name,
+                                lang=user.language or "en"
+                            )
+                    except IntegrityError:
+                        await db.rollback()
+                        matched = True
 
     _intention = intention if intention and intention in VALID_INTENTIONS else None
     _city = city.strip() if city and city.strip() else None
@@ -335,7 +345,9 @@ async def do_swipe(
         city=_city, online_only=_online_only,
     )
     next_data = await _candidate_to_json(next_cand, db, lang) if next_cand else None
-    super_likes_left = max(0, (999 if user.is_premium_active else 5) - await _super_likes_today(user.id, db))
+    # Reuse daily_super if already fetched; otherwise query once
+    _daily = daily_super if 'daily_super' in dir() else await _super_likes_today(user.id, db)
+    super_likes_left = max(0, (999 if user.is_premium_active else 5) - _daily)
 
     result = await db.execute(
         select(Like).where(Like.liker_id == user.id).order_by(Like.id.desc()).limit(1)

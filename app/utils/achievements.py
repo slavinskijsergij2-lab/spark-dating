@@ -50,11 +50,6 @@ _LABELS: dict[str, dict[str, str]] = {
         "en": "Full profile", "de": "Vollständiges Profil",
         "tr": "Tam profil", "ar": "ملف كامل",
     },
-    "phone_verified": {
-        "ru": "Номер подтверждён", "uk": "Номер підтверджено",
-        "en": "Phone verified", "de": "Telefon bestätigt",
-        "tr": "Telefon doğrulandı", "ar": "الهاتف موثق",
-    },
 }
 
 
@@ -99,10 +94,9 @@ async def get_achievements(user: "User", db: AsyncSession, lang: str = "ru") -> 
     if quiz_count >= TOTAL_QUESTIONS:
         badges.append({"icon": "🎯", "label": _lbl("quiz_done", lang)})
 
-    if user.profile and user.profile.interests:
+    # Full profile requires ALL key fields filled
+    p = user.profile
+    if p and p.bio and p.bio.strip() and p.city and p.photo and p.interests and p.intention:
         badges.append({"icon": "🌟", "label": _lbl("full_profile", lang)})
-
-    if user.phone_verified:
-        badges.append({"icon": "📱", "label": _lbl("phone_verified", lang)})
 
     return badges

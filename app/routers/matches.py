@@ -16,7 +16,7 @@ from app.csrf import validate_csrf_header
 from app.database import get_db, AsyncSessionLocal
 from app.utils.time import utcnow as _utcnow
 from app.i18n import get_lang, get_translations, is_rtl
-from app.models.models import Like, Match, Message, MessageReaction, QuizAnswer, User
+from app.models.models import Block, Like, Match, Message, MessageReaction, QuizAnswer, User
 from app.quiz_questions import CATEGORY_ORDER, QID_TO_CATEGORY
 from app.rate_limit import rate_limit
 from app.templates import templates
@@ -141,12 +141,28 @@ async def matches_page(
     )
     matches = result.scalars().all()
 
-    for m in matches:
-        if m.user1_id == user.id and not m.seen_by_user1:
-            m.seen_by_user1 = True
-        elif m.user2_id == user.id and not m.seen_by_user2:
-            m.seen_by_user2 = True
-    await db.commit()
+    match_ids = [m.id for m in matches]
+    if match_ids:
+        from sqlalchemy import case as _case
+        await db.execute(
+            update(Match)
+            .where(
+                Match.id.in_(match_ids),
+                or_(
+                    and_(Match.user1_id == user.id, Match.seen_by_user1 == False),
+                    and_(Match.user2_id == user.id, Match.seen_by_user2 == False),
+                ),
+            )
+            .values(
+                seen_by_user1=_case(
+                    (Match.user1_id == user.id, True), else_=Match.seen_by_user1
+                ),
+                seen_by_user2=_case(
+                    (Match.user2_id == user.id, True), else_=Match.seen_by_user2
+                ),
+            )
+        )
+        await db.commit()
 
     partner_id_by_match = {
         m.id: (m.user2_id if m.user1_id == user.id else m.user1_id)
@@ -170,31 +186,45 @@ async def matches_page(
         if partner:
             partners.append((m, partner, compat_map.get(pid)))
 
-    # Users who liked me — pending (not yet matched, not yet swiped)
-    result = await db.execute(
-        select(Match.user1_id, Match.user2_id).where(base_where)
-    )
-    all_matched_ids = {
-        (row.user2_id if row.user1_id == user.id else row.user1_id)
-        for row in result.all()
-    }
-
-    result = await db.execute(select(Like.liked_id).where(Like.liker_id == user.id))
-    i_swiped_ids = set(result.scalars().all())
-
-    result = await db.execute(
-        select(Like.liker_id).where(Like.liked_id == user.id, Like.is_like == True)
-    )
-    pending_ids_raw = set(result.scalars().all()) - all_matched_ids - i_swiped_ids
-
-    liked_me_total = len(pending_ids_raw)
-    liked_me_users = []
-    if pending_ids_raw:
-        preview_ids = list(pending_ids_raw)[:LIKED_ME_PREVIEW]
-        result = await db.execute(
-            select(User).options(joinedload(User.profile)).where(User.id.in_(preview_ids))
+    # Users who liked me — pending (not yet matched, not yet swiped by me)
+    # All filtering done in SQL to avoid loading unbounded sets into Python
+    matched_subq = select(Match.user1_id, Match.user2_id).where(base_where).subquery()
+    already_matched_ids = (
+        select(
+            func.coalesce(
+                matched_subq.c.user2_id,
+                matched_subq.c.user1_id,
+            )
+        ).where(
+            or_(
+                matched_subq.c.user1_id == user.id,
+                matched_subq.c.user2_id == user.id,
+            )
         )
-        liked_me_users = [u for u in result.scalars().unique().all() if u.profile]
+    )
+    i_swiped_subq = select(Like.liked_id).where(Like.liker_id == user.id).scalar_subquery()
+
+    pending_q = (
+        select(Like.liker_id)
+        .where(
+            Like.liked_id == user.id,
+            Like.is_like == True,
+            Like.liker_id.not_in(i_swiped_subq),
+        )
+    )
+
+    result = await db.execute(select(func.count()).select_from(pending_q.subquery()))
+    liked_me_total = result.scalar() or 0
+
+    liked_me_users = []
+    if liked_me_total > 0:
+        result = await db.execute(pending_q.limit(LIKED_ME_PREVIEW))
+        preview_ids = [row[0] for row in result.all()]
+        if preview_ids:
+            result = await db.execute(
+                select(User).options(joinedload(User.profile)).where(User.id.in_(preview_ids))
+            )
+            liked_me_users = [u for u in result.scalars().unique().all() if u.profile]
 
     lang = get_lang(request, user)
     partner_names = [
@@ -307,6 +337,18 @@ async def send_message(
     if not match or (match.user1_id != user.id and match.user2_id != user.id):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
 
+    partner_id = match.user2_id if match.user1_id == user.id else match.user1_id
+    block = await db.execute(
+        select(Block).where(
+            or_(
+                and_(Block.blocker_id == user.id, Block.blocked_id == partner_id),
+                and_(Block.blocker_id == partner_id, Block.blocked_id == user.id),
+            )
+        )
+    )
+    if block.scalar_one_or_none():
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
+
     msg = Message(match_id=match_id, sender_id=user.id, content=content)
     db.add(msg)
     _update_streak(match, db)
@@ -332,6 +374,18 @@ async def send_voice(
     result = await db.execute(select(Match).where(Match.id == match_id))
     match = result.scalar_one_or_none()
     if not match or (match.user1_id != user.id and match.user2_id != user.id):
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
+
+    partner_id = match.user2_id if match.user1_id == user.id else match.user1_id
+    block = await db.execute(
+        select(Block).where(
+            or_(
+                and_(Block.blocker_id == user.id, Block.blocked_id == partner_id),
+                and_(Block.blocker_id == partner_id, Block.blocked_id == user.id),
+            )
+        )
+    )
+    if block.scalar_one_or_none():
         return JSONResponse({"error": "Forbidden"}, status_code=403)
 
     raw = await audio.read(MAX_VOICE_BYTES + 1)
@@ -556,26 +610,34 @@ async def _fetch_new_messages(match_id: int, last_id: int, user_id: int) -> tupl
         return payload, msgs[-1].id
 
 
+_SSE_MAX_SECONDS = 300  # 5 min; EventSource auto-reconnects after this
+
 @router.get("/chat/{match_id}/stream")
 async def chat_stream(
     match_id: int,
+    request: Request,
     after_id: int = 0,
-    request: Request = None,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
 ):
-    """SSE endpoint — native async, no thread pool."""
-    result = await db.execute(select(Match).where(Match.id == match_id))
-    match = result.scalar_one_or_none()
-    if not match or (match.user1_id != user.id and match.user2_id != user.id):
-        raise HTTPException(403, "Forbidden")
+    """SSE endpoint — auth check uses a short-lived session, then released so the
+    connection pool is not held for the full stream lifetime."""
+    async with AsyncSessionLocal() as _auth_db:
+        result = await _auth_db.execute(select(Match).where(Match.id == match_id))
+        match = result.scalar_one_or_none()
+        if not match or (match.user1_id != user.id and match.user2_id != user.id):
+            raise HTTPException(403, "Forbidden")
 
     user_id = user.id
 
     async def generator():
         import logging as _log
         last_id = after_id
+        deadline = _utcnow().timestamp() + _SSE_MAX_SECONDS
         while True:
+            if _utcnow().timestamp() > deadline:
+                yield "event: reconnect\ndata: {}\n\n"
+                break
+
             try:
                 if await request.is_disconnected():
                     break

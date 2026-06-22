@@ -5,23 +5,24 @@
 <style>
   .match-card {
     position: relative;
-    border-radius: 20px;
+    border-radius: 18px;
     overflow: hidden;
-    aspect-ratio: 3/4;
+    aspect-ratio: 4/5;
     cursor: pointer;
     display: block;
     transition: transform .2s, box-shadow .2s;
   }
   .match-card:active { transform: scale(.97); }
-  .match-card:hover  { transform: scale(1.02); box-shadow: 0 12px 40px rgba(236,72,153,.3); }
+  .match-card:hover  { transform: scale(1.02); box-shadow: 0 10px 32px rgba(236,72,153,.3); }
   .match-card-img { width:100%; height:100%; object-fit:cover; display:block; }
   .match-card-overlay {
     position: absolute; inset: 0;
-    background: linear-gradient(to top, rgba(0,0,0,.75) 0%, rgba(0,0,0,.1) 55%, transparent 100%);
+    background: linear-gradient(to top, rgba(0,0,0,.80) 0%, rgba(0,0,0,.15) 50%, transparent 100%);
   }
   .match-card-body {
     position: absolute; bottom: 0; left: 0; right: 0;
-    padding: 10px 10px 12px;
+    padding: 8px 8px 10px;
+    min-width: 0;
   }
   .liked-card {
     border-radius: 18px;
@@ -236,7 +237,7 @@ function likeBack(id, btn) {
   </div>
 
   <!-- 2-column card grid -->
-  <div class="grid grid-cols-2 gap-3">
+  <div class="grid grid-cols-2 gap-2">
     {% for match, partner, compat in partners %}
     {% if partner.profile %}
     {% set os = online_status(partner.last_seen, lang) %}
@@ -250,7 +251,7 @@ function likeBack(id, btn) {
       <img src="{{ partner.profile.photo }}" class="match-card-img" alt="{{ partner.profile.name }}" loading="lazy" />
       {% else %}
       <div class="match-card-img bg-gradient-to-br from-pink-200 to-rose-300 flex items-center justify-center">
-        <span class="text-6xl">👤</span>
+        <span class="text-4xl">👤</span>
       </div>
       {% endif %}
 
@@ -273,16 +274,16 @@ function likeBack(id, btn) {
 
       <!-- Bottom info -->
       <div class="match-card-body">
-        <p class="text-white font-bold text-sm leading-tight">{{ partner.profile.name }}, {{ partner.profile.age }}</p>
+        <p class="text-white font-bold text-xs leading-tight truncate">{{ partner.profile.name }}, {{ partner.profile.age }}</p>
         {% if not os and partner.profile.city %}
-        <p class="text-white/70 text-[10px] mt-0.5">📍 {{ partner.profile.city }}</p>
-        {% elif os and not os.is_online %}
-        <p class="text-white/60 text-[10px] mt-0.5">{{ os.label }}</p>
+        <p class="text-white/70 text-[9px] mt-0.5 truncate">📍 {{ partner.profile.city }}</p>
+        {% elif os and not os.is_online and os.label %}
+        <p class="text-white/60 text-[9px] mt-0.5 truncate">{{ os.label }}</p>
         {% endif %}
         <!-- Compat -->
         {% if compat is not none %}
-        <div class="mt-1.5 flex items-center gap-1">
-          <span class="bg-pink-500/80 text-white text-[9px] font-black px-2 py-0.5 rounded-full backdrop-blur-sm">
+        <div class="mt-1 flex flex-wrap items-center gap-1">
+          <span class="bg-pink-500/80 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full backdrop-blur-sm leading-none">
             💞 {{ compat.overall }}%
           </span>
           {% if compat.categories %}
@@ -294,12 +295,12 @@ function likeBack(id, btn) {
             {% endif %}
           {% endfor %}
           {% if best.cat %}
-          <span class="bg-white/20 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full backdrop-blur-sm">{{ best.cat }} {{ best.score }}%</span>
+          <span class="bg-white/20 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full backdrop-blur-sm leading-none">{{ best.cat }} {{ best.score }}%</span>
           {% endif %}
           {% endif %}
         </div>
         {% else %}
-        <a href="/quiz" @click.stop class="mt-1.5 inline-block bg-purple-500/70 text-white text-[9px] font-semibold px-2 py-0.5 rounded-full backdrop-blur-sm hover:bg-purple-500/90 transition">
+        <a href="/quiz" @click.stop class="mt-1 inline-block bg-purple-500/70 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full backdrop-blur-sm hover:bg-purple-500/90 transition leading-none">
           {{ t.quiz_take }}
         </a>
         {% endif %}

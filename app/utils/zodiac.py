@@ -14,8 +14,8 @@ _SIGNS = [
     (9,  23, "Дева",      "♍", "virgo"),
     (10, 23, "Весы",      "♎", "libra"),
     (11, 22, "Скорпион",  "♏", "scorpio"),
-    (12, 22, "Стрелец",   "♐", "sagittarius"),
-    (12, 31, "Козерог",   "♑", "capricorn"),  # Dec 23-31
+    (12, 21, "Стрелец",   "♐", "sagittarius"),
+    (12, 31, "Козерог",   "♑", "capricorn"),  # Dec 22-31
 ]
 
 # Explicit mapping key → 0-based row index in _COMPAT matrix (fixed, never changes)

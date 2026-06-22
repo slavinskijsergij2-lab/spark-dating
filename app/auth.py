@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import Depends, HTTPException, Request, status
 import bcrypt as _bcrypt
 import jwt as _jwt
-from sqlalchemy import select
+from sqlalchemy import select, update as _update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -47,9 +47,13 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
-def create_access_token(user_id: int) -> str:
+def create_access_token(user_id: int, token_version: int = 0) -> str:
     expire = _utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    return _jwt.encode({"sub": str(user_id), "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
+    return _jwt.encode(
+        {"sub": str(user_id), "tv": token_version, "exp": expire},
+        SECRET_KEY,
+        algorithm=ALGORITHM,
+    )
 
 
 async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
@@ -59,6 +63,7 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_db))
     try:
         payload = _jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = int(payload.get("sub"))
+        token_version = int(payload.get("tv", 0))
     except (_jwt.InvalidTokenError, TypeError, ValueError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
@@ -71,10 +76,17 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_db))
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
+    # Reject tokens issued before a password change
+    if token_version != (user.token_version or 0):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token revoked")
+
     now = _utcnow()
     if not user.last_seen or (now - user.last_seen).total_seconds() > 60:
-        user.last_seen = now
+        # Use a raw UPDATE to avoid contaminating the shared request session with an
+        # unexpected commit that could flush unrelated pending changes prematurely.
+        await db.execute(_update(User).where(User.id == user.id).values(last_seen=now))
         await db.commit()
+        user.last_seen = now
 
     return user
 

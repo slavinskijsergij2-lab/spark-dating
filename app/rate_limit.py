@@ -4,32 +4,38 @@ For multi-instance deployments, swap _store for Redis.
 
 Set TESTING=1 to disable limiting in the test suite.
 """
+import asyncio
+import logging
 import os
 import time
 from collections import defaultdict
 from collections.abc import Callable
-from threading import Lock
 
 from fastapi import HTTPException, Request
 
 _store: dict[str, list[float]] = defaultdict(list)
-_lock = Lock()
+_lock = asyncio.Lock()
+
+if os.getenv("TESTING") and os.getenv("RAILWAY_ENVIRONMENT"):
+    logging.critical("TESTING=1 is set in a Railway environment — rate limiting is DISABLED globally!")
 
 
-def rate_limit(max_calls: int, window_seconds: int = 60) -> Callable[[Request], None]:
-    """Returns a FastAPI dependency that enforces a rate limit per IP + path."""
-    def dependency(request: Request) -> None:
+def rate_limit(max_calls: int, window_seconds: int = 60) -> Callable:
+    """Returns a FastAPI async dependency that enforces a rate limit per IP + path."""
+    async def dependency(request: Request) -> None:
         if os.getenv("TESTING"):
             return  # no-op in test suite
-        # Behind Railway/Nginx proxy the real IP is in X-Forwarded-For
-        forwarded = request.headers.get("X-Forwarded-For") or request.headers.get("X-Real-IP")
+        # Take the rightmost IP from X-Forwarded-For (the one added by Railway's trusted proxy).
+        # The leftmost entry is user-controlled and trivially spoofed.
+        forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
-            ip = forwarded.split(",")[0].strip()
+            ip = forwarded.split(",")[-1].strip()
         else:
-            ip = (request.client.host if request.client else None) or "unknown"
+            real_ip = request.headers.get("X-Real-IP")
+            ip = real_ip or (request.client.host if request.client else None) or "unknown"
         key = f"{request.url.path}:{ip}"
         now = time.monotonic()
-        with _lock:
+        async with _lock:
             cutoff = now - window_seconds
             calls = [t for t in _store[key] if t > cutoff]
             if len(calls) >= max_calls:
@@ -40,9 +46,9 @@ def rate_limit(max_calls: int, window_seconds: int = 60) -> Callable[[Request], 
                 )
             calls.append(now)
             _store[key] = calls
-            # Prevent unbounded memory growth: evict all empty/expired keys when store is large.
+            # Prevent unbounded memory growth: evict expired keys when store is large.
             if len(_store) > 5000:
-                to_del = [k for k, v in _store.items() if not v or max(v) <= now - window_seconds]
+                to_del = [k for k, v in _store.items() if not v or max(v) <= cutoff]
                 for k in to_del:
                     del _store[k]
     return dependency
