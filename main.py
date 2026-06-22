@@ -146,6 +146,17 @@ def _fix_broken_photo_urls() -> None:
                     fixed2 += 1
             if fixed2:
                 logging.info("fix_photos: removed %d broken gallery photo rows", fixed2)
+
+            # Stories with file-based images are broken after redeploy — delete them
+            # (they expire in 24h anyway; new stories use base64)
+            try:
+                res3 = conn.execute(_t(
+                    "DELETE FROM stories WHERE media_type='image' AND content LIKE '/photos/%'"
+                ))
+                if res3.rowcount:
+                    logging.info("fix_photos: removed %d broken story image rows", res3.rowcount)
+            except Exception:
+                pass
     except Exception as _e:
         logging.warning("fix_broken_photo_urls: %s", _e)
 
