@@ -85,7 +85,7 @@
 
       <div class="min-w-0">
         <p class="font-semibold text-gray-900 text-sm leading-tight truncate flex items-center gap-1">
-          {{ partner.profile.name }}{% if partner.is_verified %} <span class="text-green-500 text-xs">✓</span>{% endif %}
+          {{ partner.profile.name }}
           {% if streak and streak > 1 %}<span class="text-orange-500 text-xs font-bold">🔥{{ streak }}</span>{% endif %}
         </p>
         {% if os and os.is_online %}

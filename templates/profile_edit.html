@@ -28,11 +28,6 @@
 </div>
 {% endif %}
 
-{% if verified_flash %}
-<div class="bg-green-50 border border-green-200 text-green-700 rounded-xl px-4 py-3 mb-4 flex items-center gap-2">
-  <span>✅</span> <span>{{ t.verify_success }}</span>
-</div>
-{% endif %}
 
 <!-- ══ GALLERY (standalone forms — outside the main profile form) ══ -->
 <div class="bg-white rounded-2xl card-shadow p-6 mb-4">
@@ -114,21 +109,11 @@
             <span class="text-5xl">👤</span>
             {% endif %}
           </template>
-          {% if user.is_verified %}
-          <span class="absolute bottom-1 right-1 bg-green-500 text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">✓</span>
-          {% endif %}
         </div>
         <input type="file" name="photo" accept="image/*" class="hidden" @change="setPreview" />
         <p class="text-center text-pink-500 text-sm mt-2 group-hover:underline">{{ t.upload_photo }}</p>
       </label>
 
-      {% if user.is_verified %}
-      <span class="mt-2 text-green-600 text-sm font-medium">{{ t.verify_done }}</span>
-      {% else %}
-      <a href="/verify" class="mt-2 text-sm border border-pink-300 text-pink-600 px-4 py-1 rounded-full hover:bg-pink-50 transition">
-        {{ t.verify_btn }}
-      </a>
-      {% endif %}
 
       <!-- Premium badge & boost button -->
       <div class="mt-3 flex items-center gap-2 flex-wrap justify-center">

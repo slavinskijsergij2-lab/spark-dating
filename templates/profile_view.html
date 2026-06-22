@@ -31,9 +31,6 @@
     <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-6">
       <h1 class="text-white text-3xl font-bold flex items-center gap-2 flex-wrap">
         {{ profile.name }}, {{ profile.age }}
-        {% if target.is_verified %}
-        <span class="text-sm bg-green-500 text-white px-2 py-0.5 rounded-full font-medium">{{ t.verified_badge }}</span>
-        {% endif %}
         {% if target.is_premium_active %}
         <span class="text-sm bg-yellow-400 text-yellow-900 px-2 py-0.5 rounded-full font-medium">⭐ Premium</span>
         {% endif %}
