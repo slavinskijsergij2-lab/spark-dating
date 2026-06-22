@@ -64,6 +64,27 @@
 
 {% block content %}
 
+<script>
+function likeBack(id, btn) {
+  btn.disabled = true;
+  var orig = btn.innerHTML;
+  btn.textContent = '...';
+  var err = document.getElementById('lc-err-' + id);
+  if (err) err.style.display = 'none';
+  fetch('/swipe/' + id + '?action=like', {method: 'POST', headers: {'x-csrf-token': getCsrfToken()}})
+    .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function(d) {
+      if (d.matched) { window.location.href = '/matches'; }
+      else { var c = document.getElementById('lc-' + id); if (c) c.style.display = 'none'; }
+    })
+    .catch(function() {
+      btn.disabled = false;
+      btn.innerHTML = orig;
+      if (err) err.style.display = 'block';
+    });
+}
+</script>
+
 <!-- ══ HEADER ══ -->
 <div class="flex items-center justify-between mb-4">
   <div>
@@ -157,7 +178,7 @@
   </div>
   <div class="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
     {% for lu in liked_me_users %}
-    <div x-data="{hidden:false, loading:false, err:false}" x-show="!hidden" class="liked-card">
+    <div id="lc-{{ lu.id }}" class="liked-card">
       <div class="relative h-24">
         {% if lu.profile.photo %}
         <img src="{{ lu.profile.photo }}" class="w-full h-full object-cover" loading="lazy" />
@@ -168,23 +189,13 @@
       </div>
       <div class="px-2 pt-1.5 pb-2">
         <p class="text-[11px] font-bold text-gray-800 truncate">{{ lu.profile.name }}, {{ lu.profile.age }}</p>
-        <p x-show="err" x-cloak class="text-[9px] text-red-400 mb-1">{{ t.get('error_try_again','Ошибка, попробуй ещё') }}</p>
-        <button :disabled="loading"
-                @click="
-                  loading = true; err = false;
-                  fetch('/swipe/{{ lu.id }}?action=like', {method:'POST', headers:{'x-csrf-token':getCsrfToken()}})
-                    .then(r => { if(!r.ok) throw new Error(r.status); return r.json(); })
-                    .then(d => {
-                      if(d.matched) { window.location.href='/matches'; }
-                      else { hidden = true; }
-                    })
-                    .catch(() => { loading = false; err = true; });
-                "
-                class="mt-1.5 w-full gradient-pink text-white text-[10px] font-bold py-1.5 rounded-full hover:opacity-90 transition disabled:opacity-50">
-          <span x-show="!loading">💚 {{ t.get('like_back','В ответ') }}</span>
-          <span x-show="loading" x-cloak>...</span>
+        <p id="lc-err-{{ lu.id }}" style="display:none" class="text-[9px] text-red-400 mb-1">{{ t.get('error_try_again','Ошибка, попробуй ещё') }}</p>
+        <button id="lc-btn-{{ lu.id }}"
+                onclick="likeBack({{ lu.id }}, this)"
+                class="mt-1.5 w-full gradient-pink text-white text-[10px] font-bold py-1.5 rounded-full hover:opacity-90 active:opacity-70 transition">
+          💚 {{ t.get('like_back','В ответ') }}
         </button>
-        <button @click="hidden=true"
+        <button onclick="document.getElementById('lc-{{ lu.id }}').style.display='none'"
                 class="mt-1 w-full text-gray-300 text-[9px] hover:text-gray-500 transition">
           {{ t.get('skip_person','Пропустить') }}
         </button>

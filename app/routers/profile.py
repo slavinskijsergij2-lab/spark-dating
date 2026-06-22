@@ -10,6 +10,11 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError as _IE
 from sqlalchemy.ext.asyncio import AsyncSession
 from PIL import Image
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except ImportError:
+    pass
 
 from app.auth import get_current_user
 from app.csrf import validate_csrf_form
@@ -37,10 +42,6 @@ def _photo_dir() -> Path:
 
 
 async def save_photo(file: UploadFile) -> str:
-    ext = Path(file.filename or "x.jpg").suffix.lower()
-    if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
-        raise HTTPException(400, "photo_format_error")
-
     raw = await file.read(MAX_FILE_BYTES + 1)
     if len(raw) > MAX_FILE_BYTES:
         raise HTTPException(400, "photo_size_error")
