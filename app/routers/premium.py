@@ -12,6 +12,7 @@ from app.csrf import validate_csrf_header
 from app.database import get_db
 from app.i18n import get_lang, get_translations, is_rtl
 from app.models.models import ProfileView, User
+from app.rate_limit import rate_limit
 from app.templates import templates
 from app.utils.time import utcnow as _utcnow
 
@@ -41,7 +42,7 @@ async def premium_page(request: Request, user: User = Depends(get_current_user),
     })
 
 
-@router.post("/premium/activate", dependencies=[Depends(validate_csrf_header)])
+@router.post("/premium/activate", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(5, 60))])
 async def activate_premium(
     request: Request,
     user: User = Depends(get_current_user),
@@ -70,7 +71,7 @@ async def deactivate_premium(user: User = Depends(get_current_user), db: AsyncSe
     return JSONResponse({"success": True})
 
 
-@router.post("/profile/boost", dependencies=[Depends(validate_csrf_header)])
+@router.post("/profile/boost", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(10, 60))])
 async def boost_profile(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(User).where(User.id == user.id).with_for_update()
