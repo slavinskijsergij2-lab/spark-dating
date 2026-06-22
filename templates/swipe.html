@@ -146,9 +146,33 @@
   },
 
   async superLike() {
-    if (this.superLeft <= 0) return;
+    if (this.superLeft <= 0 || this.swiping || this.noMore || !this.card) return;
+    this.swiping = true;
     this.superLeft--;
-    await this.swipe('like');
+
+    const cardEl = this.$refs.card;
+    if (cardEl) cardEl.classList.add('fly-right');
+    await new Promise(r => setTimeout(r, 220));
+
+    try {
+      const resp = await fetch('/swipe/' + this.card.id + '?action=like&is_super=1', {
+        method: 'POST',
+        headers: { 'x-csrf-token': getCsrfToken() },
+        signal: AbortSignal.timeout(10000),
+      });
+      const data = await resp.json();
+      if (data.matched) { window.location.href = '/matches'; return; }
+      if (data.super_likes_left !== undefined) this.superLeft = data.super_likes_left;
+      if (data.next) {
+        const n = data.next;
+        this.card = { id: n.id, name: n.name, age: n.age, city: n.city,
+                      bio: n.bio, photo: n.photos ? n.photos[0] || '' : '',
+                      online: n.is_online };
+      } else { this.noMore = true; }
+    } catch(e) { this.superLeft++; /* rollback on error */ }
+
+    if (cardEl) cardEl.classList.remove('fly-right');
+    this.swiping = false;
   },
 }" x-init="window.addEventListener('pageshow', e => { if (e.persisted) window.location.reload(); })">
 

@@ -272,14 +272,18 @@ async def do_swipe(
         return JSONResponse({"error": "User not found"}, status_code=404)
 
     matched = False
+    _cached_daily_super: int | None = None  # lazily populated to avoid double DB query
     result = await db.execute(
         select(Like).where(Like.liker_id == user.id, Like.liked_id == target_id)
     )
     existing = result.scalar_one_or_none()
     if not existing:
         is_super_like = (is_super == "1" and action == "like")
-        # Cache the count so we don't query it twice below
-        daily_super = await _super_likes_today(user.id, db) if is_super_like and not user.is_premium_active else 0
+        if is_super_like and not user.is_premium_active:
+            _cached_daily_super = await _super_likes_today(user.id, db)
+        else:
+            _cached_daily_super = 0
+        daily_super = _cached_daily_super
         if is_super_like and not user.is_premium_active and daily_super >= 5:
             return JSONResponse({"error": "Daily super-like limit reached (5/day)", "limit": True}, status_code=429)
 
@@ -345,8 +349,8 @@ async def do_swipe(
         city=_city, online_only=_online_only,
     )
     next_data = await _candidate_to_json(next_cand, db, lang) if next_cand else None
-    # Reuse daily_super if already fetched; otherwise query once
-    _daily = daily_super if 'daily_super' in dir() else await _super_likes_today(user.id, db)
+    # Reuse cached count if already fetched; otherwise query once
+    _daily = _cached_daily_super if _cached_daily_super is not None else await _super_likes_today(user.id, db)
     super_likes_left = max(0, (999 if user.is_premium_active else 5) - _daily)
 
     result = await db.execute(

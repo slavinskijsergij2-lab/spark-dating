@@ -1,8 +1,6 @@
+import base64
 import io
-import os
-import uuid
 from datetime import timedelta
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -52,11 +50,8 @@ async def create_story(
             img.save(buf, "JPEG", quality=75)
         except Exception:
             return JSONResponse({"error": "Invalid image"}, status_code=400)
-        photo_dir = Path(os.getenv("PHOTO_DIR", "static/photos"))
-        photo_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"story_{uuid.uuid4().hex}.jpg"
-        (photo_dir / filename).write_bytes(buf.getvalue())
-        content = f"/photos/{filename}"
+        data = base64.b64encode(buf.getvalue()).decode()
+        content = f"data:image/jpeg;base64,{data}"
         media_type = "image"
     elif text and text.strip():
         content = text.strip()[:300]
