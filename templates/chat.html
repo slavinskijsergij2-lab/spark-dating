@@ -42,6 +42,18 @@
   }
   {% endif %}
 </style>
+<script>
+function doUnmatchAction(matchId, btn) {
+  btn.disabled = true;
+  btn.textContent = '...';
+  fetch('/match/' + matchId + '/unmatch', {
+    method: 'POST',
+    headers: {'x-csrf-token': getCsrfToken()}
+  })
+  .then(function() { window.location.href = '/matches'; })
+  .catch(function() { window.location.href = '/matches'; });
+}
+</script>
 {% endblock %}
 
 {% block main_class %}max-w-lg mx-auto p-0{% endblock %}
@@ -116,15 +128,13 @@
       <h3 class="font-bold text-gray-800 mb-1 text-base">{{ t.get('unmatch','Размачиться') }}</h3>
       <p class="text-gray-500 text-sm mb-5">{{ t.get('unmatch_confirm','Удалить матч и всю переписку?') }}</p>
       <div class="flex gap-3">
-        <button @click="showUnmatchModal = false"
-                class="flex-1 border-2 border-gray-200 text-gray-600 py-2.5 rounded-full font-semibold text-sm hover:border-gray-300 transition">
+        <a href="/chat/{{ match.id }}"
+           class="flex-1 border-2 border-gray-200 text-gray-600 py-2.5 rounded-full font-semibold text-sm hover:border-gray-300 transition flex items-center justify-center">
           {{ t.get('unmatch_no','Отмена') }}
-        </button>
-        <button @click="doUnmatch()"
-                :disabled="unmatching"
-                class="flex-1 bg-red-500 hover:bg-red-600 text-white py-2.5 rounded-full font-semibold text-sm transition disabled:opacity-50">
-          <span x-show="!unmatching">{{ t.get('unmatch_yes','Удалить') }}</span>
-          <span x-show="unmatching">...</span>
+        </a>
+        <button onclick="doUnmatchAction({{ match.id }}, this)"
+                class="flex-1 bg-red-500 hover:bg-red-600 text-white py-2.5 rounded-full font-semibold text-sm transition disabled:opacity-60">
+          {{ t.get('unmatch_yes','Удалить') }}
         </button>
       </div>
     </div>
