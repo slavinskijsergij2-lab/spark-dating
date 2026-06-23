@@ -5,7 +5,7 @@ from urllib.parse import quote
 
 _EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,255}\.[^@\s]{1,63}$")
 
-from fastapi import APIRouter, Depends, Form, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -108,6 +108,7 @@ async def register_page(request: Request, user=Depends(get_optional_user)):
 @router.post("/register", dependencies=[Depends(rate_limit(5, 60)), Depends(validate_csrf_form)])
 async def register(
     request: Request,
+    background_tasks: BackgroundTasks,
     email: str = Form(...),
     password: str = Form(...),
     language: str = Form("en"),
@@ -183,7 +184,7 @@ async def register(
         await apply_referral_bonus(referrer, db)
 
     if smtp_active:
-        send_verification_email(email, verify_token, lang=language)
+        background_tasks.add_task(send_verification_email, email, verify_token, lang=language)
         return RedirectResponse("/register/check-email", status_code=302)
 
     token = create_access_token(user.id)
@@ -244,6 +245,7 @@ async def verify_email(token: str, request: Request, db: AsyncSession = Depends(
 @router.post("/resend-verification", dependencies=[Depends(rate_limit(3, 300)), Depends(validate_csrf_form)])
 async def resend_verification(
     request: Request,
+    background_tasks: BackgroundTasks,
     email: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
@@ -256,7 +258,7 @@ async def resend_verification(
         user.email_verify_token = new_token
         user.email_verify_created_at = _utcnow()
         await db.commit()
-        send_verification_email(email, new_token, lang=user.language or "en")
+        background_tasks.add_task(send_verification_email, email, new_token, lang=user.language or "en")
 
     return RedirectResponse("/login?not_verified=1&resent=1", status_code=302)
 
