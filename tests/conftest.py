@@ -114,7 +114,9 @@ def _create_match(db: Session, user1_id: int, user2_id: int) -> int:
     from app.models.models import Match
     assert user1_id is not None, "user1_id is None — registration likely failed"
     assert user2_id is not None, "user2_id is None — registration likely failed"
-    m = Match(user1_id=user1_id, user2_id=user2_id)
+    # Match table enforces user1_id < user2_id (CheckConstraint)
+    lo, hi = min(user1_id, user2_id), max(user1_id, user2_id)
+    m = Match(user1_id=lo, user2_id=hi)
     db.add(m)
     db.commit()
     db.refresh(m)
