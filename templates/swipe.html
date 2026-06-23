@@ -95,7 +95,7 @@
 {# Card data passed via <script> to avoid breaking x-data attribute with quotes in user text #}
 <script type="application/json" id="_swipe_card">
 {% if candidate and profile %}
-{"id":{{ candidate.id }},"name":{{ profile.name | tojson | safe }},"age":{{ profile.age }},"city":{{ (profile.city or '') | tojson | safe }},"bio":{{ (profile.bio or '') | tojson | safe }},"photo":{{ (first_photo or '') | tojson | safe }},"online":{{ 'true' if os and os.is_online else 'false' }}}
+{{ {"id": candidate.id, "name": profile.name, "age": profile.age, "city": profile.city or "", "bio": profile.bio or "", "photo": first_photo or "", "online": (os.is_online if os else False)} | tojson | safe }}
 {% else %}null{% endif %}
 </script>
 
@@ -115,9 +115,13 @@
   },
 
   async swipe(action) {
-    if (this.swiping || this.noMore || !this.card) return;
+    if (this.swiping || this.noMore || !this.card) {
+      console.log('[swipe] blocked:', {swiping: this.swiping, noMore: this.noMore, card: this.card});
+      return;
+    }
     this.swiping = true;
     this.err = '';
+    console.log('[swipe] start', action, this.card.id);
 
     const cardEl = this.\$refs.card;
     if (cardEl) {
@@ -149,6 +153,7 @@
         this.noMore = true;
       }
     } catch(e) {
+      console.error('[swipe] error:', e);
       this.err = '{{ t.get("swipe_err","Ошибка соединения") }}';
       setTimeout(() => this.err = '', 3000);
     }
