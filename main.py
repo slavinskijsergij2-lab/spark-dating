@@ -109,10 +109,6 @@ async def _run_startup_tasks() -> None:
         await loop.run_in_executor(None, _fix_broken_photo_urls)
     except Exception as _e:
         logging.error("startup: fix_broken_photo_urls failed: %s", _e, exc_info=True)
-    try:
-        await loop.run_in_executor(None, _delete_bot_accounts)
-    except Exception as _e:
-        logging.warning("startup: delete_bots failed: %s", _e, exc_info=True)
     _startup_done = True
     _startup_ok = migrations_ok
     logging.info("startup: background startup tasks done (migrations_ok=%s)", migrations_ok)
@@ -314,20 +310,6 @@ def _fix_broken_photo_urls() -> None:
     except Exception as _e:
         logging.warning("fix_broken_photo_urls: %s", _e)
 
-
-def _delete_bot_accounts() -> None:
-    """Remove all bot test accounts and their data (CASCADE deletes related rows)."""
-    from sqlalchemy import text as _t
-    try:
-        with engine.begin() as conn:
-            result = conn.execute(_t(
-                "DELETE FROM users WHERE email LIKE '%_bot@spark.test'"
-            ))
-            deleted = result.rowcount
-            if deleted:
-                logging.info("delete_bots: removed %d bot accounts", deleted)
-    except Exception as _e:
-        logging.warning("delete_bots: %s", _e)
 
 
 def _do_cleanup() -> None:
