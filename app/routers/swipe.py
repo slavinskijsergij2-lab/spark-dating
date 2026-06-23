@@ -225,7 +225,7 @@ async def swipe_noop(user=Depends(get_current_user)):
     return JSONResponse({"matched": False})
 
 
-@router.post("/swipe/undo", dependencies=[Depends(validate_csrf_header)])
+@router.post("/swipe/undo", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(30, 60))])
 async def undo_swipe(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if not user.is_premium_active:
         return JSONResponse({"error": "Premium only"}, status_code=403)

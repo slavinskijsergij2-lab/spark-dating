@@ -39,7 +39,7 @@ async def block_user(target_id: int, user: User = Depends(get_current_user), db:
     return JSONResponse({"success": True})
 
 
-@router.post("/user/{target_id}/unblock", dependencies=[Depends(validate_csrf_header)])
+@router.post("/user/{target_id}/unblock", dependencies=[Depends(rate_limit(20, 60)), Depends(validate_csrf_header)])
 async def unblock_user(target_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Block).where(Block.blocker_id == user.id, Block.blocked_id == target_id)

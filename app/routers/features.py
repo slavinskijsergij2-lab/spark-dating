@@ -115,7 +115,7 @@ async def get_icebreakers(
     return JSONResponse({"suggestions": suggestions})
 
 
-@router.post("/chat/{match_id}/rate", dependencies=[Depends(validate_csrf_header)])
+@router.post("/chat/{match_id}/rate", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(5, 60))])
 async def rate_politeness(
     match_id: int,
     request: Request,
@@ -196,7 +196,7 @@ async def quiz_page(request: Request, user: User = Depends(get_current_user), db
     })
 
 
-@router.post("/quiz/answer", dependencies=[Depends(validate_csrf_header)])
+@router.post("/quiz/answer", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(60, 60))])
 async def quiz_answer(
     request: Request,
     user: User = Depends(get_current_user),

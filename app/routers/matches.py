@@ -413,7 +413,7 @@ async def send_voice(
     })
 
 
-@router.post("/chat/{match_id}/reveal", dependencies=[Depends(validate_csrf_header)])
+@router.post("/chat/{match_id}/reveal", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(5, 60))])
 async def reveal_anonymous(
     match_id: int,
     user: User = Depends(get_current_user),
@@ -434,7 +434,7 @@ async def reveal_anonymous(
     return JSONResponse({"success": True, "both_revealed": both})
 
 
-@router.post("/match/{match_id}/unmatch", dependencies=[Depends(validate_csrf_header)])
+@router.post("/match/{match_id}/unmatch", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(10, 60))])
 async def unmatch(
     match_id: int,
     user: User = Depends(get_current_user),
@@ -513,7 +513,7 @@ async def react_to_message(
     return JSONResponse({"reactions": summary})
 
 
-@router.get("/chat/{match_id}/messages")
+@router.get("/chat/{match_id}/messages", dependencies=[Depends(rate_limit(120, 60))])
 async def get_messages(
     match_id: int,
     after_id: int = 0,
@@ -612,7 +612,7 @@ async def _fetch_new_messages(match_id: int, last_id: int, user_id: int) -> tupl
 
 _SSE_MAX_SECONDS = 300  # 5 min; EventSource auto-reconnects after this
 
-@router.get("/chat/{match_id}/stream")
+@router.get("/chat/{match_id}/stream", dependencies=[Depends(rate_limit(20, 60))])
 async def chat_stream(
     match_id: int,
     request: Request,
