@@ -15,7 +15,7 @@ Image.MAX_IMAGE_PIXELS = 25_000_000  # ~5000×5000 — blocks decompression bomb
 try:
     import pillow_heif
     pillow_heif.register_heif_opener()
-except ImportError:
+except Exception:
     pass
 
 from app.auth import get_current_user

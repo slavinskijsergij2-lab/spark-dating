@@ -129,7 +129,12 @@ def _fix_broken_photo_urls() -> None:
 
     try:
         with engine.begin() as conn:
-            rows = conn.execute(_t("SELECT id, photo FROM profiles WHERE photo IS NOT NULL")).fetchall()
+            # Only load file-path URLs (NOT data: URLs) to avoid reading megabytes of
+            # base64 photo data into memory — base64 URLs are never broken anyway.
+            rows = conn.execute(_t(
+                "SELECT id, photo FROM profiles "
+                "WHERE photo IS NOT NULL AND photo NOT LIKE 'data:%'"
+            )).fetchall()
             fixed = 0
             for row_id, photo in rows:
                 if _is_broken(photo):
@@ -138,7 +143,10 @@ def _fix_broken_photo_urls() -> None:
             if fixed:
                 logging.info("fix_photos: cleared %d broken profile photo URLs", fixed)
 
-            rows2 = conn.execute(_t("SELECT id, url FROM profile_photos WHERE url IS NOT NULL")).fetchall()
+            rows2 = conn.execute(_t(
+                "SELECT id, url FROM profile_photos "
+                "WHERE url IS NOT NULL AND url NOT LIKE 'data:%'"
+            )).fetchall()
             fixed2 = 0
             for row_id, url in rows2:
                 if _is_broken(url):
