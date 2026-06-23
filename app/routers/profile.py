@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import and_, func as _func, or_, select
+from sqlalchemy import and_, func as _func, or_, select, update as _update
 from sqlalchemy.exc import IntegrityError as _IE
 from sqlalchemy.ext.asyncio import AsyncSession
 from PIL import Image
@@ -281,7 +281,9 @@ async def view_profile(user_id: int, request: Request, user: User = Depends(get_
         except _IE:
             await db.rollback()
             await db.execute(
-                select(ProfileView).where(ProfileView.viewer_id == user.id, ProfileView.viewed_id == user_id)
+                _update(ProfileView)
+                .where(ProfileView.viewer_id == user.id, ProfileView.viewed_id == user_id)
+                .values(created_at=_utcnow())
             )
             await db.commit()
         except Exception:

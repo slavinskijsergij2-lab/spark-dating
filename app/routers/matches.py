@@ -247,7 +247,7 @@ async def matches_page(
     })
 
 
-@router.get("/chat/{match_id}", response_class=HTMLResponse)
+@router.get("/chat/{match_id}", response_class=HTMLResponse, dependencies=[Depends(rate_limit(30, 60))])
 async def chat_page(match_id: int, request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Match)
