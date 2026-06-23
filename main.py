@@ -75,8 +75,9 @@ def _run_alembic_migrations() -> None:
     command.upgrade(alembic_cfg, "head")
 
 
-_startup_done: bool = False
-_startup_ok: bool = False
+_startup_done: bool = bool(os.getenv("TESTING"))
+_startup_ok: bool = bool(os.getenv("TESTING"))
+_startup_time: float = time.time()
 
 
 async def _run_startup_tasks() -> None:
@@ -106,9 +107,10 @@ async def _run_startup_tasks() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Start startup tasks as a background asyncio task — the port opens and
-    # Railway's health check passes immediately, tasks complete in the background.
-    asyncio.create_task(_run_startup_tasks())
+    if not os.getenv("TESTING"):
+        # Production: fire-and-forget so the port opens before migrations finish.
+        # Railway's health check sees the port immediately; tasks run in background.
+        asyncio.create_task(_run_startup_tasks())
     yield
 
 
@@ -125,6 +127,40 @@ _m: dict = {
 }
 
 _SKIP_LOG = ("/static/", "/photos/", "/health", "/favicon", "/metrics")
+
+_STARTUP_PASSTHROUGH = frozenset(("/health", "/", "/favicon.ico"))
+_STARTUP_PASSTHROUGH_PREFIXES = ("/static/", "/photos/")
+_STARTUP_GRACE_SECONDS = 120  # block at most 2 min while migrations run
+
+
+@app.middleware("http")
+async def startup_readiness_middleware(request: Request, call_next):
+    """Return 503 during the startup window so users see a clean retry instead
+    of a 500 DB error. Disabled in TESTING mode and for health/static paths."""
+    if not os.getenv("TESTING") and not _startup_done:
+        path = request.url.path
+        elapsed = time.time() - _startup_time
+        if (elapsed < _STARTUP_GRACE_SECONDS
+                and path not in _STARTUP_PASSTHROUGH
+                and not any(path.startswith(p) for p in _STARTUP_PASSTHROUGH_PREFIXES)):
+            accept = request.headers.get("accept", "")
+            if "text/html" in accept:
+                return HTMLResponse(
+                    "<html><head><meta http-equiv='refresh' content='3'></head>"
+                    "<body style='font-family:sans-serif;text-align:center;padding:80px 20px;'>"
+                    "<h2 style='color:#ec4899;'>Spark запускается…</h2>"
+                    "<p style='color:#6b7280;'>Пожалуйста, подождите несколько секунд.</p>"
+                    "</body></html>",
+                    status_code=503,
+                    headers={"Retry-After": "3"},
+                )
+            return JSONResponse(
+                {"detail": "Service is starting, please retry in a few seconds."},
+                status_code=503,
+                headers={"Retry-After": "3"},
+            )
+    return await call_next(request)
+
 
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
