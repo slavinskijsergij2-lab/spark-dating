@@ -1,0 +1,22 @@
+name: Uptime Monitor
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check /health
+        run: |
+          response=$(curl -sf --max-time 15 https://spark-dating.club/health)
+          echo "Response: $response"
+          status=$(echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','unknown'))")
+          echo "Status: $status"
+          if [ "$status" != "ok" ]; then
+            echo "::error::Site unhealthy — status=$status"
+            exit 1
+          fi
+          echo "OK — spark-dating.club is healthy"

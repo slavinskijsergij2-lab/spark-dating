@@ -6,7 +6,7 @@ import os
 import secrets
 import time
 import traceback
-from collections import defaultdict
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
@@ -137,6 +137,18 @@ _m: dict = {
     "status_counts": defaultdict(int),
     "errors_5xx": 0,
 }
+_error_log: deque = deque(maxlen=50)  # last 50 unhandled errors
+
+
+def _record_error(method: str, path: str, exc: Exception, tb: str) -> None:
+    with _m_lock:
+        _error_log.appendleft({
+            "ts": _utcnow().isoformat(),
+            "method": method,
+            "path": path,
+            "exc": f"{type(exc).__name__}: {exc}",
+            "tb": tb[-2000:],
+        })
 
 _SKIP_LOG = ("/static/", "/photos/", "/health", "/favicon", "/metrics")
 
@@ -479,6 +491,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def global_exception_handler(request: Request, exc: Exception):
     tb = traceback.format_exc()
     logging.error("Unhandled exception on %s %s:\n%s", request.method, request.url.path, tb)
+    _record_error(request.method, request.url.path, exc, tb)
     # FIX H8: return HTML error page to browser users, not raw JSON
     accept = request.headers.get("accept", "")
     if "text/html" in accept:
@@ -538,6 +551,15 @@ def app_metrics(token: str = Query(default="")):
             "errors_5xx": _m["errors_5xx"],
             "status_counts": dict(_m["status_counts"]),
         })
+
+
+@app.get("/errors")
+def app_errors(token: str = Query(default="")):
+    required = os.getenv("METRICS_TOKEN", "")
+    if not required or token != required:
+        raise HTTPException(403, "Forbidden")
+    with _m_lock:
+        return JSONResponse({"errors": list(_error_log)})
 
 
 @app.get("/", response_class=HTMLResponse)
