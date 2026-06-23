@@ -138,6 +138,8 @@ _m: dict = {
     "errors_5xx": 0,
 }
 _error_log: deque = deque(maxlen=50)  # last 50 unhandled errors
+_error_email_cooldown: dict = {}  # exc_key -> last sent timestamp
+_ERROR_EMAIL_COOLDOWN_S = 3600  # 1 email per unique error per hour
 
 
 def _record_error(method: str, path: str, exc: Exception, tb: str) -> None:
@@ -149,6 +151,40 @@ def _record_error(method: str, path: str, exc: Exception, tb: str) -> None:
             "exc": f"{type(exc).__name__}: {exc}",
             "tb": tb[-2000:],
         })
+
+
+async def _send_error_email(method: str, path: str, exc: Exception, tb: str) -> None:
+    """Send error alert email via Resend. Throttled: 1 email per unique error per hour."""
+    api_key = os.getenv("RESEND_API_KEY")
+    if not api_key:
+        return
+    key = f"{type(exc).__name__}:{path}"
+    now = time.time()
+    with _m_lock:
+        if now - _error_email_cooldown.get(key, 0) < _ERROR_EMAIL_COOLDOWN_S:
+            return
+        _error_email_cooldown[key] = now
+    import httpx
+    body_html = (
+        f"<h3 style='color:#ef4444'>{_html.escape(type(exc).__name__)}: {_html.escape(str(exc))}</h3>"
+        f"<p><b>{method}</b> {_html.escape(path)}</p>"
+        f"<pre style='background:#1e1e1e;color:#d4d4d4;padding:16px;border-radius:8px;"
+        f"font-size:12px;overflow:auto'>{_html.escape(tb[-3000:])}</pre>"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            await client.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "from": "Spark Errors <onboarding@resend.dev>",
+                    "to": [os.getenv("ERROR_NOTIFY_EMAIL", "slavinskijsergij2@gmail.com")],
+                    "subject": f"[Spark 🔥] {type(exc).__name__} on {path}",
+                    "html": body_html,
+                },
+            )
+    except Exception as _e:
+        logging.warning("_send_error_email: failed to send: %s", _e)
 
 _SKIP_LOG = ("/static/", "/photos/", "/health", "/favicon", "/metrics")
 
@@ -492,6 +528,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     tb = traceback.format_exc()
     logging.error("Unhandled exception on %s %s:\n%s", request.method, request.url.path, tb)
     _record_error(request.method, request.url.path, exc, tb)
+    asyncio.create_task(_send_error_email(request.method, request.url.path, exc, tb))
     # FIX H8: return HTML error page to browser users, not raw JSON
     accept = request.headers.get("accept", "")
     if "text/html" in accept:
