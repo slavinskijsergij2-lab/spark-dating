@@ -426,6 +426,10 @@ async def security_middleware(request: Request, call_next):
         "frame-ancestors 'none';"
     )
     response.headers.setdefault("Content-Security-Policy", csp)
+    # Prevent HTML pages from being cached — critical for Alpine.js state freshness
+    if response.headers.get("content-type", "").startswith("text/html"):
+        response.headers.setdefault("Cache-Control", "no-cache, no-store, must-revalidate")
+        response.headers.setdefault("Pragma", "no-cache")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
