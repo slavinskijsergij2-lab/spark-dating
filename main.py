@@ -15,11 +15,15 @@ load_dotenv()
 from app.logging_config import setup_logging
 setup_logging()
 
+logging.info("startup: imports begin")
+
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text as _text
+
+logging.info("startup: fastapi+sqlalchemy imported")
 
 from app.database import Base, engine
 from app.i18n import get_lang, get_translations, is_rtl
@@ -27,6 +31,8 @@ from app.routers import auth, profile, swipe, matches
 from app.utils.time import utcnow as _utcnow
 from app.routers import features, premium, social, stories, referral
 from app.templates import templates
+
+logging.info("startup: all app modules imported")
 
 
 def _run_alembic_migrations() -> None:
@@ -67,12 +73,15 @@ def _run_alembic_migrations() -> None:
     command.upgrade(alembic_cfg, "head")
 
 
+logging.info("startup: running migrations")
 try:
     _run_alembic_migrations()
+    logging.info("startup: migrations OK")
 except Exception as _alembic_err:
-    logging.error("alembic: migration failed — %s", _alembic_err)
+    logging.error("startup: MIGRATION FAILED — %s", _alembic_err, exc_info=True)
     raise
 
+logging.info("startup: fixing broken photo URLs")
 app = FastAPI(title="Spark — сайт знакомств")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -182,9 +191,9 @@ def _fix_broken_photo_urls() -> None:
 
 try:
     _fix_broken_photo_urls()
+    logging.info("startup: fix_broken_photo_urls OK")
 except Exception as _mig_err:
-    logging.error("fix_broken_photo_urls failed: %s", _mig_err)
-
+    logging.error("startup: fix_broken_photo_urls failed: %s", _mig_err, exc_info=True)
 
 
 def _delete_bot_accounts() -> None:
@@ -204,8 +213,11 @@ def _delete_bot_accounts() -> None:
 
 try:
     _delete_bot_accounts()
+    logging.info("startup: delete_bots OK")
 except Exception as _bp_err:
-    logging.warning("delete_bots failed: %s", _bp_err)
+    logging.warning("startup: delete_bots failed: %s", _bp_err, exc_info=True)
+
+logging.info("startup: app ready")
 
 # HIGH-6: Reject oversized request bodies before they reach route handlers.
 # Prevents DoS via 100 MB audio/image uploads buffered into memory.
