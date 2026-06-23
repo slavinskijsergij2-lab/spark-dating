@@ -202,7 +202,7 @@ def check_email_page(request: Request):
     })
 
 
-@router.get("/verify-email/{token}", response_class=HTMLResponse)
+@router.get("/verify-email/{token}", response_class=HTMLResponse, dependencies=[Depends(rate_limit(10, 60))])
 async def verify_email(token: str, request: Request, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email_verify_token == token))
     user = result.scalar_one_or_none()

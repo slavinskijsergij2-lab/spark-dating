@@ -254,7 +254,7 @@ async def delete_photo(
     return RedirectResponse("/profile/edit", status_code=302)
 
 
-@router.get("/profile/{user_id}", response_class=HTMLResponse)
+@router.get("/profile/{user_id}", response_class=HTMLResponse, dependencies=[Depends(rate_limit(60, 60))])
 async def view_profile(user_id: int, request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     from sqlalchemy.orm import selectinload
     result = await db.execute(
