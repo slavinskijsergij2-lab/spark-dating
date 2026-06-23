@@ -75,13 +75,20 @@ def _run_alembic_migrations() -> None:
     command.upgrade(alembic_cfg, "head")
 
 
+_startup_done: bool = False
+_startup_ok: bool = False
+
+
 async def _run_startup_tasks() -> None:
     """Run all startup tasks in a background thread pool. Never raises."""
+    global _startup_done, _startup_ok
     loop = asyncio.get_running_loop()
     logging.info("startup: running migrations")
+    migrations_ok = False
     try:
         await loop.run_in_executor(None, _run_alembic_migrations)
         logging.info("startup: migrations OK")
+        migrations_ok = True
     except Exception as _e:
         logging.error("startup: MIGRATION FAILED (app continues) — %s", _e, exc_info=True)
     try:
@@ -92,7 +99,9 @@ async def _run_startup_tasks() -> None:
         await loop.run_in_executor(None, _delete_bot_accounts)
     except Exception as _e:
         logging.warning("startup: delete_bots failed: %s", _e, exc_info=True)
-    logging.info("startup: background startup tasks done")
+    _startup_done = True
+    _startup_ok = migrations_ok
+    logging.info("startup: background startup tasks done (migrations_ok=%s)", migrations_ok)
 
 
 @asynccontextmanager
@@ -210,8 +219,6 @@ def _fix_broken_photo_urls() -> None:
         logging.warning("fix_broken_photo_urls: %s", _e)
 
 
-
-
 def _delete_bot_accounts() -> None:
     """Remove all bot test accounts and their data (CASCADE deletes related rows)."""
     from sqlalchemy import text as _t
@@ -225,7 +232,6 @@ def _delete_bot_accounts() -> None:
                 logging.info("delete_bots: removed %d bot accounts", deleted)
     except Exception as _e:
         logging.warning("delete_bots: %s", _e)
-
 
 
 # HIGH-6: Reject oversized request bodies before they reach route handlers.
@@ -403,13 +409,22 @@ def favicon():
 
 @app.get("/health")
 def health():
+    db_ok = False
     try:
         with engine.connect() as conn:
             conn.execute(_text("SELECT 1"))
-        return {"status": "ok"}
+        db_ok = True
     except Exception as e:
-        logging.error("Health check failed: %s", e)
-        return JSONResponse(status_code=500, content={"status": "error"})
+        logging.warning("Health check: DB not ready — %s", e)
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "ok" if db_ok else "starting",
+            "db": db_ok,
+            "startup_done": _startup_done,
+            "startup_ok": _startup_ok,
+        },
+    )
 
 
 @app.get("/metrics")
