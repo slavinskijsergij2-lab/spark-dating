@@ -4,36 +4,28 @@
 {% block head %}
 <style>
   .bubble-own {
-    background: linear-gradient(135deg, #f472b6 0%, #ec4899 60%, #db2777 100%);
+    background: linear-gradient(135deg, #f472b6, #ec4899);
     color: white;
     border-radius: 18px 18px 4px 18px;
+    padding: 10px 14px;
+    max-width: 75vw;
+    word-break: break-word;
+    font-size: 14px;
+    line-height: 1.5;
   }
   .bubble-partner {
     background: white;
     color: #1f2937;
     border-radius: 18px 18px 18px 4px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.09);
+    padding: 10px 14px;
+    max-width: 75vw;
+    word-break: break-word;
+    font-size: 14px;
+    line-height: 1.5;
   }
-  .chat-bg {
-    background-color: #fdf2f8;
-    background-image: url("data:image/svg+xml,%3Csvg width='52' height='52' viewBox='0 0 52 52' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M26 0C11.641 0 0 11.641 0 26s11.641 26 26 26 26-11.641 26-26S40.359 0 26 0zm0 48C13.85 48 4 38.15 4 26S13.85 4 26 4s22 9.85 22 22-9.85 22-22 22z' fill='%23f9a8d4' fill-opacity='0.1' fill-rule='evenodd'/%3E%3C/svg%3E");
-  }
-  .msg-in { animation: msgIn .15s ease-out; }
-  @keyframes msgIn { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
-  #messages-container { scrollbar-width: thin; scrollbar-color: #fbcfe8 transparent; }
-  #messages-container::-webkit-scrollbar { width: 3px; }
-  #messages-container::-webkit-scrollbar-thumb { background: #fbcfe8; border-radius: 4px; }
+  #messages-container { background: #fdf2f8; }
   #msg-input { outline: none; border: none; background: transparent; }
-  .dot-typing span {
-    display:inline-block; width:6px; height:6px; background:#9ca3af;
-    border-radius:50%; animation: dotBounce .9s infinite;
-  }
-  .dot-typing span:nth-child(2) { animation-delay:.2s; }
-  .dot-typing span:nth-child(3) { animation-delay:.4s; }
-  @keyframes dotBounce { 0%,60%,100% { transform:translateY(0); } 30% { transform:translateY(-5px); } }
-
-  /* Partner avatar — CSS class means the base64 string is stored ONCE in CSSOM,
-     not duplicated into every message bubble's DOM attribute. */
   {% if partner.profile and partner.profile.photo %}
   .partner-avatar-bg {
     background-image: url('{{ partner.profile.photo }}');
@@ -42,18 +34,6 @@
   }
   {% endif %}
 </style>
-<script>
-function doUnmatchAction(matchId, btn) {
-  btn.disabled = true;
-  btn.textContent = '...';
-  fetch('/match/' + matchId + '/unmatch', {
-    method: 'POST',
-    headers: {'x-csrf-token': getCsrfToken()}
-  })
-  .then(function() { window.location.href = '/matches'; })
-  .catch(function() { window.location.href = '/matches'; });
-}
-</script>
 {% endblock %}
 
 {% block main_class %}max-w-lg mx-auto p-0{% endblock %}
@@ -61,275 +41,131 @@ function doUnmatchAction(matchId, btn) {
 {% block content %}
 {% set os = online_status(partner.last_seen, lang) %}
 
-{# Date labels passed to JS via data attributes — avoids hardcoded Russian #}
-<div id="chat-i18n"
-     data-today="{{ t.get('today', 'Сегодня') }}"
-     data-yesterday="{{ t.get('yesterday', 'Вчера') }}"
-     class="hidden"></div>
+<div id="chat-i18n" data-today="{{ t.get('today','Сегодня') }}" data-yesterday="{{ t.get('yesterday','Вчера') }}" class="hidden"></div>
 
-<div x-data="chatApp()" x-init="init()"
-     class="flex flex-col bg-white"
-     style="height: calc(100vh - 56px);">
+<div x-data="chatApp()" x-init="init()" class="flex flex-col bg-white" style="height:calc(100vh - 56px);">
 
-  <!-- ══ HEADER ══════════════════════════════════════════════ -->
-  <div class="flex-shrink-0 bg-white border-b border-gray-100 px-3 py-2.5 flex items-center gap-3"
-       style="box-shadow: 0 1px 8px rgba(236,72,153,0.08);">
-
-    <a href="/matches"
-       class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-pink-50 hover:text-pink-500 transition">
+  <!-- HEADER -->
+  <div class="flex-shrink-0 flex items-center gap-3 px-3 py-2.5 bg-white border-b border-gray-100"
+       style="box-shadow:0 1px 6px rgba(236,72,153,0.08);">
+    <a href="/matches" class="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-pink-50 flex-shrink-0">
       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"/>
       </svg>
     </a>
-
     <a href="/profile/{{ partner.id }}" class="flex items-center gap-2.5 flex-1 min-w-0">
-      <div class="relative flex-shrink-0">
-        <div class="w-9 h-9 rounded-full overflow-hidden bg-pink-100 flex items-center justify-center ring-2 ring-pink-100
-                    {% if partner.profile and partner.profile.photo %}partner-avatar-bg{% endif %}">
-          {% if not (partner.profile and partner.profile.photo) %}
-          <span class="text-base">👤</span>
-          {% endif %}
-        </div>
+      <div class="relative w-9 h-9 rounded-full overflow-hidden bg-pink-100 flex items-center justify-center ring-2 ring-pink-100 flex-shrink-0
+                  {% if partner.profile and partner.profile.photo %}partner-avatar-bg{% endif %}">
+        {% if not (partner.profile and partner.profile.photo) %}<span class="text-base">👤</span>{% endif %}
         {% if os and os.is_online %}
         <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-400 rounded-full border-2 border-white"></span>
         {% endif %}
       </div>
-
       <div class="min-w-0">
-        <p class="font-semibold text-gray-900 text-sm leading-tight truncate flex items-center gap-1">
-          {{ partner.profile.name }}
-          {% if streak and streak > 1 %}<span class="text-orange-500 text-xs font-bold">🔥{{ streak }}</span>{% endif %}
+        <p class="font-semibold text-gray-900 text-sm truncate">{{ partner.profile.name }}</p>
+        <p class="text-xs {% if os and os.is_online %}text-green-500{% else %}text-gray-400{% endif %}">
+          {% if os %}{{ os.label }}{% else %}{{ partner.profile.age }} {{ t.years_old }}{% endif %}
         </p>
-        {% if os and os.is_online %}
-        <p class="text-xs text-green-500 font-medium">{{ os.label }}</p>
-        {% elif os %}
-        <p class="text-xs text-gray-400">{{ os.label }}</p>
-        {% else %}
-        <p class="text-xs text-gray-400">{% if partner.profile.city %}{{ partner.profile.city }}{% else %}{{ partner.profile.age }} {{ t.years_old }}{% endif %}</p>
-        {% endif %}
       </div>
     </a>
-
-    <button @click="showRateModal = true"
-            class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-yellow-50 hover:text-yellow-500 transition text-lg">
-      ⭐
-    </button>
-    <button @click="showUnmatchModal = true"
-            class="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-red-50 hover:text-red-400 transition text-base">
+    <button @click="showUnmatch = true"
+            class="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-red-50 hover:text-red-400 flex-shrink-0">
       🚫
     </button>
   </div>
 
-  <!-- Unmatch confirmation modal -->
-  <div x-show="showUnmatchModal" x-cloak style="display:none"
-       class="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
-    <div class="glass rounded-2xl p-6 max-w-xs w-full text-center shadow-2xl border border-red-100">
-      <div class="text-4xl mb-3">💔</div>
-      <h3 class="font-bold text-gray-800 mb-1 text-base">{{ t.get('unmatch','Размачиться') }}</h3>
-      <p class="text-gray-500 text-sm mb-5">{{ t.get('unmatch_confirm','Удалить матч и всю переписку?') }}</p>
+  <!-- UNMATCH MODAL -->
+  <div x-show="showUnmatch" x-cloak style="display:none"
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+    <div class="bg-white rounded-2xl p-6 max-w-xs w-full text-center shadow-2xl">
+      <p class="font-bold text-gray-800 mb-2">{{ t.get('unmatch','Разматч?') }}</p>
+      <p class="text-gray-500 text-sm mb-5">{{ t.get('unmatch_confirm','Удалить матч и переписку?') }}</p>
       <div class="flex gap-3">
-        <a href="/chat/{{ match.id }}"
-           class="flex-1 border-2 border-gray-200 text-gray-600 py-2.5 rounded-full font-semibold text-sm hover:border-gray-300 transition flex items-center justify-center">
+        <button @click="showUnmatch = false"
+                class="flex-1 border border-gray-200 text-gray-600 py-2.5 rounded-full text-sm font-semibold">
           {{ t.get('unmatch_no','Отмена') }}
-        </a>
-        <button onclick="doUnmatchAction({{ match.id }}, this)"
-                class="flex-1 bg-red-500 hover:bg-red-600 text-white py-2.5 rounded-full font-semibold text-sm transition disabled:opacity-60">
+        </button>
+        <button @click="doUnmatch()"
+                class="flex-1 bg-red-500 text-white py-2.5 rounded-full text-sm font-semibold disabled:opacity-60">
           {{ t.get('unmatch_yes','Удалить') }}
         </button>
       </div>
     </div>
   </div>
 
-  <!-- Anonymous reveal banner -->
-  {% if not i_revealed or not partner_revealed %}
-  <div class="flex-shrink-0 bg-purple-50 border-b border-purple-100 px-4 py-2.5 flex items-center justify-between gap-3">
-    <div class="flex items-center gap-2 min-w-0">
-      <span class="text-base flex-shrink-0">🕵️</span>
-      <p class="text-xs text-purple-700 leading-snug">
-        {% if not i_revealed and not partner_revealed %}{{ t.get('chat_both_hidden', 'Оба скрыты — откройтесь') }}
-        {% elif not i_revealed %}{{ t.get('chat_you_hidden', 'Вы скрыты') }}
-        {% else %}{{ t.get('chat_partner_hidden', 'Партнёр ещё не раскрылся') }}{% endif %}
-      </p>
-    </div>
-    {% if not i_revealed %}
-    <button @click="reveal()"
-            class="flex-shrink-0 text-xs bg-purple-500 text-white px-3 py-1.5 rounded-full font-semibold hover:bg-purple-600 transition">
-      {{ t.get('chat_reveal_btn', 'Раскрыться') }}
-    </button>
-    {% endif %}
-  </div>
-  {% endif %}
-
-  <!-- ══ ICEBREAKERS ══════════════════════════════════════════ -->
-  <div x-show="messages.length === 0 && !icebreakersHidden"
-       class="flex-shrink-0 px-3 pt-2.5" x-cloak>
-    <div x-show="icebreakers.length === 0">
-      <button @click="loadIcebreakers()" :disabled="icebreakersLoading"
-              class="w-full text-xs border border-dashed border-pink-300 text-pink-500 rounded-xl py-2 hover:bg-pink-50 transition flex items-center justify-center gap-1.5 font-medium">
-        <span x-show="!icebreakersLoading">💡 {{ t.icebreakers_btn }}</span>
-        <span x-show="icebreakersLoading" x-cloak class="opacity-70">{{ t.icebreakers_loading }}...</span>
-      </button>
-    </div>
-    <div x-show="icebreakers.length > 0" class="bg-pink-50 rounded-2xl p-3 border border-pink-100">
-      <div class="flex items-center justify-between mb-2">
-        <span class="text-xs text-pink-400 font-semibold">{{ t.icebreakers_title }}</span>
-        <button @click="icebreakersHidden = true" class="text-pink-300 hover:text-pink-500 text-sm leading-none">✕</button>
-      </div>
-      <div class="flex flex-col gap-1.5">
-        <template x-for="(tip, i) in icebreakers" :key="i">
-          <button @click="newMsg = tip; icebreakersHidden = true"
-                  class="text-left text-xs bg-white text-pink-700 rounded-xl px-3 py-2 hover:bg-pink-100 transition border border-pink-100 shadow-sm"
-                  x-text="tip"></button>
-        </template>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══ MESSAGES ════════════════════════════════════════════ -->
-  <div id="messages-container" class="flex-1 overflow-y-auto chat-bg px-3 py-3 flex flex-col gap-0.5">
+  <!-- MESSAGES -->
+  <div id="messages-container" class="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-2">
 
     <template x-if="messages.length === 0">
       <div class="flex flex-col items-center justify-center h-full text-center">
-        <div class="text-5xl mb-3 opacity-70">💬</div>
+        <div class="text-5xl mb-3 opacity-60">💬</div>
         <p class="text-gray-400 text-sm">{{ t.start_chat }}</p>
       </div>
     </template>
 
     <template x-for="(m, idx) in messages" :key="m.id">
-      <div class="msg-in">
-
+      <div>
         <!-- Date divider -->
         <template x-if="idx === 0 || messages[idx-1].date !== m.date">
-          <div class="flex items-center gap-2 my-3">
+          <div class="flex items-center gap-2 my-2">
             <div class="flex-1 h-px bg-pink-100"></div>
-            <span class="text-[10px] text-gray-400 font-medium bg-white/80 px-2 py-0.5 rounded-full border border-pink-100"
-                  x-text="m.date"></span>
+            <span class="text-[10px] text-gray-400 px-2" x-text="m.date"></span>
             <div class="flex-1 h-px bg-pink-100"></div>
           </div>
         </template>
 
-        <!-- OWN message -->
+        <!-- Own message -->
         <template x-if="m.sender_id === userId">
-          <div class="flex justify-end mb-0.5">
-            <div class="flex flex-col items-end" style="max-width:78%">
-              <div class="relative group">
-                <div class="bubble-own px-3.5 py-2" @click.long="reactionPicker = reactionPicker === m.id ? null : m.id">
-                  <template x-if="m.is_voice">
-                    <audio :src="m.content" controls class="max-w-[180px] h-8 accent-white" style="filter:invert(1)"></audio>
-                  </template>
-                  <p x-show="!m.is_voice" class="text-sm leading-relaxed break-words" x-text="m.content"></p>
-                </div>
-                <!-- Reaction picker -->
-                <div x-show="reactionPicker === m.id" x-cloak @click.outside="reactionPicker = null"
-                     class="absolute bottom-full right-0 mb-1 bg-white rounded-2xl shadow-xl border border-gray-100 px-2 py-1.5 flex gap-1 z-10">
-                  <template x-for="e in REACTIONS" :key="e">
-                    <button @click="react(m.id, e)" class="text-xl hover:scale-125 transition-transform" x-text="e"></button>
-                  </template>
-                </div>
-              </div>
-              <!-- Reactions display -->
-              <div x-show="reactionsArr(m.reactions).length > 0" class="flex gap-1 mt-0.5 flex-wrap justify-end">
-                <template x-for="[emoji, count] in reactionsArr(m.reactions)" :key="emoji">
-                  <button @click="react(m.id, emoji)"
-                          class="text-xs bg-white border border-gray-200 rounded-full px-1.5 py-0.5 shadow-sm hover:bg-pink-50 transition"
-                          x-text="emoji + (count > 1 ? ' ' + count : '')"></button>
-                </template>
-              </div>
-              <div class="flex items-center gap-0.5 mt-0.5 px-1">
+          <div class="flex justify-end">
+            <div class="flex flex-col items-end gap-0.5">
+              <div class="bubble-own" x-text="m.content"></div>
+              <div class="flex items-center gap-0.5 px-1">
                 <span class="text-[10px] text-gray-400" x-text="m.time"></span>
-                <span x-show="m.is_read" class="text-[11px] text-pink-400 font-bold">✓✓</span>
-                <span x-show="!m.is_read" class="text-[11px] text-gray-300">✓</span>
+                <span :class="m.is_read ? 'text-pink-400' : 'text-gray-300'" class="text-[11px] font-bold"
+                      x-text="m.is_read ? '✓✓' : '✓'"></span>
               </div>
             </div>
           </div>
         </template>
 
-        <!-- PARTNER message — avatar uses CSS class (base64 stored once in CSSOM) -->
+        <!-- Partner message -->
         <template x-if="m.sender_id !== userId">
-          <div class="flex justify-start items-end gap-1.5 mb-0.5">
-            <div class="w-6 h-6 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center mb-4
+          <div class="flex items-end gap-1.5">
+            <div class="w-6 h-6 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center
                         {% if partner.profile and partner.profile.photo %}partner-avatar-bg{% endif %}">
-              {% if not (partner.profile and partner.profile.photo) %}
-              <span class="text-xs">👤</span>
-              {% endif %}
+              {% if not (partner.profile and partner.profile.photo) %}<span class="text-xs">👤</span>{% endif %}
             </div>
-            <div class="flex flex-col items-start" style="max-width:78%">
-              <div class="relative group">
-                <div class="bubble-partner px-3.5 py-2" @click.long="reactionPicker = reactionPicker === m.id ? null : m.id">
-                  <template x-if="m.is_voice">
-                    <audio :src="m.content" controls class="max-w-[180px] h-8"></audio>
-                  </template>
-                  <p x-show="!m.is_voice" class="text-sm leading-relaxed break-words" x-text="m.content"></p>
-                </div>
-                <!-- Reaction picker -->
-                <div x-show="reactionPicker === m.id" x-cloak @click.outside="reactionPicker = null"
-                     class="absolute bottom-full left-0 mb-1 bg-white rounded-2xl shadow-xl border border-gray-100 px-2 py-1.5 flex gap-1 z-10">
-                  <template x-for="e in REACTIONS" :key="e">
-                    <button @click="react(m.id, e)" class="text-xl hover:scale-125 transition-transform" x-text="e"></button>
-                  </template>
-                </div>
-              </div>
-              <!-- Reactions display -->
-              <div x-show="reactionsArr(m.reactions).length > 0" class="flex gap-1 mt-0.5 flex-wrap">
-                <template x-for="[emoji, count] in reactionsArr(m.reactions)" :key="emoji">
-                  <button @click="react(m.id, emoji)"
-                          class="text-xs bg-white border border-gray-200 rounded-full px-1.5 py-0.5 shadow-sm hover:bg-pink-50 transition"
-                          x-text="emoji + (count > 1 ? ' ' + count : '')"></button>
-                </template>
-              </div>
-              <span class="text-[10px] text-gray-400 mt-0.5 px-1" x-text="m.time"></span>
+            <div class="flex flex-col gap-0.5">
+              <div class="bubble-partner" x-text="m.content"></div>
+              <span class="text-[10px] text-gray-400 px-1" x-text="m.time"></span>
             </div>
           </div>
         </template>
-
       </div>
     </template>
 
-    <!-- Typing dots -->
-    <div x-show="typing" x-cloak class="flex items-end gap-1.5 mb-1">
-      <div class="w-6 h-6 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center">
-        <span class="text-xs">👤</span>
-      </div>
-      <div class="bubble-partner px-3.5 py-3">
-        <div class="dot-typing flex gap-1">
-          <span></span><span></span><span></span>
-        </div>
-      </div>
-    </div>
-
   </div>
 
-  <!-- Send error toast -->
+  <!-- ERROR -->
   <div x-show="sendErr" x-cloak x-text="sendErr"
-       class="flex-shrink-0 text-center text-xs text-red-500 bg-red-50 border-t border-red-100 py-2 px-4"></div>
+       class="flex-shrink-0 text-center text-xs text-red-500 bg-red-50 py-2 px-4 border-t border-red-100"></div>
 
-  <!-- ══ INPUT BAR ═══════════════════════════════════════════ -->
+  <!-- INPUT -->
   <div class="flex-shrink-0 bg-white border-t border-gray-100 px-3 py-2 flex items-end gap-2">
-    <!-- Mic button -->
-    <button @mousedown="startVoice()" @mouseup="stopVoice()" @touchstart.prevent="startVoice()" @touchend.prevent="stopVoice()"
-            :class="recording ? 'bg-red-500' : 'bg-gray-100 text-gray-500 hover:bg-pink-50'"
-            class="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition text-lg"
-            title="{{ t.get('voice_msg_title', 'Голосовое сообщение (держать)') }}">
-      <span x-show="!recording">🎤</span>
-      <span x-show="recording" x-cloak class="text-white text-sm font-bold">●</span>
-    </button>
-
-    <div class="flex-1 flex items-end gap-2 bg-gray-50 border border-gray-200 rounded-2xl px-3 py-2
-                focus-within:border-pink-300 focus-within:bg-white transition-all">
+    <div class="flex-1 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-2.5 focus-within:border-pink-300 transition">
       <textarea id="msg-input"
                 x-model="newMsg"
                 @keydown.enter.prevent="if (!$event.shiftKey) send()"
-                @input="resize($el)"
+                @input="$el.style.height='auto'; $el.style.height=Math.min($el.scrollHeight,112)+'px'"
                 rows="1"
-                placeholder="{{ t.message_placeholder }}"
-                class="flex-1 text-sm text-gray-800 placeholder-gray-400 resize-none leading-relaxed"
-                style="max-height:7rem; min-height:1.25rem;"></textarea>
+                placeholder="{{ t.message_placeholder or 'Написать...' }}"
+                class="w-full text-sm text-gray-800 placeholder-gray-400 resize-none bg-transparent"
+                style="max-height:7rem; min-height:1.25rem; outline:none; border:none;"></textarea>
     </div>
     <button @click="send()"
             :disabled="!newMsg.trim() || loading"
-            class="flex-shrink-0 w-10 h-10 gradient-pink text-white rounded-full flex items-center justify-center
-                   shadow-md hover:opacity-90 active:scale-95 transition-all
-                   disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none">
+            class="flex-shrink-0 w-11 h-11 gradient-pink text-white rounded-full flex items-center justify-center shadow-md
+                   hover:opacity-90 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed">
       <svg class="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
         <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
       </svg>
@@ -338,57 +174,22 @@ function doUnmatchAction(matchId, btn) {
 
 </div>
 
-<!-- ══ RATE MODAL ══════════════════════════════════════════ -->
-<div x-show="showRateModal" x-cloak style="display:none"
-     @click.self="showRateModal = false"
-     class="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm">
-  <div class="bg-white w-full sm:max-w-sm sm:mx-4 rounded-t-3xl sm:rounded-3xl p-8 shadow-2xl text-center">
-    <div class="w-14 h-14 rounded-full overflow-hidden bg-pink-100 mx-auto mb-3 flex items-center justify-center
-                {% if partner.profile and partner.profile.photo %}partner-avatar-bg{% endif %}">
-      {% if not (partner.profile and partner.profile.photo) %}
-      <span class="text-3xl">👤</span>
-      {% endif %}
-    </div>
-    <p class="font-bold text-gray-800 mb-1">{{ t.rate_title }}</p>
-    <p class="text-gray-400 text-sm mb-4">{{ partner.profile.name }}</p>
-    <div class="flex justify-center gap-2 mb-4">
-      <template x-for="s in [1,2,3,4,5]" :key="s">
-        <button @click="selectedStars = s"
-                :class="s <= selectedStars ? 'text-yellow-400' : 'text-gray-200'"
-                class="text-4xl transition hover:scale-110 active:scale-95">★</button>
-      </template>
-    </div>
-    <p x-show="rateMessage" x-text="rateMessage" class="text-sm mb-3 font-medium"
-       :class="rateError ? 'text-red-500' : 'text-green-500'"></p>
-    <button @click="submitRate()" :disabled="!selectedStars || rateLoading"
-            class="w-full gradient-pink text-white py-3 rounded-full font-semibold hover:opacity-90 transition disabled:opacity-40">
-      <span x-show="!rateLoading">{{ t.rate_submit }}</span>
-      <span x-show="rateLoading" x-cloak class="opacity-60">...</span>
-    </button>
-    <button @click="showRateModal = false" class="w-full mt-2 py-2 text-gray-400 text-sm hover:text-gray-600 transition">
-      {{ t.back }}
-    </button>
-  </div>
-</div>
-
 <script>
 (function() {
   const i18n = document.getElementById('chat-i18n');
-  const LABEL_TODAY     = i18n ? i18n.dataset.today     : 'Сегодня';
-  const LABEL_YESTERDAY = i18n ? i18n.dataset.yesterday : 'Вчера';
+  const TODAY     = i18n ? i18n.dataset.today     : 'Сегодня';
+  const YESTERDAY = i18n ? i18n.dataset.yesterday : 'Вчера';
 
   window.chatApp = function() {
     return {
-      messages: [], newMsg: '', lastId: 0,
-      userId: {{ user.id }}, matchId: {{ match.id }},
-      loading: false, typing: false, sendErr: '',
-      icebreakers: [], icebreakersLoading: false, icebreakersHidden: false,
-      showRateModal: false, selectedStars: 0, rateLoading: false,
-      rateMessage: '', rateError: false,
-      showUnmatchModal: false, unmatching: false,
-      reactionPicker: null,
-      REACTIONS: ['❤️','😂','😮','😢','👍','🔥'],
-      recording: false, mediaRecorder: null, audioChunks: [],
+      messages: [],
+      newMsg: '',
+      lastId: 0,
+      userId: {{ user.id }},
+      matchId: {{ match.id }},
+      loading: false,
+      sendErr: '',
+      showUnmatch: false,
       sse: null,
 
       init() {
@@ -397,16 +198,9 @@ function doUnmatchAction(matchId, btn) {
         if (this.messages.length) this.lastId = this.messages.at(-1).id;
         this.$nextTick(() => this.scrollBottom());
         this.connectSSE();
-        window.addEventListener('pagehide', () => { if (this.sse) { this.sse.close(); this.sse = null; } });
-        window.addEventListener('beforeunload', () => { if (this.sse) this.sse.close(); });
+        window.addEventListener('pagehide', () => { if (this.sse) this.sse.close(); });
         window.addEventListener('pageshow', (e) => {
-          if (e.persisted) {
-            this.showUnmatchModal = false;
-            this.showRateModal = false;
-            this._sseRetries = 0;
-            if (this.sse) { this.sse.close(); this.sse = null; }
-            this.connectSSE();
-          }
+          if (e.persisted) { this._retries = 0; if (this.sse) this.sse.close(); this.connectSSE(); }
         });
       },
 
@@ -416,35 +210,18 @@ function doUnmatchAction(matchId, btn) {
         let date = '';
         if (dt) {
           const isToday = dt.toDateString() === now.toDateString();
-          const yesterday = new Date(now); yesterday.setDate(yesterday.getDate()-1);
-          const isYesterday = dt.toDateString() === yesterday.toDateString();
-          date = isToday ? LABEL_TODAY : isYesterday ? LABEL_YESTERDAY
+          const prev = new Date(now); prev.setDate(prev.getDate() - 1);
+          date = isToday ? TODAY : dt.toDateString() === prev.toDateString() ? YESTERDAY
                : dt.toLocaleDateString([], {day:'numeric', month:'short'});
         }
         return {
-          id: m.id, content: m.content, sender_id: m.sender_id,
-          time: dt ? dt.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : (m.time || ''),
+          id: m.id,
+          content: m.content || '',
+          sender_id: m.sender_id,
+          time: dt ? dt.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '',
           date,
-          is_read: m.is_read ?? false,
-          is_voice: m.is_voice ?? false,
-          reactions: m.reactions || {},
+          is_read: !!m.is_read,
         };
-      },
-
-      reactionsArr(reactionsObj) {
-        return Object.entries(reactionsObj || {}).filter(([,c]) => c > 0);
-      },
-
-      async react(msgId, emoji) {
-        this.reactionPicker = null;
-        const r = await fetch('/chat/'+this.matchId+'/message/'+msgId+'/react', {
-          method:'POST',
-          headers:{'Content-Type':'application/json','x-csrf-token': getCsrfToken()},
-          body: JSON.stringify({emoji}),
-        });
-        const d = await r.json();
-        const msg = this.messages.find(m => m.id === msgId);
-        if (msg && d.reactions) msg.reactions = d.reactions;
       },
 
       async send() {
@@ -453,24 +230,23 @@ function doUnmatchAction(matchId, btn) {
         this.loading = true;
         this.sendErr = '';
         this.newMsg = '';
-        this.$nextTick(() => {
-          const el = document.getElementById('msg-input');
-          if (el) el.style.height = 'auto';
-        });
         const fd = new FormData();
         fd.append('content', text);
         try {
-          const r = await fetch('/chat/'+this.matchId+'/send', {
-            method:'POST', body:fd,
-            headers:{'x-csrf-token': getCsrfToken()},
+          const r = await fetch('/chat/' + this.matchId + '/send', {
+            method: 'POST',
+            body: fd,
+            headers: { 'x-csrf-token': getCsrfToken() },
           });
           const d = await r.json();
           if (d.id) {
-            const now = new Date();
             this.messages.push({
-              id: d.id, content: d.content, sender_id: d.sender_id,
-              time: now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
-              date: LABEL_TODAY, is_read: false, is_voice: false, reactions: {},
+              id: d.id,
+              content: d.content,
+              sender_id: d.sender_id,
+              time: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
+              date: TODAY,
+              is_read: false,
             });
             this.lastId = d.id;
             this.$nextTick(() => this.scrollBottom());
@@ -488,131 +264,39 @@ function doUnmatchAction(matchId, btn) {
       },
 
       connectSSE() {
-        if (this.sse) { this.sse.close(); this.sse = null; }
         this.sse = new EventSource('/chat/' + this.matchId + '/stream?after_id=' + this.lastId);
         this.sse.onmessage = (e) => {
           try {
             const msgs = JSON.parse(e.data);
             if (Array.isArray(msgs) && msgs.length) {
               msgs.forEach(m => {
-                if (!this.messages.find(x => x.id === m.id)) {
-                  this.messages.push(this.fmt(m));
-                }
+                if (!this.messages.find(x => x.id === m.id)) this.messages.push(this.fmt(m));
               });
               this.lastId = msgs.at(-1).id;
-              this.$nextTick(() => this.scrollBottom());
               this.messages.forEach(m => { if (m.sender_id === this.userId) m.is_read = true; });
+              this.$nextTick(() => this.scrollBottom());
             }
-          } catch(err) {}
+          } catch(_) {}
         };
         this.sse.addEventListener('reconnect', () => {
-          // Server sent graceful reconnect signal (e.g. max stream lifetime reached)
-          this.sse.close(); this.sse = null;
-          setTimeout(() => this.connectSSE(), 500);
+          this.sse.close(); setTimeout(() => this.connectSSE(), 500);
         });
         this.sse.onerror = () => {
-          this.sse.close();
-          this.sse = null;
-          this._sseRetries = (this._sseRetries || 0) + 1;
-          if (this._sseRetries > 8) return; // give up after ~8 attempts, avoids auth-error loop
-          setTimeout(() => this.connectSSE(), Math.min(3000 * this._sseRetries, 30000));
+          this.sse.close(); this.sse = null;
+          this._retries = (this._retries || 0) + 1;
+          if (this._retries > 8) return;
+          setTimeout(() => this.connectSSE(), Math.min(3000 * this._retries, 30000));
         };
-      },
-
-      async loadIcebreakers() {
-        this.icebreakersLoading = true;
-        try {
-          const r = await fetch('/chat/'+this.matchId+'/icebreakers');
-          const d = await r.json();
-          if (d.suggestions) this.icebreakers = d.suggestions;
-        } catch(e) {}
-        this.icebreakersLoading = false;
-      },
-
-      async submitRate() {
-        if (!this.selectedStars || this.rateLoading) return;
-        this.rateLoading = true; this.rateMessage = '';
-        try {
-          const r = await fetch('/chat/'+this.matchId+'/rate', {
-            method:'POST',
-            headers:{'Content-Type':'application/json', 'x-csrf-token': getCsrfToken()},
-            body: JSON.stringify({stars: this.selectedStars}),
-          });
-          const d = await r.json();
-          if (r.ok) {
-            this.rateMessage = d.message || '{{ t.rate_success }}';
-            this.rateError = false;
-            setTimeout(() => { this.showRateModal=false; this.rateMessage=''; this.selectedStars=0; }, 1500);
-          } else {
-            this.rateMessage = d.error || '{{ t.rate_error }}';
-            this.rateError = true;
-          }
-        } catch(e) { this.rateMessage='{{ t.rate_error }}'; this.rateError=true; }
-        this.rateLoading = false;
       },
 
       async doUnmatch() {
-        this.unmatching = true;
         try {
           await fetch('/match/{{ match.id }}/unmatch', {
             method: 'POST',
-            headers: {'x-csrf-token': getCsrfToken()},
+            headers: { 'x-csrf-token': getCsrfToken() },
           });
-          window.location.href = '/matches';
-        } catch(e) { this.unmatching = false; }
-      },
-
-      async reveal() {
-        const r = await fetch('/chat/{{ match.id }}/reveal', {
-          method: 'POST',
-          headers: {'x-csrf-token': getCsrfToken()},
-        });
-        if (r.ok) window.location.reload();
-      },
-
-      async startVoice() {
-        if (this.recording) return;
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({audio: true});
-          this.audioChunks = [];
-          this.mediaRecorder = new MediaRecorder(stream);
-          this.mediaRecorder.ondataavailable = e => { if (e.data.size > 0) this.audioChunks.push(e.data); };
-          this.mediaRecorder.start();
-          this.recording = true;
-        } catch(e) { alert('{{ t.get("mic_denied", "Microphone access denied") }}'); }
-      },
-
-      async stopVoice() {
-        if (!this.recording || !this.mediaRecorder) return;
-        this.recording = false;
-        this.mediaRecorder.stop();
-        await new Promise(r => this.mediaRecorder.onstop = r);
-        const blob = new Blob(this.audioChunks, {type: 'audio/webm'});
-        this.mediaRecorder.stream.getTracks().forEach(t => t.stop());
-        if (blob.size < 1000) return; // too short
-        const fd = new FormData();
-        fd.append('audio', blob, 'voice.webm');
-        try {
-          const r = await fetch('/chat/'+this.matchId+'/voice', {
-            method: 'POST', body: fd,
-            headers: {'x-csrf-token': getCsrfToken()},
-          });
-          const d = await r.json();
-          if (d.id) {
-            const now = new Date();
-            this.messages.push(this.fmt({
-              id: d.id, content: d.content, sender_id: d.sender_id,
-              created_at: new Date().toISOString(), is_read: false, is_voice: true, reactions: {},
-            }));
-            this.lastId = d.id;
-            this.$nextTick(() => this.scrollBottom());
-          }
-        } catch(e) {}
-      },
-
-      resize(el) {
-        el.style.height = 'auto';
-        el.style.height = Math.min(el.scrollHeight, 112) + 'px';
+        } catch(_) {}
+        window.location.href = '/matches';
       },
 
       scrollBottom() {
