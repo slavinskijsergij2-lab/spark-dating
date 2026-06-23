@@ -11,36 +11,28 @@
       <p class="text-gray-400 text-sm leading-relaxed mb-6">{{ t.check_email_desc }}</p>
 
       <!-- Resend verification -->
-      <div x-data="{ open: false, sent: false, email: '', loading: false, rateLimited: false }" class="mb-6">
-        <button @click="open = !open"
+      <div class="mb-6">
+        <button onclick="toggleResendSection()"
                 class="text-sm text-pink-500 hover:text-pink-700 font-medium underline underline-offset-2 transition">
           {{ t.get('check_email_not_arrived', 'Письмо не пришло?') }}
         </button>
-        <div x-show="open" x-cloak class="mt-4 text-left">
-          <template x-if="!sent">
-            <form @submit.prevent="
-              loading = true; rateLimited = false;
-              fetch('/resend-verification', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                body: 'email=' + encodeURIComponent(email) + '&csrftoken=' + getCsrfToken()
-              }).then(r => { if (r.ok) sent = true; else if (r.status === 429) rateLimited = true; loading = false; })
-                .catch(() => { loading = false; });
-            ">
-              <input x-model="email" type="email" required
+        <div id="resend-section" style="display:none" class="mt-4 text-left">
+          <div id="resend-form-wrap">
+            <form onsubmit="submitResend(event)">
+              <input id="resend-email" type="email" required
                      placeholder="{{ t.get('your_email', 'Ваш email') }}"
                      class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm mb-3 focus:outline-none focus:border-pink-400 transition">
-              <p x-show="rateLimited" x-cloak class="text-amber-600 text-xs mb-2">⏳ {{ t.get('rate_limit_msg', 'Слишком много попыток. Попробуйте через несколько минут.') }}</p>
-              <button type="submit" :disabled="loading"
+              <p id="resend-rate-limited" style="display:none" class="text-amber-600 text-xs mb-2">⏳ {{ t.get('rate_limit_msg', 'Слишком много попыток. Попробуйте через несколько минут.') }}</p>
+              <button type="submit" id="resend-btn"
                       class="w-full gradient-pink text-white py-2.5 rounded-full text-sm font-semibold hover:opacity-90 transition disabled:opacity-50">
-                <span x-show="!loading">📨 {{ t.get('resend_verification', 'Отправить заново') }}</span>
-                <span x-show="loading" x-cloak>...</span>
+                <span id="resend-btn-text">📨 {{ t.get('resend_verification', 'Отправить заново') }}</span>
+                <span id="resend-btn-loading" style="display:none">...</span>
               </button>
             </form>
-          </template>
-          <template x-if="sent">
-            <p class="text-green-600 text-sm font-medium text-center py-2">✓ {{ t.get('resend_done', 'Письмо отправлено! Проверьте почту.') }}</p>
-          </template>
+          </div>
+          <div id="resend-sent" style="display:none" class="text-green-600 text-sm font-medium text-center py-2">
+            ✓ {{ t.get('resend_done', 'Письмо отправлено! Проверьте почту.') }}
+          </div>
         </div>
       </div>
 
@@ -53,4 +45,48 @@
     <p class="text-gray-400 text-xs mt-6">💘 Spark</p>
   </div>
 </div>
+
+<script>
+function toggleResendSection() {
+  var s = document.getElementById('resend-section');
+  if (s) s.style.display = s.style.display === 'none' ? '' : 'none';
+}
+function submitResend(e) {
+  e.preventDefault();
+  var email = document.getElementById('resend-email').value;
+  var btn = document.getElementById('resend-btn');
+  var btnText = document.getElementById('resend-btn-text');
+  var btnLoading = document.getElementById('resend-btn-loading');
+  var rateLim = document.getElementById('resend-rate-limited');
+  btn.disabled = true;
+  if (btnText) btnText.style.display = 'none';
+  if (btnLoading) btnLoading.style.display = '';
+  if (rateLim) rateLim.style.display = 'none';
+  fetch('/resend-verification', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'email=' + encodeURIComponent(email) + '&csrftoken=' + getCsrfToken()
+  })
+  .then(function(r) {
+    if (r.ok) {
+      document.getElementById('resend-form-wrap').style.display = 'none';
+      document.getElementById('resend-sent').style.display = '';
+    } else if (r.status === 429) {
+      if (rateLim) rateLim.style.display = '';
+      btn.disabled = false;
+      if (btnText) btnText.style.display = '';
+      if (btnLoading) btnLoading.style.display = 'none';
+    } else {
+      btn.disabled = false;
+      if (btnText) btnText.style.display = '';
+      if (btnLoading) btnLoading.style.display = 'none';
+    }
+  })
+  .catch(function() {
+    btn.disabled = false;
+    if (btnText) btnText.style.display = '';
+    if (btnLoading) btnLoading.style.display = 'none';
+  });
+}
+</script>
 {% endblock %}

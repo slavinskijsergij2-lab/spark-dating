@@ -15,48 +15,29 @@
       <p class="text-xs text-gray-400">{{ t.get('premium_active_sub', 'Все функции разблокированы') }}</p>
     </div>
   </div>
-  <button x-data="{ loading: false }"
-          @click="
-            loading = true;
-            fetch('/premium/deactivate', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}})
-              .then(r => r.json())
-              .then(d => { if (d.success) window.location.reload(); })
-              .finally(() => loading = false);
-          "
-          :disabled="loading"
+  <button id="prem-deactivate-btn"
+          onclick="deactivatePremium(this)"
           class="w-full border-2 border-gray-200 text-gray-500 py-2.5 rounded-full text-sm font-medium hover:border-red-200 hover:text-red-400 transition disabled:opacity-50">
-    <span x-show="!loading">{{ t.get('premium_cancel', 'Отменить подписку') }}</span>
-    <span x-show="loading" x-cloak>...</span>
+    <span data-default>{{ t.get('premium_cancel', 'Отменить подписку') }}</span>
+    <span data-loading style="display:none">...</span>
   </button>
   {% else %}
   <p class="text-sm text-gray-500 mb-4">{{ t.get('premium_free', 'Сейчас у вас бесплатный план') }}</p>
-  <div x-data="{ loading: false, code: '', error: '' }">
+  <div>
     {% if requires_code %}
-    <input x-model="code"
+    <input id="prem-code"
            type="text"
+           oninput="updateActivateBtn()"
            placeholder="{{ t.get('premium_code_placeholder', 'Введите код активации') }}"
            class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm mb-3 focus:outline-none focus:border-pink-400 transition">
-    <p x-show="error" x-text="error" x-cloak class="text-red-500 text-xs mb-2"></p>
+    <p id="prem-error" style="display:none" class="text-red-500 text-xs mb-2"></p>
     {% endif %}
-    <button
-      @click="
-        loading = true; error = '';
-        fetch('/premium/activate', {
-          method: 'POST',
-          headers: {'x-csrf-token': getCsrfToken(), 'content-type': 'application/json'},
-          body: JSON.stringify({code: code})
-        })
-          .then(r => r.json())
-          .then(d => {
-            if (d.success) window.location.reload();
-            else error = d.error || '{{ t.get('premium_code_invalid', 'Неверный код') }}';
-          })
-          .finally(() => loading = false);
-      "
-      :disabled="loading {% if requires_code %}|| !code.trim(){% endif %}"
-      class="w-full gradient-pink text-white py-3 rounded-full font-bold text-base shadow hover:opacity-90 transition disabled:opacity-50">
-      <span x-show="!loading">🚀 {{ t.get('premium_activate', 'Активировать Premium') }}</span>
-      <span x-show="loading" x-cloak class="opacity-70">...</span>
+    <button id="prem-activate-btn"
+            onclick="activatePremium(this)"
+            {% if requires_code %}disabled{% endif %}
+            class="w-full gradient-pink text-white py-3 rounded-full font-bold text-base shadow hover:opacity-90 transition disabled:opacity-50">
+      <span data-default>🚀 {{ t.get('premium_activate', 'Активировать Premium') }}</span>
+      <span data-loading style="display:none" class="opacity-70">...</span>
     </button>
   </div>
   {% endif %}
@@ -84,8 +65,7 @@
 </div>
 
 <!-- Boost section -->
-<div class="bg-white rounded-2xl card-shadow p-5 mb-4"
-     x-data="{ loading: false, done: false, minutes: 0, alreadyActive: false, remaining: 0 }">
+<div class="bg-white rounded-2xl card-shadow p-5 mb-4">
   <div class="flex items-center gap-3 mb-3">
     <span class="text-2xl">⚡</span>
     <div>
@@ -105,22 +85,13 @@
     ⚡ {{ t.get('boost_active', 'Буст активен') }} — {{ t.get('boost_remaining', 'осталось') }} {{ boost_remaining }} {{ t.get('boost_minutes', 'мин') }}
   </div>
   {% else %}
-  <button @click="
-    if (done || alreadyActive) return;
-    loading = true;
-    fetch('/profile/boost', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}})
-      .then(r => r.json())
-      .then(d => {
-        if (d.success) { done = true; minutes = d.minutes; }
-        else if (d.error === 'boost_active') { alreadyActive = true; remaining = d.remaining_minutes || 0; }
-      })
-      .finally(() => loading = false);
-  " :disabled="loading || done || alreadyActive"
-  class="w-full gradient-pink text-white py-2.5 rounded-full font-semibold text-sm shadow hover:opacity-90 transition disabled:opacity-50">
-    <span x-show="!loading && !done && !alreadyActive">⚡ {{ t.get('boost_btn', 'Активировать буст') }}</span>
-    <span x-show="loading" x-cloak class="opacity-70">...</span>
-    <span x-show="done" x-cloak class="text-white">✓ {{ t.get('boost_done', 'Буст активирован!') }} <span x-text="minutes"></span> {{ t.get('boost_minutes', 'мин') }}</span>
-    <span x-show="alreadyActive" x-cloak>⚡ <span x-text="remaining"></span>{{ t.get('boost_minutes', 'мин') }}</span>
+  <button id="boost-page-btn"
+          onclick="doPageBoost(this)"
+          class="w-full gradient-pink text-white py-2.5 rounded-full font-semibold text-sm shadow hover:opacity-90 transition disabled:opacity-50">
+    <span data-default>⚡ {{ t.get('boost_btn', 'Активировать буст') }}</span>
+    <span data-loading style="display:none" class="opacity-70">...</span>
+    <span data-done style="display:none" class="text-white" id="boost-done-text"></span>
+    <span data-active style="display:none" id="boost-active-text"></span>
   </button>
   {% endif %}
 </div>
@@ -161,5 +132,79 @@
     </svg>
   </div>
 </a>
+
+<script>
+function setBtnState(btn, state) {
+  ['[data-default]','[data-loading]','[data-done]','[data-active]'].forEach(function(sel) {
+    var el = btn.querySelector(sel);
+    if (el) el.style.display = 'none';
+  });
+  var target = btn.querySelector('[data-' + state + ']');
+  if (target) target.style.display = '';
+}
+
+function deactivatePremium(btn) {
+  btn.disabled = true;
+  setBtnState(btn, 'loading');
+  fetch('/premium/deactivate', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}})
+    .then(function(r){ return r.json(); })
+    .then(function(d){ if (d.success) window.location.reload(); })
+    .catch(function() { btn.disabled = false; setBtnState(btn, 'default'); });
+}
+
+function updateActivateBtn() {
+  var code = document.getElementById('prem-code');
+  var btn = document.getElementById('prem-activate-btn');
+  if (code && btn) btn.disabled = !code.value.trim();
+}
+
+function activatePremium(btn) {
+  var codeEl = document.getElementById('prem-code');
+  var code = codeEl ? codeEl.value : '';
+  var errEl = document.getElementById('prem-error');
+  if (errEl) errEl.style.display = 'none';
+  btn.disabled = true;
+  setBtnState(btn, 'loading');
+  fetch('/premium/activate', {
+    method: 'POST',
+    headers: {'x-csrf-token': getCsrfToken(), 'content-type': 'application/json'},
+    body: JSON.stringify({code: code})
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    if (d.success) {
+      window.location.reload();
+    } else {
+      if (errEl) { errEl.textContent = d.error || '{{ t.get("premium_code_invalid", "Неверный код") }}'; errEl.style.display = ''; }
+      btn.disabled = false;
+      setBtnState(btn, 'default');
+    }
+  })
+  .catch(function() { btn.disabled = false; setBtnState(btn, 'default'); });
+}
+
+function doPageBoost(btn) {
+  btn.disabled = true;
+  setBtnState(btn, 'loading');
+  fetch('/profile/boost', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d.success) {
+        var t = document.getElementById('boost-done-text');
+        if (t) t.textContent = '✓ {{ t.get("boost_done", "Буст активирован!") }} ' + d.minutes + ' {{ t.get("boost_minutes", "мин") }}';
+        setBtnState(btn, 'done');
+      } else if (d.error === 'boost_active') {
+        var t2 = document.getElementById('boost-active-text');
+        if (t2) t2.textContent = '⚡ ' + (d.remaining_minutes || 0) + ' {{ t.get("boost_minutes", "мин") }}';
+        setBtnState(btn, 'active');
+        btn.disabled = false;
+      } else {
+        btn.disabled = false;
+        setBtnState(btn, 'default');
+      }
+    })
+    .catch(function() { btn.disabled = false; setBtnState(btn, 'default'); });
+}
+</script>
 
 {% endblock %}

@@ -14,10 +14,10 @@
   <p class="text-gray-500">{{ t.get('blocked_empty', 'Список пуст') }}</p>
 </div>
 {% else %}
-<div class="flex flex-col gap-3" x-data="{ unblocking: {} }">
+<div class="flex flex-col gap-3">
   {% for block, bu in items %}
   {% if bu %}
-  <div x-show="!unblocking[{{ bu.id }}]"
+  <div id="block-item-{{ bu.id }}"
        class="bg-white rounded-2xl p-4 flex items-center gap-4 shadow-sm border border-gray-100">
     <div class="w-12 h-12 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center">
       {% if bu.profile and bu.profile.photo %}
@@ -32,11 +32,8 @@
       </p>
       <p class="text-gray-400 text-xs">{{ t.get('blocked_date_label', 'Заблокирован') }} {{ block.created_at.strftime('%d.%m.%Y') }}</p>
     </div>
-    <button @click="
-      fetch('/user/{{ bu.id }}/unblock', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}})
-        .then(r => r.json())
-        .then(d => { if(d.success) unblocking[{{ bu.id }}] = true; });
-    " class="flex-shrink-0 text-sm border border-gray-200 text-gray-600 px-4 py-1.5 rounded-full hover:border-pink-300 hover:text-pink-600 transition">
+    <button onclick="doUnblock(this, {{ bu.id }})"
+            class="flex-shrink-0 text-sm border border-gray-200 text-gray-600 px-4 py-1.5 rounded-full hover:border-pink-300 hover:text-pink-600 transition">
       {{ t.get('unblock_btn', 'Разблокировать') }}
     </button>
   </div>
@@ -44,4 +41,21 @@
   {% endfor %}
 </div>
 {% endif %}
+
+<script>
+function doUnblock(btn, userId) {
+  btn.disabled = true;
+  fetch('/user/' + userId + '/unblock', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d.success) {
+        var item = document.getElementById('block-item-' + userId);
+        if (item) item.style.display = 'none';
+      } else {
+        btn.disabled = false;
+      }
+    })
+    .catch(function(){ btn.disabled = false; });
+}
+</script>
 {% endblock %}

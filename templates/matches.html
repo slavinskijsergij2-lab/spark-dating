@@ -74,7 +74,6 @@
     padding: 2px 6px;
     border-radius: 999px;
   }
-  /* Pulse animation for new match badge */
   @keyframes pulse-badge {
     0%, 100% { transform: scale(1); }
     50%       { transform: scale(1.15); }
@@ -104,6 +103,121 @@ function likeBack(id, btn) {
       if (err) err.style.display = 'block';
     });
 }
+
+function _escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Stories ──────────────────────────────────────────────────────
+var _storyUsers = [];
+var _curStoryUser = null;
+var _curStoryIdx = 0;
+
+function loadStories() {
+  fetch('/stories/feed')
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+      _storyUsers = data.filter(function(u){ return !u.is_me; });
+      var list = document.getElementById('stories-list');
+      if (!list) return;
+      _storyUsers.forEach(function(u) {
+        var btn = document.createElement('button');
+        btn.className = 'flex-shrink-0 flex flex-col items-center gap-1.5';
+        btn.onclick = function() { openStory(u); };
+        var photoHtml = u.photo
+          ? '<img src="' + _escHtml(u.photo) + '" class="w-full h-full object-cover" />'
+          : '<span class="text-xl">👤</span>';
+        btn.innerHTML =
+          '<div class="story-ring w-14 h-14">' +
+            '<div class="story-ring-inner w-full h-full">' +
+              '<div class="w-full h-full rounded-full overflow-hidden bg-pink-100 flex items-center justify-center">' + photoHtml + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<span class="text-[10px] text-gray-500 truncate w-14 text-center font-medium">' + _escHtml(u.name) + '</span>';
+        list.appendChild(btn);
+      });
+    })
+    .catch(function(){});
+}
+
+function openStory(u) {
+  _curStoryUser = u;
+  _curStoryIdx = 0;
+  renderStoryContent();
+  document.getElementById('story-modal').style.display = 'flex';
+}
+
+function closeStoryModal() {
+  document.getElementById('story-modal').style.display = 'none';
+  _curStoryUser = null;
+}
+
+function renderStoryContent() {
+  var container = document.getElementById('story-content');
+  if (!container || !_curStoryUser) return;
+  var stories = _curStoryUser.stories || [];
+  var story = stories[_curStoryIdx];
+  if (!story) { closeStoryModal(); return; }
+  var mediaHtml = story.media_type === 'image'
+    ? '<img src="' + _escHtml(story.content) + '" class="w-full h-full object-cover" />'
+    : '<div class="w-full h-full flex items-center justify-center p-8 bg-gradient-to-br from-pink-500 to-rose-600">' +
+        '<p class="text-white text-xl font-semibold text-center leading-relaxed">' + _escHtml(story.content) + '</p>' +
+      '</div>';
+  var barsHtml = stories.map(function(s, i) {
+    return '<div class="flex-1 h-0.5 rounded-full ' + (i <= _curStoryIdx ? 'bg-white' : 'bg-white/25') + '"></div>';
+  }).join('');
+  var authorPhotoHtml = _curStoryUser.photo
+    ? '<img src="' + _escHtml(_curStoryUser.photo) + '" class="w-full h-full object-cover" />'
+    : '';
+  container.innerHTML =
+    '<div class="w-full h-full relative">' +
+      mediaHtml +
+      '<div class="absolute top-3 left-3 right-3 flex gap-1">' + barsHtml + '</div>' +
+      '<div class="absolute top-6 left-3 flex items-center gap-2">' +
+        '<div class="w-9 h-9 rounded-full overflow-hidden border-2 border-white/40">' + authorPhotoHtml + '</div>' +
+        '<span class="text-white text-sm font-semibold drop-shadow">' + _escHtml(_curStoryUser.name) + '</span>' +
+      '</div>' +
+      '<button onclick="closeStoryModal()" class="absolute top-5 right-3 text-white/80 hover:text-white text-xl leading-none">✕</button>' +
+      '<div class="absolute inset-0 flex pointer-events-auto">' +
+        '<div class="w-1/2 h-full cursor-pointer" onclick="storyPrev(event)"></div>' +
+        '<div class="w-1/2 h-full cursor-pointer" onclick="storyNext(event)"></div>' +
+      '</div>' +
+    '</div>';
+}
+
+function storyPrev(e) {
+  if (e) e.stopPropagation();
+  if (_curStoryIdx > 0) { _curStoryIdx--; renderStoryContent(); }
+}
+function storyNext(e) {
+  if (e) e.stopPropagation();
+  var stories = (_curStoryUser || {}).stories || [];
+  if (_curStoryIdx < stories.length - 1) { _curStoryIdx++; renderStoryContent(); }
+  else { closeStoryModal(); }
+}
+
+// ── Match search ─────────────────────────────────────────────────
+function filterMatches(q) {
+  var lower = q.toLowerCase();
+  var anyVisible = !lower;
+  document.querySelectorAll('.match-card').forEach(function(card) {
+    var name = card.dataset.name || '';
+    var show = !lower || name.includes(lower);
+    card.style.display = show ? '' : 'none';
+    if (show) anyVisible = true;
+  });
+  var noRes = document.getElementById('no-results-msg');
+  if (noRes) noRes.style.display = anyVisible ? 'none' : '';
+  var clear = document.getElementById('search-clear');
+  if (clear) clear.style.display = lower ? '' : 'none';
+}
+
+function clearSearch() {
+  var inp = document.getElementById('match-search');
+  if (inp) { inp.value = ''; filterMatches(''); inp.focus(); }
+}
+
+document.addEventListener('DOMContentLoaded', function() { loadStories(); });
 </script>
 
 <!-- ══ HEADER ══ -->
@@ -123,70 +237,22 @@ function likeBack(id, btn) {
 </div>
 
 <!-- ══ STORIES ROW ══ -->
-<div x-data="{ stories: [], storyViewer: null, viewIdx: 0 }"
-     x-init="void fetch('/stories/feed').then(r=>r.json()).then(d=>{ stories=d; }).catch(()=>{})"
-     class="mb-5">
-  <div class="flex gap-3 overflow-x-auto pb-1 no-scrollbar">
-
-    <!-- My story -->
+<div class="mb-5">
+  <div class="flex gap-3 overflow-x-auto pb-1 no-scrollbar" id="stories-list">
     <a href="/stories/page" class="flex-shrink-0 flex flex-col items-center gap-1.5">
       <div class="w-14 h-14 rounded-full border-2 border-dashed border-pink-300 flex items-center justify-center bg-pink-50 text-2xl hover:bg-pink-100 transition shadow-sm">+</div>
       <span class="text-[10px] text-gray-400 font-medium">{{ t.get('stories_mine','Моя') }}</span>
     </a>
-
-    <template x-for="u in stories.filter(u=>!u.is_me)" :key="u.user_id">
-      <button @click="storyViewer=u; viewIdx=0" class="flex-shrink-0 flex flex-col items-center gap-1.5">
-        <div class="story-ring w-14 h-14">
-          <div class="story-ring-inner w-full h-full">
-            <div class="w-full h-full rounded-full overflow-hidden bg-pink-100 flex items-center justify-center">
-              <template x-if="u.photo">
-                <img :src="u.photo" class="w-full h-full object-cover" />
-              </template>
-              <template x-if="!u.photo"><span class="text-xl">👤</span></template>
-            </div>
-          </div>
-        </div>
-        <span class="text-[10px] text-gray-500 truncate w-14 text-center font-medium" x-text="u.name"></span>
-      </button>
-    </template>
   </div>
+</div>
 
-  <!-- Story viewer modal -->
-  <div x-show="storyViewer" x-cloak style="display:none" @click="storyViewer=null"
-       class="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center">
-    <div @click.stop class="relative w-full max-w-sm h-[75vh] bg-black rounded-3xl overflow-hidden shadow-2xl">
-      <template x-if="storyViewer && storyViewer.stories && storyViewer.stories[viewIdx]">
-        <div class="w-full h-full">
-          <template x-if="storyViewer.stories[viewIdx].media_type==='image'">
-            <img :src="storyViewer.stories[viewIdx].content" class="w-full h-full object-cover" />
-          </template>
-          <template x-if="storyViewer.stories[viewIdx].media_type==='text'">
-            <div class="w-full h-full flex items-center justify-center p-8 bg-gradient-to-br from-pink-500 to-rose-600">
-              <p class="text-white text-xl font-semibold text-center leading-relaxed" x-text="storyViewer.stories[viewIdx].content"></p>
-            </div>
-          </template>
-          <!-- Progress bars -->
-          <div class="absolute top-3 left-3 right-3 flex gap-1">
-            <template x-for="(s,i) in storyViewer.stories" :key="i">
-              <div class="flex-1 h-0.5 rounded-full" :class="i <= viewIdx ? 'bg-white' : 'bg-white/25'"></div>
-            </template>
-          </div>
-          <!-- Author -->
-          <div class="absolute top-6 left-3 flex items-center gap-2">
-            <div class="w-9 h-9 rounded-full overflow-hidden border-2 border-white/40">
-              <img x-show="storyViewer.photo" :src="storyViewer.photo" class="w-full h-full object-cover" />
-            </div>
-            <span class="text-white text-sm font-semibold drop-shadow" x-text="storyViewer.name"></span>
-          </div>
-          <button @click="storyViewer=null" class="absolute top-5 right-3 text-white/80 hover:text-white text-xl leading-none">✕</button>
-          <!-- Tap zones -->
-          <div class="absolute inset-0 flex">
-            <div class="w-1/2" @click.stop="viewIdx = viewIdx > 0 ? viewIdx-1 : 0"></div>
-            <div class="w-1/2" @click.stop="viewIdx = viewIdx < storyViewer.stories.length-1 ? viewIdx+1 : (storyViewer=null,0)"></div>
-          </div>
-        </div>
-      </template>
-    </div>
+<!-- Story viewer modal -->
+<div id="story-modal" style="display:none"
+     class="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center"
+     onclick="if(event.target===this) closeStoryModal()">
+  <div class="relative w-full max-w-sm h-[75vh] bg-black rounded-3xl overflow-hidden shadow-2xl"
+       onclick="event.stopPropagation()">
+    <div id="story-content" class="w-full h-full"></div>
   </div>
 </div>
 
@@ -239,20 +305,15 @@ function likeBack(id, btn) {
 </div>
 
 {% else %}
-<script>var _matchNames = {{ partner_names | tojson | safe }};</script>
-<div x-data="{
-  search: '',
-  names: window._matchNames || [],
-  get noResults() { return !!this.search && !this.names.some(n => n.includes(this.search.toLowerCase())); }
-}">
 
   <!-- Search -->
   <div class="relative mb-4">
     <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
-    <input x-model="search" type="text"
+    <input id="match-search" type="text"
+           oninput="filterMatches(this.value)"
            placeholder="{{ t.get('search_matches','Поиск по имени...') }}"
            class="w-full pl-10 pr-9 py-2.5 bg-white border border-gray-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-pink-300 focus:border-transparent transition shadow-sm" />
-    <button x-show="search" @click="search=''"
+    <button id="search-clear" onclick="clearSearch()" style="display:none"
             class="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 text-lg leading-none transition">×</button>
   </div>
 
@@ -263,7 +324,6 @@ function likeBack(id, btn) {
     {% set os = online_status(partner.last_seen, lang) %}
     <a href="/chat/{{ match.id }}"
        data-name="{{ partner.profile.name | lower }}"
-       x-show="!search || $el.dataset.name.includes(search.toLowerCase())"
        class="match-card">
 
       <!-- Photo -->
@@ -278,7 +338,7 @@ function likeBack(id, btn) {
       <!-- Gradient overlay -->
       <div class="match-card-overlay"></div>
 
-      <!-- Top badges: online + streak -->
+      <!-- Top badges -->
       <div class="absolute top-2.5 right-2.5 flex flex-col items-end gap-1">
         {% if os and os.is_online %}
         <span class="bg-green-400/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shadow">
@@ -290,16 +350,14 @@ function likeBack(id, btn) {
         {% endif %}
       </div>
 
-      <!-- Bottom info: name + one sub-line + one badge -->
+      <!-- Bottom info -->
       <div class="match-card-body">
         <div class="match-card-name">{{ partner.profile.name }}, {{ partner.profile.age }}</div>
-
         {% if os and not os.is_online and os.label %}
         <div class="match-card-sub">{{ os.label }}</div>
         {% elif partner.profile.city %}
         <div class="match-card-sub">📍 {{ partner.profile.city }}</div>
         {% endif %}
-
         {% if compat is not none %}
         <span class="match-badge bg-pink-500/80 backdrop-blur-sm">💞 {{ compat.overall }}%</span>
         {% endif %}
@@ -330,14 +388,11 @@ function likeBack(id, btn) {
   {% endif %}
 
   <!-- No search results -->
-  <div x-show="noResults"
-       x-cloak
-       class="text-center py-8 text-gray-400 text-sm">
+  <div id="no-results-msg" style="display:none" class="text-center py-8 text-gray-400 text-sm">
     <div class="text-3xl mb-2">🔍</div>
     {{ t.get('search_no_results','Никого не нашлось') }}
   </div>
 
-</div>
 {% endif %}
 
 {% endblock %}

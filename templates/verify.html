@@ -30,14 +30,7 @@
   {% endif %}
 
   <!-- Upload form -->
-  <div class="bg-white rounded-2xl card-shadow p-6"
-       x-data="{
-         preview: null,
-         setPreview(e) {
-           const f = e.target.files[0];
-           if (f) this.preview = URL.createObjectURL(f);
-         }
-       }">
+  <div class="bg-white rounded-2xl card-shadow p-6">
     <form method="POST" action="/verify" enctype="multipart/form-data">
       <input type="hidden" name="csrftoken" value="{{ request.state.csrf_token }}" />
 
@@ -45,17 +38,14 @@
       <div class="flex flex-col items-center mb-6">
         <label class="cursor-pointer group">
           <div class="w-40 h-40 rounded-2xl overflow-hidden bg-gray-100 flex items-center justify-center border-2 border-dashed border-gray-300 group-hover:border-pink-400 transition">
-            <template x-if="preview">
-              <img :src="preview" class="w-full h-full object-cover" />
-            </template>
-            <template x-if="!preview">
-              <div class="text-center">
-                <div class="text-4xl mb-2">📷</div>
-                <p class="text-gray-400 text-sm">{{ t.verify_upload }}</p>
-              </div>
-            </template>
+            <img id="verify-preview" src="" class="w-full h-full object-cover" style="display:none" />
+            <div id="verify-placeholder" class="text-center">
+              <div class="text-4xl mb-2">📷</div>
+              <p class="text-gray-400 text-sm">{{ t.verify_upload }}</p>
+            </div>
           </div>
-          <input type="file" name="photo" accept="image/*" required class="hidden" @change="setPreview" />
+          <input type="file" name="photo" accept="image/*" required class="hidden"
+                 onchange="setVerifyPreview(this)" />
           <p class="text-center text-pink-500 text-sm mt-2 group-hover:underline">{{ t.verify_upload }}</p>
         </label>
       </div>
@@ -66,6 +56,16 @@
       </button>
     </form>
   </div>
+  <script>
+  function setVerifyPreview(input) {
+    var f = input.files[0];
+    if (!f) return;
+    var prev = document.getElementById('verify-preview');
+    var ph = document.getElementById('verify-placeholder');
+    if (prev) { prev.src = URL.createObjectURL(f); prev.style.display = ''; }
+    if (ph) ph.style.display = 'none';
+  }
+  </script>
 
   <div class="mt-4 text-center">
     <a href="/profile/edit" class="text-gray-400 text-sm hover:text-gray-600">{{ t.back }}</a>

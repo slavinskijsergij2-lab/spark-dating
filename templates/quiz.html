@@ -16,171 +16,165 @@
 {% endblock %}
 
 {% block content %}
-<div x-data="quizApp()" x-init="init()">
-
-  <!-- Header row: category badge + counter -->
-  <div class="flex items-center justify-between mb-3">
-    <div class="category-badge px-3 py-1.5 rounded-full text-sm font-semibold flex items-center gap-1.5"
-         :class="'cat-' + currentCategory()"
-         x-text="categoryIcon() + '  ' + categoryName()">
-    </div>
-    <span class="text-gray-400 text-sm font-medium">
-      <span x-text="currentIndex + 1"></span> / {{ total }}
-    </span>
-  </div>
-
-  <!-- Overall progress bar -->
-  <div class="w-full bg-gray-100 rounded-full h-2 mb-2">
-    <div class="gradient-pink h-2 rounded-full transition-all duration-400"
-         :style="'width:' + Math.round(((currentIndex) / {{ total }}) * 100) + '%'"></div>
-  </div>
-
-  <!-- Category progress dots -->
-  <div class="flex justify-center gap-2 mb-6">
-    <template x-for="(grp, gi) in catGroups" :key="gi">
-      <div class="flex items-center gap-1">
-        <template x-for="(qIdx, pi) in grp.indices" :key="pi">
-          <div class="cat-dot"
-               :class="{done: qIdx < currentIndex, current: qIdx === currentIndex}">
-          </div>
-        </template>
-      </div>
-    </template>
-  </div>
-
-  <!-- Question card -->
-  <div class="bg-white rounded-2xl card-shadow p-6 mb-5">
-    <p class="text-xs font-bold uppercase tracking-widest mb-3 opacity-50"
-       x-text="categoryIcon() + '  ' + categoryName()">
-    </p>
-    <h2 class="text-lg font-bold text-gray-800 mb-5" x-text="currentQuestion()"></h2>
-    <div class="flex flex-col gap-3">
-      <template x-for="(opt, idx) in currentOptions()" :key="idx">
-        <button @click="selectAnswer(idx)"
-                :class="selected[currentQid()] === idx
-                  ? 'border-pink-400 bg-pink-50 ring-2 ring-pink-200 text-pink-700 font-semibold'
-                  : 'border-gray-200 bg-white text-gray-700 hover:border-pink-200 hover:bg-pink-50'"
-                class="text-left border-2 rounded-xl px-4 py-3 transition text-sm flex items-center gap-3">
-          <span class="text-gray-300 font-mono text-xs w-4 flex-shrink-0"
-                x-text="['A','B','C','D'][idx]"></span>
-          <span x-text="opt"></span>
-        </button>
-      </template>
-    </div>
-  </div>
-
-  <!-- Navigation -->
-  <div class="flex gap-3">
-    <button x-show="currentIndex > 0"
-            @click="prev()"
-            class="flex-1 border-2 border-gray-200 text-gray-600 py-3 rounded-full font-semibold hover:border-gray-300 transition text-sm">
-      ← {{ t.back }}
-    </button>
-    <button @click="next()"
-            :disabled="selected[currentQid()] === undefined || saving"
-            class="flex-1 gradient-pink text-white py-3 rounded-full font-semibold hover:opacity-90 transition disabled:opacity-50 text-sm">
-      <span x-show="!saving && currentIndex < {{ total }} - 1">{{ t.quiz_next }} →</span>
-      <span x-show="!saving && currentIndex >= {{ total }} - 1">✓ {{ t.quiz_submit }}</span>
-      <span x-show="saving">...</span>
-    </button>
-  </div>
-
-  <!-- Done message -->
-  <div x-show="done" x-cloak
-       class="mt-6 bg-gradient-to-r from-pink-50 to-purple-50 border border-pink-200 rounded-2xl p-6 text-center">
-    <div class="text-4xl mb-2">🎉</div>
-    <p class="font-bold text-gray-800 mb-1">{{ t.quiz_done }}</p>
-    <a href="/matches"
-       class="gradient-pink text-white px-6 py-2.5 rounded-full font-semibold text-sm inline-block mt-3 hover:opacity-90 transition">
-      {{ t.my_matches }} →
-    </a>
-  </div>
-
-</div>
+<div id="quiz-root"></div>
 
 <script>
-function quizApp() {
-  const questions = {{ questions | tojson | safe }};
-  const answeredIds = new Set({{ answered_ids | tojson | safe }});
-  const translations = {{ t | tojson | safe }};
+(function() {
+  var questions = {{ questions | tojson | safe }};
+  var answeredIds = new Set({{ answered_ids | tojson | safe }});
+  var tr = {{ t | tojson | safe }};
+  var total = questions.length;
+  var currentIndex = 0;
+  var selected = {};
+  var saving = false;
+  var done = false;
 
-  const catMeta = {
-    lifestyle:     { icon: '🌿', color: 'green' },
-    values:        { icon: '💎', color: 'purple' },
-    communication: { icon: '💬', color: 'blue' },
-    romance:       { icon: '❤️',  color: 'pink' },
-    personality:   { icon: '✨', color: 'yellow' },
+  var catMeta = {
+    lifestyle:     { icon: '🌿' },
+    values:        { icon: '💎' },
+    communication: { icon: '💬' },
+    romance:       { icon: '❤️' },
+    personality:   { icon: '✨' },
   };
-  const catOrder = ['lifestyle', 'values', 'communication', 'romance', 'personality'];
+  var catOrder = ['lifestyle', 'values', 'communication', 'romance', 'personality'];
 
-  const catGroupsData = catOrder.map(name => ({
-    name,
-    indices: questions.map((q, i) => q.category === name ? i : -1).filter(i => i >= 0),
-  }));
+  while (currentIndex < total - 1 && answeredIds.has(questions[currentIndex].id)) {
+    currentIndex++;
+  }
 
-  return {
-    currentIndex: 0,
-    selected: {},
-    saving: false,
-    done: false,
-    catGroups: catGroupsData,
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
 
-    init() {
-      while (this.currentIndex < questions.length - 1 &&
-             answeredIds.has(questions[this.currentIndex].id)) {
-        this.currentIndex++;
-      }
-    },
+  function catKey() { return (questions[currentIndex] || {}).category || 'lifestyle'; }
+  function catIcon() { return (catMeta[catKey()] || {}).icon || '❓'; }
+  function catName() { return tr['quiz_cat_' + catKey()] || catKey(); }
 
-    currentQid()      { return questions[this.currentIndex]?.id; },
-    currentCategory() { return questions[this.currentIndex]?.category || 'lifestyle'; },
-    categoryIcon()    { return catMeta[this.currentCategory()]?.icon || '❓'; },
-    categoryColor()   { return catMeta[this.currentCategory()]?.color || 'pink'; },
-    categoryName()    { return translations['quiz_cat_' + this.currentCategory()] || this.currentCategory(); },
+  function render() {
+    var root = document.getElementById('quiz-root');
+    if (!root) return;
 
-    currentQuestion() {
-      const q = questions[this.currentIndex];
-      return q ? (translations[q.key] || q.key) : '';
-    },
+    if (done) {
+      root.innerHTML =
+        '<div class="mt-6 bg-gradient-to-r from-pink-50 to-purple-50 border border-pink-200 rounded-2xl p-6 text-center">' +
+          '<div class="text-4xl mb-2">🎉</div>' +
+          '<p class="font-bold text-gray-800 mb-1">' + escHtml(tr.quiz_done || 'Готово!') + '</p>' +
+          '<a href="/matches" class="gradient-pink text-white px-6 py-2.5 rounded-full font-semibold text-sm inline-block mt-3 hover:opacity-90 transition">' +
+            escHtml(tr.my_matches || 'Матчи') + ' →</a>' +
+        '</div>';
+      return;
+    }
 
-    currentOptions() {
-      const q = questions[this.currentIndex];
-      if (!q) return [];
-      return q.options.map(k => translations[k] || k);
-    },
+    var q = questions[currentIndex];
+    if (!q) return;
+    var qid = q.id;
+    var selIdx = selected[qid];
+    var opts = q.options.map(function(k) { return tr[k] || k; });
+    var cat = catKey();
+    var catClass = 'cat-' + cat;
+    var pct = Math.round((currentIndex / total) * 100);
 
-    selectAnswer(idx) { this.selected[this.currentQid()] = idx; },
+    // Category progress dots
+    var dotsHtml = catOrder.map(function(name) {
+      var grp = questions.map(function(qq, i) { return qq.category === name ? i : -1; }).filter(function(i) { return i >= 0; });
+      if (!grp.length) return '';
+      return '<div class="flex items-center gap-1">' +
+        grp.map(function(qIdx) {
+          var cls = 'cat-dot' + (qIdx < currentIndex ? ' done' : qIdx === currentIndex ? ' current' : '');
+          return '<div class="' + cls + '"></div>';
+        }).join('') +
+      '</div>';
+    }).join('');
 
-    async next() {
-      const qid = this.currentQid();
-      const answerIdx = this.selected[qid];
-      if (answerIdx === undefined || this.saving) return;
+    // Answer options
+    var optsHtml = opts.map(function(opt, idx) {
+      var isSelected = selIdx === idx;
+      var cls = isSelected
+        ? 'border-pink-400 bg-pink-50 ring-2 ring-pink-200 text-pink-700 font-semibold'
+        : 'border-gray-200 bg-white text-gray-700 hover:border-pink-200 hover:bg-pink-50';
+      var letter = ['A','B','C','D'][idx] || String(idx + 1);
+      return '<button onclick="quizSelect(' + idx + ')" ' +
+        'class="text-left border-2 rounded-xl px-4 py-3 transition text-sm flex items-center gap-3 ' + cls + '">' +
+        '<span class="text-gray-300 font-mono text-xs w-4 flex-shrink-0">' + letter + '</span>' +
+        '<span>' + escHtml(opt) + '</span></button>';
+    }).join('');
 
-      this.saving = true;
-      try {
-        await fetch('/quiz/answer', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json', 'x-csrf-token': getCsrfToken()},
-          body: JSON.stringify({question_id: qid, answer_index: answerIdx}),
-        });
-        answeredIds.add(qid);
-      } catch(e) {}
-      this.saving = false;
+    var nextDisabled = (selIdx === undefined || saving) ? 'disabled' : '';
+    var nextLabel = currentIndex < total - 1
+      ? (escHtml(tr.quiz_next || 'Далее') + ' →')
+      : ('✓ ' + escHtml(tr.quiz_submit || 'Готово'));
 
-      if (this.currentIndex < questions.length - 1) {
-        this.currentIndex++;
-        while (this.currentIndex < questions.length - 1 &&
-               answeredIds.has(questions[this.currentIndex].id)) {
-          this.currentIndex++;
+    var prevBtn = currentIndex > 0
+      ? '<button onclick="quizPrev()" class="flex-1 border-2 border-gray-200 text-gray-600 py-3 rounded-full font-semibold hover:border-gray-300 transition text-sm">← ' + escHtml(tr.back || 'Назад') + '</button>'
+      : '';
+
+    root.innerHTML =
+      '<div class="flex items-center justify-between mb-3">' +
+        '<div class="category-badge px-3 py-1.5 rounded-full text-sm font-semibold flex items-center gap-1.5 ' + catClass + '">' +
+          catIcon() + '  ' + escHtml(catName()) +
+        '</div>' +
+        '<span class="text-gray-400 text-sm font-medium">' + (currentIndex + 1) + ' / ' + total + '</span>' +
+      '</div>' +
+      '<div class="w-full bg-gray-100 rounded-full h-2 mb-2">' +
+        '<div class="gradient-pink h-2 rounded-full transition-all duration-400" style="width:' + pct + '%"></div>' +
+      '</div>' +
+      '<div class="flex justify-center gap-2 mb-6">' + dotsHtml + '</div>' +
+      '<div class="bg-white rounded-2xl card-shadow p-6 mb-5">' +
+        '<p class="text-xs font-bold uppercase tracking-widest mb-3 opacity-50">' + catIcon() + '  ' + escHtml(catName()) + '</p>' +
+        '<h2 class="text-lg font-bold text-gray-800 mb-5">' + escHtml(tr[q.key] || q.key) + '</h2>' +
+        '<div class="flex flex-col gap-3">' + optsHtml + '</div>' +
+      '</div>' +
+      '<div class="flex gap-3">' +
+        prevBtn +
+        '<button onclick="quizNext()" ' + nextDisabled + ' ' +
+          'class="flex-1 gradient-pink text-white py-3 rounded-full font-semibold hover:opacity-90 transition disabled:opacity-50 text-sm">' +
+          (saving ? '...' : nextLabel) +
+        '</button>' +
+      '</div>';
+  }
+
+  window.quizSelect = function(idx) {
+    selected[questions[currentIndex].id] = idx;
+    render();
+  };
+
+  window.quizPrev = function() {
+    if (currentIndex > 0) { currentIndex--; render(); }
+  };
+
+  window.quizNext = function() {
+    var q = questions[currentIndex];
+    var answerIdx = selected[q.id];
+    if (answerIdx === undefined || saving) return;
+
+    saving = true;
+    render();
+
+    fetch('/quiz/answer', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'x-csrf-token': getCsrfToken()},
+      body: JSON.stringify({question_id: q.id, answer_index: answerIdx}),
+    })
+    .then(function() { answeredIds.add(q.id); })
+    .catch(function() {})
+    .finally(function() {
+      saving = false;
+      if (currentIndex < total - 1) {
+        currentIndex++;
+        while (currentIndex < total - 1 && answeredIds.has(questions[currentIndex].id)) {
+          currentIndex++;
         }
       } else {
-        this.done = true;
-        setTimeout(() => { window.location.href = '/matches'; }, 2500);
+        done = true;
+        setTimeout(function() { window.location.href = '/matches'; }, 2500);
       }
-    },
-
-    prev() { if (this.currentIndex > 0) this.currentIndex--; },
+      render();
+    });
   };
-}
+
+  render();
+})();
 </script>
 {% endblock %}

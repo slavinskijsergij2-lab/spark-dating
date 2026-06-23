@@ -1,25 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ profile.name }} — Spark{% endblock %}
 {% block content %}
-<div x-data="{
-  reportOpen: false,
-  reportReason: 'spam',
-  reportComment: '',
-  blocked: false,
-  reported: false,
-  async blockUser() {
-    const r = await fetch('/user/{{ target.id }}/block', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}});
-    if (r.ok) this.blocked = true;
-  },
-  async reportUser() {
-    const r = await fetch('/user/{{ target.id }}/report', {
-      method:'POST',
-      headers:{'x-csrf-token': getCsrfToken(), 'Content-Type':'application/json'},
-      body: JSON.stringify({reason: this.reportReason, comment: this.reportComment})
-    });
-    if (r.ok) { this.reported = true; this.reportOpen = false; this.blocked = true; }
-  }
-}">
 
 <div class="bg-white rounded-3xl card-shadow overflow-hidden">
   <div class="relative h-80 bg-gradient-to-br from-pink-100 to-rose-100">
@@ -41,15 +22,15 @@
     </div>
     {% if user.id != target.id %}
     <div class="absolute top-3 right-3 flex gap-2">
-      {% set _title_blocked = t.get('blocked_status', 'Заблокировано') %}
-      {% set _title_block = t.get('block_btn', 'Заблокировать') %}
-      <button @click="blockUser()" :title="blocked ? '{{ _title_blocked }}' : '{{ _title_block }}'"
-        class="w-9 h-9 rounded-full flex items-center justify-center transition"
-        :class="blocked ? 'bg-gray-700 text-gray-300' : 'bg-black/40 text-white hover:bg-black/60'">
+      <button id="block-btn"
+              onclick="blockUser()"
+              title="{{ t.get('block_btn', 'Заблокировать') }}"
+              class="w-9 h-9 rounded-full flex items-center justify-center transition bg-black/40 text-white hover:bg-black/60">
         🚫
       </button>
-      <button @click="reportOpen=true" title="{{ t.get('report_btn', 'Пожаловаться') }}"
-        class="w-9 h-9 bg-black/40 text-white rounded-full flex items-center justify-center hover:bg-red-600/80 transition">
+      <button onclick="openReportModal()"
+              title="{{ t.get('report_btn', 'Пожаловаться') }}"
+              class="w-9 h-9 bg-black/40 text-white rounded-full flex items-center justify-center hover:bg-red-600/80 transition">
         ⚑
       </button>
     </div>
@@ -143,11 +124,11 @@
     </div>
     {% endif %}
 
-    <!-- Blocked notice -->
-    <div x-show="blocked" class="text-center text-sm text-gray-500 mt-2">
+    <!-- Status notices -->
+    <div id="blocked-notice" style="display:none" class="text-center text-sm text-gray-500 mt-2">
       {{ t.get('blocked_notice', 'Пользователь заблокирован') }}
     </div>
-    <div x-show="reported" class="text-center text-sm text-green-600 mt-2">
+    <div id="reported-notice" style="display:none" class="text-center text-sm text-green-600 mt-2">
       {{ t.get('reported_notice', 'Жалоба отправлена') }}
     </div>
   </div>
@@ -160,24 +141,78 @@
 </div>
 
 <!-- Report modal -->
-<div x-show="reportOpen" x-cloak class="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4">
-  <div class="bg-white rounded-2xl p-6 w-full max-w-sm" @click.outside="reportOpen=false">
+<div id="report-modal" style="display:none"
+     class="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4"
+     onclick="if(event.target===this) closeReportModal()">
+  <div class="bg-white rounded-2xl p-6 w-full max-w-sm">
     <h3 class="font-bold text-lg mb-4">{{ t.get('report_modal_title', 'Пожаловаться') }}</h3>
-    <select x-model="reportReason" class="w-full border border-gray-200 rounded-xl p-3 mb-3 text-sm focus:ring-2 focus:ring-pink-500 outline-none">
+    <select id="report-reason" class="w-full border border-gray-200 rounded-xl p-3 mb-3 text-sm focus:ring-2 focus:ring-pink-500 outline-none">
       <option value="spam">{{ t.get('report_spam', 'Спам') }}</option>
       <option value="fake">{{ t.get('report_fake', 'Фейк / бот') }}</option>
       <option value="harassment">{{ t.get('report_harassment', 'Оскорбления') }}</option>
       <option value="inappropriate">{{ t.get('report_inappropriate', 'Неприемлемый контент') }}</option>
       <option value="other">{{ t.get('report_other', 'Другое') }}</option>
     </select>
-    <textarea x-model="reportComment" placeholder="{{ t.get('report_comment_placeholder', 'Комментарий (необязательно)') }}" rows="3"
+    <textarea id="report-comment" placeholder="{{ t.get('report_comment_placeholder', 'Комментарий (необязательно)') }}" rows="3"
       class="w-full border border-gray-200 rounded-xl p-3 mb-4 text-sm resize-none focus:ring-2 focus:ring-pink-500 outline-none"></textarea>
     <div class="flex gap-3">
-      <button @click="reportOpen=false" class="flex-1 py-2 border border-gray-200 rounded-full text-gray-600 text-sm">{{ t.get('cancel_btn', 'Отмена') }}</button>
-      <button @click="reportUser()" class="flex-1 py-2 bg-red-500 text-white rounded-full text-sm font-semibold">{{ t.get('send_btn_modal', 'Отправить') }}</button>
+      <button onclick="closeReportModal()" class="flex-1 py-2 border border-gray-200 rounded-full text-gray-600 text-sm">{{ t.get('cancel_btn', 'Отмена') }}</button>
+      <button onclick="submitReport()" class="flex-1 py-2 bg-red-500 text-white rounded-full text-sm font-semibold">{{ t.get('send_btn_modal', 'Отправить') }}</button>
     </div>
   </div>
 </div>
 
-</div><!-- end x-data -->
+<script>
+var _pvBlocked = false;
+function blockUser() {
+  if (_pvBlocked) return;
+  var btn = document.getElementById('block-btn');
+  if (btn) btn.disabled = true;
+  fetch('/user/{{ target.id }}/block', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}})
+    .then(function(r) {
+      if (r.ok) {
+        _pvBlocked = true;
+        if (btn) {
+          btn.className = 'w-9 h-9 rounded-full flex items-center justify-center transition bg-gray-700 text-gray-300';
+          btn.title = '{{ t.get("blocked_status", "Заблокировано") }}';
+          btn.disabled = false;
+        }
+        var notice = document.getElementById('blocked-notice');
+        if (notice) notice.style.display = '';
+      } else {
+        if (btn) btn.disabled = false;
+      }
+    })
+    .catch(function() { if (btn) btn.disabled = false; });
+}
+function openReportModal() {
+  document.getElementById('report-modal').style.display = 'flex';
+}
+function closeReportModal() {
+  document.getElementById('report-modal').style.display = 'none';
+}
+function submitReport() {
+  var reason = document.getElementById('report-reason').value;
+  var comment = document.getElementById('report-comment').value;
+  fetch('/user/{{ target.id }}/report', {
+    method: 'POST',
+    headers: {'x-csrf-token': getCsrfToken(), 'Content-Type': 'application/json'},
+    body: JSON.stringify({reason: reason, comment: comment})
+  }).then(function(r) {
+    if (r.ok) {
+      _pvBlocked = true;
+      closeReportModal();
+      var btn = document.getElementById('block-btn');
+      if (btn) {
+        btn.className = 'w-9 h-9 rounded-full flex items-center justify-center transition bg-gray-700 text-gray-300';
+        btn.title = '{{ t.get("blocked_status", "Заблокировано") }}';
+      }
+      var bn = document.getElementById('blocked-notice');
+      var rn = document.getElementById('reported-notice');
+      if (bn) bn.style.display = '';
+      if (rn) rn.style.display = '';
+    }
+  });
+}
+</script>
 {% endblock %}

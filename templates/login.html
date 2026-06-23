@@ -34,9 +34,7 @@
       </div>
       {% endif %}
 
-      <form method="POST" action="/login"
-            x-data="{ loading: false }"
-            @submit="loading = true">
+      <form method="POST" action="/login" onsubmit="setLoginLoading()">
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-700 mb-1">{{ t.email }}</label>
           <input type="email" name="email" required placeholder="your@email.com" autocomplete="email"
@@ -48,13 +46,22 @@
                  class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-pink-300 transition" />
         </div>
         <input type="hidden" name="csrftoken" value="{{ request.state.csrf_token }}" />
-        <button type="submit"
-                :disabled="loading"
+        <button type="submit" id="login-btn"
                 class="w-full gradient-pink text-white py-3 rounded-full font-semibold text-lg shadow hover:opacity-90 transition disabled:opacity-60">
-          <span x-show="!loading">{{ t.login_button }}</span>
-          <span x-show="loading" x-cloak>{{ t.login_loading }}</span>
+          <span id="login-btn-text">{{ t.login_button }}</span>
+          <span id="login-btn-loading" style="display:none">{{ t.login_loading }}</span>
         </button>
       </form>
+      <script>
+      function setLoginLoading() {
+        var btn = document.getElementById('login-btn');
+        var t = document.getElementById('login-btn-text');
+        var l = document.getElementById('login-btn-loading');
+        if (btn) btn.disabled = true;
+        if (t) t.style.display = 'none';
+        if (l) l.style.display = '';
+      }
+      </script>
 
       <p class="text-center text-gray-500 text-sm mt-6">
         {{ t.no_account }}
