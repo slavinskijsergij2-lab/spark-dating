@@ -12,6 +12,7 @@
     word-break: break-word;
     font-size: 14px;
     line-height: 1.5;
+    display: inline-block;
   }
   .bubble-partner {
     background: white;
@@ -23,14 +24,20 @@
     word-break: break-word;
     font-size: 14px;
     line-height: 1.5;
+    display: inline-block;
   }
   #messages-container { background: #fdf2f8; }
-  #msg-input { outline: none; border: none; background: transparent; }
+  .msg-row-own    { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+  .msg-row-partner{ display: flex; align-items: flex-end; gap: 6px; margin-bottom: 6px; }
+  .msg-meta { font-size: 10px; color: #9ca3af; margin-top: 2px; padding: 0 4px; }
+  .msg-meta-own { text-align: right; }
+  .date-divider { display:flex; align-items:center; gap:8px; margin: 10px 0; }
+  .date-divider span { font-size: 10px; color: #9ca3af; white-space:nowrap; }
+  .date-divider::before, .date-divider::after { content:''; flex:1; height:1px; background:#fce7f3; }
   {% if partner.profile and partner.profile.photo %}
-  .partner-avatar-bg {
+  .partner-avatar {
     background-image: url('{{ partner.profile.photo }}');
-    background-size: cover;
-    background-position: center;
+    background-size: cover; background-position: center;
   }
   {% endif %}
 </style>
@@ -41,9 +48,11 @@
 {% block content %}
 {% set os = online_status(partner.last_seen, lang) %}
 
-<div id="chat-i18n" data-today="{{ t.get('today','Сегодня') }}" data-yesterday="{{ t.get('yesterday','Вчера') }}" class="hidden"></div>
-
-<div x-data="chatApp()" x-init="init()" class="flex flex-col bg-white" style="height:calc(100vh - 56px);">
+<div id="chat-root"
+     data-match-id="{{ match.id }}"
+     data-user-id="{{ user.id }}"
+     class="flex flex-col bg-white"
+     style="height: calc(100vh - 56px);">
 
   <!-- HEADER -->
   <div class="flex-shrink-0 flex items-center gap-3 px-3 py-2.5 bg-white border-b border-gray-100"
@@ -55,7 +64,7 @@
     </a>
     <a href="/profile/{{ partner.id }}" class="flex items-center gap-2.5 flex-1 min-w-0">
       <div class="relative w-9 h-9 rounded-full overflow-hidden bg-pink-100 flex items-center justify-center ring-2 ring-pink-100 flex-shrink-0
-                  {% if partner.profile and partner.profile.photo %}partner-avatar-bg{% endif %}">
+                  {% if partner.profile and partner.profile.photo %}partner-avatar{% else %}{% endif %}">
         {% if not (partner.profile and partner.profile.photo) %}<span class="text-base">👤</span>{% endif %}
         {% if os and os.is_online %}
         <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-400 rounded-full border-2 border-white"></span>
@@ -64,29 +73,29 @@
       <div class="min-w-0">
         <p class="font-semibold text-gray-900 text-sm truncate">{{ partner.profile.name }}</p>
         <p class="text-xs {% if os and os.is_online %}text-green-500{% else %}text-gray-400{% endif %}">
-          {% if os %}{{ os.label }}{% else %}{{ partner.profile.age }} {{ t.years_old }}{% endif %}
+          {% if os %}{{ os.label }}{% elif partner.profile.city %}{{ partner.profile.city }}{% else %}{{ partner.profile.age }} {{ t.years_old }}{% endif %}
         </p>
       </div>
     </a>
-    <button @click="showUnmatch = true"
+    <button onclick="confirmUnmatch()"
             class="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-red-50 hover:text-red-400 flex-shrink-0">
       🚫
     </button>
   </div>
 
   <!-- UNMATCH MODAL -->
-  <div x-show="showUnmatch" x-cloak style="display:none"
+  <div id="unmatch-modal" style="display:none;"
        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
     <div class="bg-white rounded-2xl p-6 max-w-xs w-full text-center shadow-2xl">
       <p class="font-bold text-gray-800 mb-2">{{ t.get('unmatch','Разматч?') }}</p>
       <p class="text-gray-500 text-sm mb-5">{{ t.get('unmatch_confirm','Удалить матч и переписку?') }}</p>
       <div class="flex gap-3">
-        <button @click="showUnmatch = false"
+        <button onclick="document.getElementById('unmatch-modal').style.display='none'"
                 class="flex-1 border border-gray-200 text-gray-600 py-2.5 rounded-full text-sm font-semibold">
           {{ t.get('unmatch_no','Отмена') }}
         </button>
-        <button @click="doUnmatch()"
-                class="flex-1 bg-red-500 text-white py-2.5 rounded-full text-sm font-semibold disabled:opacity-60">
+        <button onclick="doUnmatch(this)"
+                class="flex-1 bg-red-500 text-white py-2.5 rounded-full text-sm font-semibold">
           {{ t.get('unmatch_yes','Удалить') }}
         </button>
       </div>
@@ -94,76 +103,63 @@
   </div>
 
   <!-- MESSAGES -->
-  <div id="messages-container" class="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-2">
+  <div id="messages-container" class="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-0.5">
 
-    <template x-if="messages.length === 0">
-      <div class="flex flex-col items-center justify-center h-full text-center">
-        <div class="text-5xl mb-3 opacity-60">💬</div>
-        <p class="text-gray-400 text-sm">{{ t.start_chat }}</p>
+    {% if not messages %}
+    <div id="empty-hint" class="flex flex-col items-center justify-center h-full text-center">
+      <div class="text-5xl mb-3 opacity-60">💬</div>
+      <p class="text-gray-400 text-sm">{{ t.start_chat }}</p>
+    </div>
+    {% endif %}
+
+    {% for m in messages %}
+    {# created_at is ISO string e.g. "2026-06-23T15:08:09.983708" #}
+    {% set ts = m.created_at or '' %}
+    {% set m_date = ts[:10] %}
+    {% set m_time = ts[11:16] %}
+    {% if loop.first or (messages[loop.index0 - 1].created_at or '')[:10] != m_date %}
+    <div class="date-divider"><span>{{ m_date }}</span></div>
+    {% endif %}
+    {% if m.sender_id == user.id %}
+    <div class="msg-row-own" data-msg-id="{{ m.id }}">
+      <div class="flex flex-col items-end">
+        <div class="bubble-own">{{ m.content | e }}</div>
+        <div class="msg-meta msg-meta-own">{{ m_time }}</div>
       </div>
-    </template>
-
-    <template x-for="(m, idx) in messages" :key="m.id">
-      <div>
-        <!-- Date divider -->
-        <template x-if="idx === 0 || messages[idx-1].date !== m.date">
-          <div class="flex items-center gap-2 my-2">
-            <div class="flex-1 h-px bg-pink-100"></div>
-            <span class="text-[10px] text-gray-400 px-2" x-text="m.date"></span>
-            <div class="flex-1 h-px bg-pink-100"></div>
-          </div>
-        </template>
-
-        <!-- Own message -->
-        <template x-if="m.sender_id === userId">
-          <div class="flex justify-end">
-            <div class="flex flex-col items-end gap-0.5">
-              <div class="bubble-own" x-text="m.content"></div>
-              <div class="flex items-center gap-0.5 px-1">
-                <span class="text-[10px] text-gray-400" x-text="m.time"></span>
-                <span :class="m.is_read ? 'text-pink-400' : 'text-gray-300'" class="text-[11px] font-bold"
-                      x-text="m.is_read ? '✓✓' : '✓'"></span>
-              </div>
-            </div>
-          </div>
-        </template>
-
-        <!-- Partner message -->
-        <template x-if="m.sender_id !== userId">
-          <div class="flex items-end gap-1.5">
-            <div class="w-6 h-6 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center
-                        {% if partner.profile and partner.profile.photo %}partner-avatar-bg{% endif %}">
-              {% if not (partner.profile and partner.profile.photo) %}<span class="text-xs">👤</span>{% endif %}
-            </div>
-            <div class="flex flex-col gap-0.5">
-              <div class="bubble-partner" x-text="m.content"></div>
-              <span class="text-[10px] text-gray-400 px-1" x-text="m.time"></span>
-            </div>
-          </div>
-        </template>
+    </div>
+    {% else %}
+    <div class="msg-row-partner" data-msg-id="{{ m.id }}">
+      <div class="w-6 h-6 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center
+                  {% if partner.profile and partner.profile.photo %}partner-avatar{% endif %}">
+        {% if not (partner.profile and partner.profile.photo) %}<span class="text-xs">👤</span>{% endif %}
       </div>
-    </template>
+      <div class="flex flex-col">
+        <div class="bubble-partner">{{ m.content | e }}</div>
+        <div class="msg-meta">{{ m_time }}</div>
+      </div>
+    </div>
+    {% endif %}
+    {% endfor %}
 
   </div>
 
   <!-- ERROR -->
-  <div x-show="sendErr" x-cloak x-text="sendErr"
+  <div id="send-err" style="display:none;"
        class="flex-shrink-0 text-center text-xs text-red-500 bg-red-50 py-2 px-4 border-t border-red-100"></div>
 
   <!-- INPUT -->
   <div class="flex-shrink-0 bg-white border-t border-gray-100 px-3 py-2 flex items-end gap-2">
     <div class="flex-1 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-2.5 focus-within:border-pink-300 transition">
       <textarea id="msg-input"
-                x-model="newMsg"
-                @keydown.enter.prevent="if (!$event.shiftKey) send()"
-                @input="$el.style.height='auto'; $el.style.height=Math.min($el.scrollHeight,112)+'px'"
                 rows="1"
                 placeholder="{{ t.message_placeholder or 'Написать...' }}"
                 class="w-full text-sm text-gray-800 placeholder-gray-400 resize-none bg-transparent"
-                style="max-height:7rem; min-height:1.25rem; outline:none; border:none;"></textarea>
+                style="max-height:7rem; min-height:1.25rem; outline:none; border:none;"
+                oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,112)+'px'; toggleSendBtn()"
+                onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); sendMessage(); }"></textarea>
     </div>
-    <button @click="send()"
-            :disabled="!newMsg.trim() || loading"
+    <button id="send-btn" onclick="sendMessage()"
+            disabled
             class="flex-shrink-0 w-11 h-11 gradient-pink text-white rounded-full flex items-center justify-center shadow-md
                    hover:opacity-90 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed">
       <svg class="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
@@ -176,135 +172,189 @@
 
 <script>
 (function() {
-  const i18n = document.getElementById('chat-i18n');
-  const TODAY     = i18n ? i18n.dataset.today     : 'Сегодня';
-  const YESTERDAY = i18n ? i18n.dataset.yesterday : 'Вчера';
+  var ROOT    = document.getElementById('chat-root');
+  var MATCH   = parseInt(ROOT.dataset.matchId, 10);
+  var USER    = parseInt(ROOT.dataset.userId, 10);
+  var TODAY   = '{{ t.get("today","Сегодня") }}';
+  var container = document.getElementById('messages-container');
+  var lastId  = {{ messages[-1].id if messages else 0 }};
+  var sending = false;
+  var sseRetries = 0;
+  var sse;
 
-  window.chatApp = function() {
-    return {
-      messages: [],
-      newMsg: '',
-      lastId: 0,
-      userId: {{ user.id }},
-      matchId: {{ match.id }},
-      loading: false,
-      sendErr: '',
-      showUnmatch: false,
-      sse: null,
+  // ── helpers ───────────────────────────────────────────────────
+  function getCsrf() {
+    var c = document.cookie.split('; ').find(function(r){ return r.startsWith('csrftoken='); });
+    return c ? c.slice('csrftoken='.length) : '';
+  }
 
-      init() {
-        const raw = {{ messages | tojson | safe }};
-        this.messages = raw.map(m => this.fmt(m));
-        if (this.messages.length) this.lastId = this.messages.at(-1).id;
-        this.$nextTick(() => this.scrollBottom());
-        this.connectSSE();
-        window.addEventListener('pagehide', () => { if (this.sse) this.sse.close(); });
-        window.addEventListener('pageshow', (e) => {
-          if (e.persisted) { this._retries = 0; if (this.sse) this.sse.close(); this.connectSSE(); }
-        });
-      },
+  function showErr(msg) {
+    var el = document.getElementById('send-err');
+    el.textContent = msg;
+    el.style.display = 'block';
+    setTimeout(function(){ el.style.display = 'none'; }, 4000);
+  }
 
-      fmt(m) {
-        const dt = m.created_at ? new Date(m.created_at) : null;
-        const now = new Date();
-        let date = '';
-        if (dt) {
-          const isToday = dt.toDateString() === now.toDateString();
-          const prev = new Date(now); prev.setDate(prev.getDate() - 1);
-          date = isToday ? TODAY : dt.toDateString() === prev.toDateString() ? YESTERDAY
-               : dt.toLocaleDateString([], {day:'numeric', month:'short'});
-        }
-        return {
-          id: m.id,
-          content: m.content || '',
-          sender_id: m.sender_id,
-          time: dt ? dt.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '',
-          date,
-          is_read: !!m.is_read,
-        };
-      },
+  function scrollBottom() {
+    if (container) container.scrollTop = container.scrollHeight;
+  }
 
-      async send() {
-        const text = this.newMsg.trim();
-        if (!text || this.loading) return;
-        this.loading = true;
-        this.sendErr = '';
-        this.newMsg = '';
-        const fd = new FormData();
-        fd.append('content', text);
-        try {
-          const r = await fetch('/chat/' + this.matchId + '/send', {
-            method: 'POST',
-            body: fd,
-            headers: { 'x-csrf-token': getCsrfToken() },
-          });
-          const d = await r.json();
-          if (d.id) {
-            this.messages.push({
-              id: d.id,
-              content: d.content,
-              sender_id: d.sender_id,
-              time: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
-              date: TODAY,
-              is_read: false,
-            });
-            this.lastId = d.id;
-            this.$nextTick(() => this.scrollBottom());
-          } else {
-            this.newMsg = text;
-            this.sendErr = d.detail || d.error || 'Ошибка отправки';
-            setTimeout(() => { this.sendErr = ''; }, 4000);
-          }
-        } catch(e) {
-          this.newMsg = text;
-          this.sendErr = 'Нет соединения';
-          setTimeout(() => { this.sendErr = ''; }, 4000);
-        }
-        this.loading = false;
-      },
+  function fmtTime(iso) {
+    try {
+      var d = new Date(iso);
+      return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    } catch(e) { return ''; }
+  }
 
-      connectSSE() {
-        this.sse = new EventSource('/chat/' + this.matchId + '/stream?after_id=' + this.lastId);
-        this.sse.onmessage = (e) => {
-          try {
-            const msgs = JSON.parse(e.data);
-            if (Array.isArray(msgs) && msgs.length) {
-              msgs.forEach(m => {
-                if (!this.messages.find(x => x.id === m.id)) this.messages.push(this.fmt(m));
-              });
-              this.lastId = msgs.at(-1).id;
-              this.messages.forEach(m => { if (m.sender_id === this.userId) m.is_read = true; });
-              this.$nextTick(() => this.scrollBottom());
-            }
-          } catch(_) {}
-        };
-        this.sse.addEventListener('reconnect', () => {
-          this.sse.close(); setTimeout(() => this.connectSSE(), 500);
-        });
-        this.sse.onerror = () => {
-          this.sse.close(); this.sse = null;
-          this._retries = (this._retries || 0) + 1;
-          if (this._retries > 8) return;
-          setTimeout(() => this.connectSSE(), Math.min(3000 * this._retries, 30000));
-        };
-      },
+  function fmtDate(iso) {
+    try {
+      var d = new Date(iso);
+      return d.toLocaleDateString([], {day:'numeric', month:'short'});
+    } catch(e) { return ''; }
+  }
 
-      async doUnmatch() {
-        try {
-          await fetch('/match/{{ match.id }}/unmatch', {
-            method: 'POST',
-            headers: { 'x-csrf-token': getCsrfToken() },
-          });
-        } catch(_) {}
-        window.location.href = '/matches';
-      },
+  function appendMessage(id, content, senderId, time) {
+    var empty = document.getElementById('empty-hint');
+    if (empty) empty.style.display = 'none';
 
-      scrollBottom() {
-        const el = document.getElementById('messages-container');
-        if (el) el.scrollTop = el.scrollHeight;
-      },
-    };
+    var row = document.createElement('div');
+    if (senderId === USER) {
+      row.className = 'msg-row-own';
+      row.innerHTML =
+        '<div class="flex flex-col items-end">' +
+          '<div class="bubble-own">' + escHtml(content) + '</div>' +
+          '<div class="msg-meta msg-meta-own">' + time + '</div>' +
+        '</div>';
+    } else {
+      var avatarClass = '{% if partner.profile and partner.profile.photo %}partner-avatar{% endif %}';
+      var avatarInner = '{% if not (partner.profile and partner.profile.photo) %}<span class="text-xs">👤</span>{% endif %}';
+      row.className = 'msg-row-partner';
+      row.innerHTML =
+        '<div class="w-6 h-6 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center ' + avatarClass + '">' +
+          avatarInner +
+        '</div>' +
+        '<div class="flex flex-col">' +
+          '<div class="bubble-partner">' + escHtml(content) + '</div>' +
+          '<div class="msg-meta">' + time + '</div>' +
+        '</div>';
+    }
+    row.dataset.msgId = id;
+    container.appendChild(row);
+    scrollBottom();
+  }
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // ── send button enable/disable ────────────────────────────────
+  window.toggleSendBtn = function() {
+    var input = document.getElementById('msg-input');
+    var btn   = document.getElementById('send-btn');
+    if (btn) btn.disabled = !input.value.trim() || sending;
   };
+
+  // ── send message ──────────────────────────────────────────────
+  window.sendMessage = function() {
+    var input = document.getElementById('msg-input');
+    var text  = input.value.trim();
+    if (!text || sending) return;
+
+    sending = true;
+    var btn = document.getElementById('send-btn');
+    if (btn) btn.disabled = true;
+    input.value = '';
+    input.style.height = 'auto';
+
+    var fd = new FormData();
+    fd.append('content', text);
+
+    var ac = new AbortController();
+    var tid = setTimeout(function(){ ac.abort(); }, 10000);
+
+    fetch('/chat/' + MATCH + '/send', {
+      method: 'POST',
+      body: fd,
+      headers: { 'x-csrf-token': getCsrf() },
+      signal: ac.signal,
+    })
+    .then(function(r) {
+      clearTimeout(tid);
+      if (r.status === 401) { window.location.href = '/login'; return null; }
+      return r.json();
+    })
+    .then(function(d) {
+      if (!d) return;
+      if (d.id) {
+        appendMessage(d.id, d.content, d.sender_id,
+          new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}));
+        lastId = d.id;
+      } else {
+        input.value = text;
+        showErr(d.detail || d.error || 'Ошибка отправки');
+      }
+    })
+    .catch(function(e) {
+      input.value = text;
+      showErr('Нет соединения');
+    })
+    .finally(function() {
+      sending = false;
+      if (btn) btn.disabled = !input.value.trim();
+    });
+  };
+
+  // ── unmatch ───────────────────────────────────────────────────
+  window.confirmUnmatch = function() {
+    document.getElementById('unmatch-modal').style.display = 'flex';
+  };
+
+  window.doUnmatch = function(btn) {
+    btn.disabled = true;
+    fetch('/match/{{ match.id }}/unmatch', {
+      method: 'POST',
+      headers: { 'x-csrf-token': getCsrf() },
+    })
+    .then(function() { window.location.href = '/matches'; })
+    .catch(function() { window.location.href = '/matches'; });
+  };
+
+  // ── SSE ───────────────────────────────────────────────────────
+  function connectSSE() {
+    sse = new EventSource('/chat/' + MATCH + '/stream?after_id=' + lastId);
+    sse.onmessage = function(e) {
+      try {
+        var msgs = JSON.parse(e.data);
+        if (!Array.isArray(msgs) || !msgs.length) return;
+        msgs.forEach(function(m) {
+          if (!container.querySelector('[data-msg-id="' + m.id + '"]')) {
+            appendMessage(m.id, m.content, m.sender_id, fmtTime(m.created_at));
+            lastId = m.id;
+          }
+        });
+      } catch(_) {}
+    };
+    sse.addEventListener('reconnect', function() {
+      sse.close(); setTimeout(connectSSE, 500);
+    });
+    sse.onerror = function() {
+      sse.close(); sse = null;
+      sseRetries++;
+      if (sseRetries > 8) return;
+      setTimeout(connectSSE, Math.min(3000 * sseRetries, 30000));
+    };
+  }
+
+  connectSSE();
+  scrollBottom();
+  window.addEventListener('pagehide', function() { if (sse) sse.close(); });
+  window.addEventListener('pageshow', function(e) {
+    if (e.persisted) { sseRetries = 0; if (sse) sse.close(); connectSSE(); }
+  });
 })();
 </script>
 {% endblock %}
