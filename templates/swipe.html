@@ -123,7 +123,7 @@
     this.err = '';
     console.log('[swipe] start', action, this.card.id);
 
-    const cardEl = this.\$refs.card;
+    const cardEl = this.$refs.card;
     if (cardEl) {
       cardEl.classList.add(action === 'like' ? 'fly-right' : 'fly-left');
     }
