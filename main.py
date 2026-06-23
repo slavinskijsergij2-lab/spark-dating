@@ -1,3 +1,4 @@
+import asyncio
 import html as _html
 import json
 import logging
@@ -6,6 +7,7 @@ import secrets
 import time
 import traceback
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from pathlib import Path
 from threading import Lock
 
@@ -73,16 +75,31 @@ def _run_alembic_migrations() -> None:
     command.upgrade(alembic_cfg, "head")
 
 
-logging.info("startup: running migrations")
-try:
-    _run_alembic_migrations()
-    logging.info("startup: migrations OK")
-except Exception as _alembic_err:
-    logging.error("startup: MIGRATION FAILED — %s", _alembic_err, exc_info=True)
-    raise
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    loop = asyncio.get_running_loop()
+    logging.info("startup: running migrations")
+    try:
+        await loop.run_in_executor(None, _run_alembic_migrations)
+        logging.info("startup: migrations OK")
+    except Exception as _e:
+        logging.error("startup: MIGRATION FAILED — %s", _e, exc_info=True)
+        raise
+    try:
+        await loop.run_in_executor(None, _fix_broken_photo_urls)
+        logging.info("startup: fix_broken_photo_urls OK")
+    except Exception as _e:
+        logging.error("startup: fix_broken_photo_urls failed: %s", _e, exc_info=True)
+    try:
+        await loop.run_in_executor(None, _delete_bot_accounts)
+        logging.info("startup: delete_bots OK")
+    except Exception as _e:
+        logging.warning("startup: delete_bots failed: %s", _e, exc_info=True)
+    logging.info("startup: app ready")
+    yield
 
-logging.info("startup: fixing broken photo URLs")
-app = FastAPI(title="Spark — сайт знакомств")
+
+app = FastAPI(title="Spark — сайт знакомств", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ── Simple in-process metrics ─────────────────────────────────────────────────
@@ -189,11 +206,6 @@ def _fix_broken_photo_urls() -> None:
         logging.warning("fix_broken_photo_urls: %s", _e)
 
 
-try:
-    _fix_broken_photo_urls()
-    logging.info("startup: fix_broken_photo_urls OK")
-except Exception as _mig_err:
-    logging.error("startup: fix_broken_photo_urls failed: %s", _mig_err, exc_info=True)
 
 
 def _delete_bot_accounts() -> None:
@@ -211,13 +223,6 @@ def _delete_bot_accounts() -> None:
         logging.warning("delete_bots: %s", _e)
 
 
-try:
-    _delete_bot_accounts()
-    logging.info("startup: delete_bots OK")
-except Exception as _bp_err:
-    logging.warning("startup: delete_bots failed: %s", _bp_err, exc_info=True)
-
-logging.info("startup: app ready")
 
 # HIGH-6: Reject oversized request bodies before they reach route handlers.
 # Prevents DoS via 100 MB audio/image uploads buffered into memory.
