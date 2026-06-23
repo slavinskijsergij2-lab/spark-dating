@@ -21,8 +21,28 @@
   }
   .match-card-body {
     position: absolute; bottom: 0; left: 0; right: 0;
-    padding: 8px 8px 10px;
+    padding: 8px 10px 10px;
     min-width: 0;
+    overflow: hidden;
+  }
+  .match-card-name {
+    font-size: 13px; font-weight: 800; color: white;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    line-height: 1.2;
+    text-shadow: 0 1px 4px rgba(0,0,0,.5);
+  }
+  .match-card-sub {
+    font-size: 10px; color: rgba(255,255,255,.75);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-top: 2px; line-height: 1.2;
+  }
+  .match-badge {
+    display: inline-flex; align-items: center;
+    font-size: 10px; font-weight: 700; color: white;
+    padding: 2px 6px; border-radius: 999px;
+    margin-top: 4px; line-height: 1.2;
+    max-width: 100%; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
   }
   .liked-card {
     border-radius: 18px;
@@ -258,51 +278,30 @@ function likeBack(id, btn) {
       <!-- Gradient overlay -->
       <div class="match-card-overlay"></div>
 
-      <!-- Top badges -->
-      <div class="absolute top-2.5 left-2.5 right-2.5 flex justify-between items-start">
-        <div class="flex gap-1 flex-wrap">
-          {% if os and os.is_online %}
-          <span class="bg-green-400 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shadow">
-            <span class="w-1.5 h-1.5 bg-white rounded-full"></span> {{ os.label }}
-          </span>
-          {% endif %}
-        </div>
+      <!-- Top badges: online + streak -->
+      <div class="absolute top-2.5 right-2.5 flex flex-col items-end gap-1">
+        {% if os and os.is_online %}
+        <span class="bg-green-400/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shadow">
+          <span class="w-1.5 h-1.5 bg-white rounded-full flex-shrink-0"></span>{{ os.label }}
+        </span>
+        {% endif %}
         {% if match.streak_days and match.streak_days > 1 %}
-        <span class="bg-orange-500/90 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow">🔥{{ match.streak_days }}</span>
+        <span class="bg-orange-500/90 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow">🔥{{ match.streak_days }}</span>
         {% endif %}
       </div>
 
-      <!-- Bottom info -->
+      <!-- Bottom info: name + one sub-line + one badge -->
       <div class="match-card-body">
-        <p class="text-white font-bold text-xs leading-tight truncate">{{ partner.profile.name }}, {{ partner.profile.age }}</p>
-        {% if not os and partner.profile.city %}
-        <p class="text-white/70 text-[9px] mt-0.5 truncate">📍 {{ partner.profile.city }}</p>
-        {% elif os and not os.is_online and os.label %}
-        <p class="text-white/60 text-[9px] mt-0.5 truncate">{{ os.label }}</p>
+        <div class="match-card-name">{{ partner.profile.name }}, {{ partner.profile.age }}</div>
+
+        {% if os and not os.is_online and os.label %}
+        <div class="match-card-sub">{{ os.label }}</div>
+        {% elif partner.profile.city %}
+        <div class="match-card-sub">📍 {{ partner.profile.city }}</div>
         {% endif %}
-        <!-- Compat -->
+
         {% if compat is not none %}
-        <div class="mt-1 flex flex-wrap items-center gap-1">
-          <span class="bg-pink-500/80 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full backdrop-blur-sm leading-none">
-            💞 {{ compat.overall }}%
-          </span>
-          {% if compat.categories %}
-          {% set best = namespace(cat='', score=0) %}
-          {% for cat, icon in [('romance','❤️'),('lifestyle','🌿'),('values','💎'),('communication','💬'),('personality','✨')] %}
-            {% if cat in compat.categories and compat.categories[cat] > best.score %}
-              {% set best.cat = icon %}
-              {% set best.score = compat.categories[cat] %}
-            {% endif %}
-          {% endfor %}
-          {% if best.cat %}
-          <span class="bg-white/20 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full backdrop-blur-sm leading-none">{{ best.cat }} {{ best.score }}%</span>
-          {% endif %}
-          {% endif %}
-        </div>
-        {% else %}
-        <a href="/quiz" @click.stop class="mt-1 inline-block bg-purple-500/70 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full backdrop-blur-sm hover:bg-purple-500/90 transition leading-none">
-          {{ t.quiz_take }}
-        </a>
+        <span class="match-badge bg-pink-500/80 backdrop-blur-sm">💞 {{ compat.overall }}%</span>
         {% endif %}
       </div>
 
