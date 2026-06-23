@@ -37,9 +37,9 @@
 <div class="bg-white rounded-2xl card-shadow p-5 mb-4"
      x-data="{
        copied: false,
-       link: {{ referral_link | tojson }},
-       shareTitle: {{ t.get('referral_share_title', 'Spark — знакомства') | tojson }},
-       shareText: {{ t.get('referral_share_text', 'Присоединяйся к Spark!') | tojson }},
+       link: {{ referral_link | tojson | safe }},
+       shareTitle: {{ t.get('referral_share_title', 'Spark — знакомства') | tojson | safe }},
+       shareText: {{ t.get('referral_share_text', 'Присоединяйся к Spark!') | tojson | safe }},
        copyLink() {
          navigator.clipboard.writeText(this.link)
            .then(() => { this.copied = true; setTimeout(() => this.copied = false, 2500); })

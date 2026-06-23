@@ -131,10 +131,6 @@ async def find_next_candidate(
         .where(not_(User.id.in_(blocker_ids)))
         .where(Profile.age >= age_min)
         .where(Profile.age <= age_max)
-        .where(Profile.photo.isnot(None))
-        .where(Profile.name.isnot(None))
-        .where(Profile.name != "")
-        .where(Profile.name != "—")
     )
 
     if profile.looking_for:

@@ -92,19 +92,18 @@
 {% set os = online_status(candidate.last_seen, lang) %}
 {% endif %}
 
+{# Card data passed via <script> to avoid breaking x-data attribute with quotes in user text #}
+<script type="application/json" id="_swipe_card">
+{% if candidate and profile %}
+{"id":{{ candidate.id }},"name":{{ profile.name | tojson | safe }},"age":{{ profile.age }},"city":{{ (profile.city or '') | tojson | safe }},"bio":{{ (profile.bio or '') | tojson | safe }},"photo":{{ (first_photo or '') | tojson | safe }},"online":{{ 'true' if os and os.is_online else 'false' }}}
+{% else %}null{% endif %}
+</script>
+
 <div x-data="{
   noMore:   {{ 'true' if not candidate else 'false' }},
   swiping:  false,
   superLeft: {{ super_likes_left }},
-  card: {% if candidate and profile %}{
-    id:      {{ candidate.id }},
-    name:    {{ profile.name | tojson }},
-    age:     {{ profile.age }},
-    city:    {{ (profile.city or '') | tojson }},
-    bio:     {{ (profile.bio or '') | tojson }},
-    photo:   {{ (first_photo or '') | tojson }},
-    online:  {{ 'true' if os and os.is_online else 'false' }},
-  }{% else %}null{% endif %},
+  card:     null,
 
   async swipe(action) {
     if (this.swiping || this.noMore || !this.card) return;
@@ -174,7 +173,11 @@
     if (cardEl) cardEl.classList.remove('fly-right');
     this.swiping = false;
   },
-}" x-init="window.addEventListener('pageshow', e => { if (e.persisted) window.location.reload(); })">
+}" x-init="
+  try { card = JSON.parse(document.getElementById('_swipe_card').textContent); } catch(e) { card = null; }
+  if (!card) noMore = true;
+  window.addEventListener('pageshow', e => { if (e.persisted) window.location.reload(); });
+">
 
   <!-- ══ НЕТ БОЛЬШЕ ЛЮДЕЙ ══ -->
   <div x-show="noMore" x-cloak
