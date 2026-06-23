@@ -75,27 +75,31 @@ def _run_alembic_migrations() -> None:
     command.upgrade(alembic_cfg, "head")
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+async def _run_startup_tasks() -> None:
+    """Run all startup tasks in a background thread pool. Never raises."""
     loop = asyncio.get_running_loop()
     logging.info("startup: running migrations")
     try:
         await loop.run_in_executor(None, _run_alembic_migrations)
         logging.info("startup: migrations OK")
     except Exception as _e:
-        logging.error("startup: MIGRATION FAILED — %s", _e, exc_info=True)
-        raise
+        logging.error("startup: MIGRATION FAILED (app continues) — %s", _e, exc_info=True)
     try:
         await loop.run_in_executor(None, _fix_broken_photo_urls)
-        logging.info("startup: fix_broken_photo_urls OK")
     except Exception as _e:
         logging.error("startup: fix_broken_photo_urls failed: %s", _e, exc_info=True)
     try:
         await loop.run_in_executor(None, _delete_bot_accounts)
-        logging.info("startup: delete_bots OK")
     except Exception as _e:
         logging.warning("startup: delete_bots failed: %s", _e, exc_info=True)
-    logging.info("startup: app ready")
+    logging.info("startup: background startup tasks done")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start startup tasks as a background asyncio task — the port opens and
+    # Railway's health check passes immediately, tasks complete in the background.
+    asyncio.create_task(_run_startup_tasks())
     yield
 
 
