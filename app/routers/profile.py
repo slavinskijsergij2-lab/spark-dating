@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func as _func, or_, select
 from sqlalchemy.exc import IntegrityError as _IE
 from sqlalchemy.ext.asyncio import AsyncSession
 from PIL import Image
@@ -217,9 +217,9 @@ async def add_photo(
         return RedirectResponse("/profile/edit", status_code=302)
 
     result = await db.execute(
-        select(ProfilePhoto).where(ProfilePhoto.profile_id == profile.id)
+        select(_func.count(ProfilePhoto.id)).where(ProfilePhoto.profile_id == profile.id)
     )
-    existing_count = len(result.scalars().all())
+    existing_count = result.scalar() or 0
     if existing_count >= 5:
         return RedirectResponse("/profile/edit?photo_limit=1", status_code=302)
 
