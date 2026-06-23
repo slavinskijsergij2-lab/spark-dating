@@ -92,116 +92,119 @@
 {% set os = online_status(candidate.last_seen, lang) %}
 {% endif %}
 
-{# Card data passed via <script> to avoid breaking x-data attribute with quotes in user text #}
+<script>
+function swipeApp() {
+  return {
+    noMore:    {{ 'true' if not candidate else 'false' }},
+    swiping:   false,
+    superLeft: {{ super_likes_left }},
+    card:      null,
+    err:       '',
+
+    init() {
+      try {
+        var el = document.getElementById('_swipe_card');
+        this.card = el ? JSON.parse(el.textContent) : null;
+      } catch(e) { this.card = null; }
+      if (!this.card) this.noMore = true;
+      window.addEventListener('pageshow', function(e) {
+        if (e.persisted) window.location.reload();
+      });
+    },
+
+    _req(url, opts) {
+      var ac = new AbortController();
+      var tid = setTimeout(function() { ac.abort(); }, 10000);
+      return fetch(url, Object.assign({}, opts, { signal: ac.signal }))
+        .then(function(r) { clearTimeout(tid); return r; })
+        .catch(function(e) { clearTimeout(tid); throw e; });
+    },
+
+    async swipe(action) {
+      if (this.swiping || this.noMore || !this.card) return;
+      this.swiping = true;
+      this.err = '';
+
+      var cardEl = this.$refs.card;
+      if (cardEl) cardEl.classList.add(action === 'like' ? 'fly-right' : 'fly-left');
+      await new Promise(function(r) { setTimeout(r, 220); });
+
+      try {
+        var resp = await this._req('/swipe/' + this.card.id + '?action=' + action, {
+          method: 'POST',
+          headers: { 'x-csrf-token': getCsrfToken() }
+        });
+        if (resp.status === 401) { window.location.href = '/login'; return; }
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+        var data = await resp.json();
+        if (data.matched) { window.location.href = '/matches'; return; }
+        if (data.super_likes_left !== undefined) this.superLeft = data.super_likes_left;
+        if (data.next) {
+          var n = data.next;
+          this.card = { id: n.id, name: n.name, age: n.age, city: n.city,
+                        bio: n.bio, photo: n.photos && n.photos[0] ? n.photos[0] : '',
+                        online: n.is_online };
+        } else {
+          this.noMore = true;
+        }
+      } catch(e) {
+        this.err = '{{ t.get("swipe_err","Ошибка соединения") }}';
+        var self = this;
+        setTimeout(function() { self.err = ''; }, 3000);
+      }
+
+      if (cardEl) cardEl.classList.remove('fly-right', 'fly-left');
+      this.swiping = false;
+    },
+
+    async superLike() {
+      if (this.superLeft <= 0 || this.swiping || this.noMore || !this.card) return;
+      this.swiping = true;
+      this.superLeft--;
+      this.err = '';
+
+      var cardEl = this.$refs.card;
+      if (cardEl) cardEl.classList.add('fly-right');
+      await new Promise(function(r) { setTimeout(r, 220); });
+
+      try {
+        var resp = await this._req('/swipe/' + this.card.id + '?action=like&is_super=1', {
+          method: 'POST',
+          headers: { 'x-csrf-token': getCsrfToken() }
+        });
+        if (resp.status === 401) { window.location.href = '/login'; return; }
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        var data = await resp.json();
+        if (data.matched) { window.location.href = '/matches'; return; }
+        if (data.super_likes_left !== undefined) this.superLeft = data.super_likes_left;
+        if (data.next) {
+          var n = data.next;
+          this.card = { id: n.id, name: n.name, age: n.age, city: n.city,
+                        bio: n.bio, photo: n.photos && n.photos[0] ? n.photos[0] : '',
+                        online: n.is_online };
+        } else { this.noMore = true; }
+      } catch(e) {
+        this.superLeft++;
+        this.err = '{{ t.get("swipe_err","Ошибка соединения") }}';
+        var self = this;
+        setTimeout(function() { self.err = ''; }, 3000);
+      }
+
+      if (cardEl) cardEl.classList.remove('fly-right');
+      this.swiping = false;
+    }
+  };
+}
+</script>
+
 <script type="application/json" id="_swipe_card">
 {% if candidate and profile %}
 {{ {"id": candidate.id, "name": profile.name, "age": profile.age, "city": profile.city or "", "bio": profile.bio or "", "photo": first_photo or "", "online": (os.is_online if os else False)} | tojson | safe }}
 {% else %}null{% endif %}
 </script>
 
-<div x-data="{
-  noMore:   {{ 'true' if not candidate else 'false' }},
-  swiping:  false,
-  superLeft: {{ super_likes_left }},
-  card:     null,
-  err:      '',
-
-  _fetch(url, opts) {
-    const ac = new AbortController();
-    const tid = setTimeout(() => ac.abort(), 10000);
-    return fetch(url, { ...opts, signal: ac.signal })
-      .then(r => { clearTimeout(tid); return r; })
-      .catch(e => { clearTimeout(tid); throw e; });
-  },
-
-  async swipe(action) {
-    if (this.swiping || this.noMore || !this.card) {
-      console.log('[swipe] blocked:', {swiping: this.swiping, noMore: this.noMore, card: this.card});
-      return;
-    }
-    this.swiping = true;
-    this.err = '';
-    console.log('[swipe] start', action, this.card.id);
-
-    const cardEl = this.$refs.card;
-    if (cardEl) {
-      cardEl.classList.add(action === 'like' ? 'fly-right' : 'fly-left');
-    }
-
-    await new Promise(r => setTimeout(r, 220));
-
-    try {
-      const resp = await this._fetch('/swipe/' + this.card.id + '?action=' + action, {
-        method: 'POST',
-        headers: { 'x-csrf-token': getCsrfToken() },
-      });
-
-      if (resp.status === 401) { window.location.href = '/login'; return; }
-      if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
-
-      const data = await resp.json();
-
-      if (data.matched) { window.location.href = '/matches'; return; }
-      if (data.super_likes_left !== undefined) this.superLeft = data.super_likes_left;
-
-      if (data.next) {
-        const n = data.next;
-        this.card = { id: n.id, name: n.name, age: n.age, city: n.city,
-                      bio: n.bio, photo: n.photos ? n.photos[0] || '' : '',
-                      online: n.is_online };
-      } else {
-        this.noMore = true;
-      }
-    } catch(e) {
-      console.error('[swipe] error:', e);
-      this.err = '{{ t.get("swipe_err","Ошибка соединения") }}';
-      setTimeout(() => this.err = '', 3000);
-    }
-
-    if (cardEl) cardEl.classList.remove('fly-right', 'fly-left');
-    this.swiping = false;
-  },
-
-  async superLike() {
-    if (this.superLeft <= 0 || this.swiping || this.noMore || !this.card) return;
-    this.swiping = true;
-    this.superLeft--;
-    this.err = '';
-
-    const cardEl = this.$refs.card;
-    if (cardEl) cardEl.classList.add('fly-right');
-    await new Promise(r => setTimeout(r, 220));
-
-    try {
-      const resp = await this._fetch('/swipe/' + this.card.id + '?action=like&is_super=1', {
-        method: 'POST',
-        headers: { 'x-csrf-token': getCsrfToken() },
-      });
-      if (resp.status === 401) { window.location.href = '/login'; return; }
-      if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
-      const data = await resp.json();
-      if (data.matched) { window.location.href = '/matches'; return; }
-      if (data.super_likes_left !== undefined) this.superLeft = data.super_likes_left;
-      if (data.next) {
-        const n = data.next;
-        this.card = { id: n.id, name: n.name, age: n.age, city: n.city,
-                      bio: n.bio, photo: n.photos ? n.photos[0] || '' : '',
-                      online: n.is_online };
-      } else { this.noMore = true; }
-    } catch(e) {
-      this.superLeft++;
-      this.err = '{{ t.get("swipe_err","Ошибка соединения") }}';
-      setTimeout(() => this.err = '', 3000);
-    }
-
-    if (cardEl) cardEl.classList.remove('fly-right');
-    this.swiping = false;
-  },
-}" x-init="
-  try { card = JSON.parse(document.getElementById('_swipe_card').textContent); } catch(e) { card = null; }
-  if (!card) noMore = true;
-  window.addEventListener('pageshow', e => { if (e.persisted) window.location.reload(); });
-">
+<div x-data="swipeApp()" x-init="init()">
 
   <!-- ══ НЕТ БОЛЬШЕ ЛЮДЕЙ ══ -->
   <div x-show="noMore" x-cloak
@@ -292,9 +295,6 @@
       </a>
     </div>
 
-    <!-- Debug: remove after fix confirmed -->
-    <p class="text-center text-xs text-gray-200 mt-2"
-       x-text="'card:' + (card ? card.id : 'null') + ' sw:' + swiping"></p>
 
   </div>
 </div>
