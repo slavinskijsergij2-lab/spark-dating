@@ -11,6 +11,7 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.i18n import get_lang, get_translations, is_rtl
 from app.models.models import User
+from app.rate_limit import rate_limit
 from app.templates import templates
 from app.utils.time import utcnow as _utcnow
 
@@ -37,7 +38,7 @@ async def apply_referral_bonus(referrer: User, db: AsyncSession) -> None:
     await db.commit()
 
 
-@router.get("/referral", response_class=HTMLResponse)
+@router.get("/referral", response_class=HTMLResponse, dependencies=[Depends(rate_limit(30, 60))])
 async def referral_page(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if not user.referral_code:
         user.referral_code = await _generate_referral_code(db)

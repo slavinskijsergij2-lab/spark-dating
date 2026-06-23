@@ -87,7 +87,7 @@ async def boost_profile(user: User = Depends(get_current_user), db: AsyncSession
     return JSONResponse({"success": True, "minutes": int(hours * 60)})
 
 
-@router.get("/profile/who-viewed", response_class=HTMLResponse)
+@router.get("/profile/who-viewed", response_class=HTMLResponse, dependencies=[Depends(rate_limit(30, 60))])
 async def who_viewed_page(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     lang = get_lang(request, user)
 

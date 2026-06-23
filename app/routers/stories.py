@@ -90,7 +90,7 @@ async def create_story(
     return JSONResponse({"success": True, "id": story.id})
 
 
-@router.delete("/stories/{story_id}", dependencies=[Depends(validate_csrf_header)])
+@router.delete("/stories/{story_id}", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(10, 60))])
 async def delete_story(story_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Story).where(Story.id == story_id, Story.user_id == user.id)
