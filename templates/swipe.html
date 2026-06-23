@@ -104,10 +104,20 @@
   swiping:  false,
   superLeft: {{ super_likes_left }},
   card:     null,
+  err:      '',
+
+  _fetch(url, opts) {
+    const ac = new AbortController();
+    const tid = setTimeout(() => ac.abort(), 10000);
+    return fetch(url, { ...opts, signal: ac.signal })
+      .then(r => { clearTimeout(tid); return r; })
+      .catch(e => { clearTimeout(tid); throw e; });
+  },
 
   async swipe(action) {
     if (this.swiping || this.noMore || !this.card) return;
     this.swiping = true;
+    this.err = '';
 
     const cardEl = this.\$refs.card;
     if (cardEl) {
@@ -117,15 +127,17 @@
     await new Promise(r => setTimeout(r, 220));
 
     try {
-      const resp = await fetch('/swipe/' + this.card.id + '?action=' + action, {
+      const resp = await this._fetch('/swipe/' + this.card.id + '?action=' + action, {
         method: 'POST',
         headers: { 'x-csrf-token': getCsrfToken() },
-        signal: AbortSignal.timeout(10000),
       });
+
+      if (resp.status === 401) { window.location.href = '/login'; return; }
+      if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
+
       const data = await resp.json();
 
       if (data.matched) { window.location.href = '/matches'; return; }
-
       if (data.super_likes_left !== undefined) this.superLeft = data.super_likes_left;
 
       if (data.next) {
@@ -137,7 +149,8 @@
         this.noMore = true;
       }
     } catch(e) {
-      /* сеть недоступна — откатываем */
+      this.err = '{{ t.get("swipe_err","Ошибка соединения") }}';
+      setTimeout(() => this.err = '', 3000);
     }
 
     if (cardEl) cardEl.classList.remove('fly-right', 'fly-left');
@@ -148,17 +161,19 @@
     if (this.superLeft <= 0 || this.swiping || this.noMore || !this.card) return;
     this.swiping = true;
     this.superLeft--;
+    this.err = '';
 
     const cardEl = this.$refs.card;
     if (cardEl) cardEl.classList.add('fly-right');
     await new Promise(r => setTimeout(r, 220));
 
     try {
-      const resp = await fetch('/swipe/' + this.card.id + '?action=like&is_super=1', {
+      const resp = await this._fetch('/swipe/' + this.card.id + '?action=like&is_super=1', {
         method: 'POST',
         headers: { 'x-csrf-token': getCsrfToken() },
-        signal: AbortSignal.timeout(10000),
       });
+      if (resp.status === 401) { window.location.href = '/login'; return; }
+      if (!resp.ok) { throw new Error('HTTP ' + resp.status); }
       const data = await resp.json();
       if (data.matched) { window.location.href = '/matches'; return; }
       if (data.super_likes_left !== undefined) this.superLeft = data.super_likes_left;
@@ -168,7 +183,11 @@
                       bio: n.bio, photo: n.photos ? n.photos[0] || '' : '',
                       online: n.is_online };
       } else { this.noMore = true; }
-    } catch(e) { this.superLeft++; /* rollback on error */ }
+    } catch(e) {
+      this.superLeft++;
+      this.err = '{{ t.get("swipe_err","Ошибка соединения") }}';
+      setTimeout(() => this.err = '', 3000);
+    }
 
     if (cardEl) cardEl.classList.remove('fly-right');
     this.swiping = false;
@@ -238,6 +257,10 @@
            class="text-gray-600 text-sm leading-relaxed line-clamp-3"></p>
       </div>
     </div>
+
+    <!-- Ошибка соединения -->
+    <div x-show="err" x-cloak x-text="err"
+         class="text-center text-sm text-red-500 bg-red-50 rounded-xl py-2 px-4 mt-4"></div>
 
     <!-- Кнопки -->
     <div class="flex items-center justify-center gap-6 mt-6">
