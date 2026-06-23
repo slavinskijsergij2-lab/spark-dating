@@ -30,14 +30,25 @@ from app.templates import templates
 
 
 def _run_alembic_migrations() -> None:
+    import time
     from alembic.config import Config
     from alembic import command
     from alembic.runtime.migration import MigrationContext
 
     alembic_cfg = Config("alembic.ini")
 
-    with engine.connect() as conn:
-        current = MigrationContext.configure(conn).get_current_revision()
+    # Retry DB connection: Railway PostgreSQL sometimes isn't ready when the app starts.
+    for _attempt in range(5):
+        try:
+            with engine.connect() as conn:
+                current = MigrationContext.configure(conn).get_current_revision()
+            break
+        except Exception as _e:
+            if _attempt == 4:
+                raise
+            wait = 2 ** _attempt
+            logging.warning("alembic: DB not ready (attempt %d/5), retrying in %ds: %s", _attempt + 1, wait, _e)
+            time.sleep(wait)
 
     if current is None:
         try:
