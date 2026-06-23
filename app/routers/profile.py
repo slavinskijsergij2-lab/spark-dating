@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import and_, func as _func, or_, select, update as _update
 from sqlalchemy.exc import IntegrityError as _IE
 from sqlalchemy.ext.asyncio import AsyncSession
-from PIL import Image
+from PIL import Image, ImageOps
 Image.MAX_IMAGE_PIXELS = 25_000_000  # ~5000×5000 — blocks decompression bomb attacks
 try:
     import pillow_heif
@@ -50,6 +50,7 @@ async def save_photo(file: UploadFile) -> str:
 
     try:
         img = Image.open(io.BytesIO(raw))
+        img = ImageOps.exif_transpose(img)  # fix sideways/upside-down mobile photos
         img.thumbnail(MAX_SIZE, Image.LANCZOS)
         img = img.convert("RGB")
         buf = io.BytesIO()
