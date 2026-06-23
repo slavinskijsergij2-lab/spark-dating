@@ -98,11 +98,11 @@
   superLeft: {{ super_likes_left }},
   card: {% if candidate and profile %}{
     id:      {{ candidate.id }},
-    name:    {{ profile.name | tojson | safe }},
+    name:    {{ profile.name | tojson }},
     age:     {{ profile.age }},
-    city:    {{ (profile.city or '') | tojson | safe }},
-    bio:     {{ (profile.bio or '') | tojson | safe }},
-    photo:   {{ (first_photo or '') | tojson | safe }},
+    city:    {{ (profile.city or '') | tojson }},
+    bio:     {{ (profile.bio or '') | tojson }},
+    photo:   {{ (first_photo or '') | tojson }},
     online:  {{ 'true' if os and os.is_online else 'false' }},
   }{% else %}null{% endif %},
 
