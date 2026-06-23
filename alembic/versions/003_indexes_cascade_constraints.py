@@ -52,8 +52,27 @@ def _unique_exists(table: str, name: str) -> bool:
     return any(u["name"] == name for u in _insp().get_unique_constraints(table))
 
 
+def _safe_exec(label: str, fn, critical: bool = False) -> None:
+    """Run fn() inside a SAVEPOINT so a PG error doesn't abort the outer tx."""
+    conn = _conn()
+    is_pg = conn.dialect.name == "postgresql"
+    if is_pg:
+        conn.execute(sa.text(f"SAVEPOINT sp_{label}"))
+    try:
+        fn()
+        if is_pg:
+            conn.execute(sa.text(f"RELEASE SAVEPOINT sp_{label}"))
+    except Exception as exc:
+        if is_pg:
+            conn.execute(sa.text(f"ROLLBACK TO SAVEPOINT sp_{label}"))
+        if critical:
+            _log.error("003: CRITICAL failure in %s: %s", label, exc)
+            raise
+        _log.warning("003: skip %s: %s", label, exc)
+
+
 def upgrade() -> None:
-    # ── new indexes (work on both SQLite and PostgreSQL) ──────────────────────
+    # ── new indexes — each in its own SAVEPOINT so one failure can't abort tx ─
     for idx_name, tbl, cols in [
         ("ix_like_liked_is_like",  "likes",         ["liked_id", "is_like"]),
         ("ix_profile_swipe",       "profiles",      ["gender", "age", "intention"]),
@@ -61,21 +80,18 @@ def upgrade() -> None:
         ("ix_story_expires_at",    "stories",       ["expires_at"]),
         ("ix_profile_view_viewed", "profile_views", ["viewed_id", "viewer_id", "created_at"]),
     ]:
-        try:
-            if not _index_exists(idx_name, tbl):
-                op.create_index(idx_name, tbl, cols)
-        except Exception as exc:
-            _log.warning("003: skip index %s: %s", idx_name, exc)
+        _n, _t, _c = idx_name, tbl, cols
+        _safe_exec(idx_name, lambda: (
+            op.create_index(_n, _t, _c) if not _index_exists(_n, _t) else None
+        ))
 
     # ── token_version column — CRITICAL: auth breaks without this ─────────────
-    try:
+    def _add_token_version():
         if not _column_exists("users", "token_version"):
             op.add_column("users", sa.Column(
                 "token_version", sa.Integer(), nullable=False, server_default="0"
             ))
-    except Exception as exc:
-        _log.error("003: FAILED to add token_version column: %s", exc)
-        raise  # this one is critical — re-raise
+    _safe_exec("token_version", _add_token_version, critical=True)
 
     # ── story: deduplicate then add unique constraint ──────────────────────────
     try:
