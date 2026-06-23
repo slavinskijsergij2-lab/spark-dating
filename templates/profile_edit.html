@@ -20,6 +20,46 @@
 </script>
 {% endif %}
 
+<script>
+function fixAndPreviewPhoto(input, previewId, placeholderId, autoSubmit) {
+  var file = input.files[0];
+  if (!file) return;
+  var url = URL.createObjectURL(file);
+  var img = new Image();
+  img.onload = function() {
+    // naturalWidth/naturalHeight already account for EXIF rotation in modern browsers
+    var w = img.naturalWidth, h = img.naturalHeight;
+    var canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+    URL.revokeObjectURL(url);
+    canvas.toBlob(function(blob) {
+      // Replace input file with corrected blob
+      try {
+        var dt = new DataTransfer();
+        dt.items.add(new File([blob], file.name, {type: 'image/jpeg'}));
+        input.files = dt.files;
+      } catch(e) {}
+      // Show preview
+      if (previewId) {
+        var prev = document.getElementById(previewId);
+        if (prev) { prev.src = canvas.toDataURL('image/jpeg', 0.85); prev.style.display = 'block'; }
+      }
+      if (placeholderId) {
+        var ph = document.getElementById(placeholderId);
+        if (ph) ph.style.display = 'none';
+      }
+      if (autoSubmit) input.closest('form').submit();
+    }, 'image/jpeg', 0.85);
+  };
+  img.onerror = function() {
+    URL.revokeObjectURL(url);
+    if (autoSubmit) input.closest('form').submit();
+  };
+  img.src = url;
+}
+</script>
+
 <h1 class="text-2xl font-bold text-gray-800 mb-6">✏️ {{ t.edit_profile }}</h1>
 
 {% if error is defined and error %}
@@ -57,7 +97,7 @@
         <span class="text-3xl text-pink-300">+</span>
         <span class="text-xs text-pink-400 mt-1">{{ t.get('add_photo', 'Добавить') }}</span>
         <input type="file" accept="image/*" name="photo" class="hidden"
-               onchange="this.closest('form').submit()" />
+               onchange="fixAndPreviewPhoto(this, null, null, true)" />
       </label>
     </form>
     {% endif %}
@@ -107,7 +147,7 @@
           {% endif %}
         </div>
         <input id="photo-file-input" type="file" name="photo" accept="image/*" class="hidden"
-               onchange="(function(f){if(!f)return;var r=new FileReader();r.onload=function(e){var img=document.getElementById('photo-preview-img');img.src=e.target.result;img.style.display='block';var ph=document.getElementById('photo-placeholder');if(ph)ph.style.display='none';}; r.readAsDataURL(f);})(this.files[0])" />
+               onchange="fixAndPreviewPhoto(this, 'photo-preview-img', 'photo-placeholder')" />
         <p class="text-center text-pink-500 text-sm mt-2 group-hover:underline">{{ t.upload_photo }}</p>
       </label>
 
