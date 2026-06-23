@@ -91,6 +91,11 @@
     html.dark .border-green-200 { border-color: rgba(34,197,94,0.22) !important; }
     html.dark .blob { opacity: 0.18 !important; }
     html.dark #messages-container { scrollbar-color: #3b3260 transparent; }
+    html.dark #more-menu { background: rgba(28,23,48,0.97) !important; border-color: rgba(255,255,255,0.07) !important; }
+    html.dark #more-menu a, html.dark #more-menu button { color: #e2e8f0 !important; }
+    html.dark #more-menu a:hover, html.dark #more-menu button:hover { background: rgba(236,72,153,0.12) !important; }
+    html.dark #more-menu .border-gray-100 { border-color: #2d2645 !important; }
+    html.dark #more-menu .bg-gray-300 { background-color: #3b3260 !important; }
   </style>
   {% block head %}{% endblock %}
 </head>
@@ -114,11 +119,72 @@
   {% if show_nav %}
   <!-- Nav i18n data -->
   <script id="nav-i18n" type="application/json">{{ (t | tojson | safe) if t is defined else '{}' }}</script>
+
+  <!-- ── More menu backdrop ── -->
+  <div id="more-backdrop" onclick="closeMoreMenu()"
+       style="display:none;position:fixed;inset:0;z-index:49;background:rgba(0,0,0,0.3);backdrop-filter:blur(2px);"></div>
+
+  <!-- ── More slide-up menu ── -->
+  <div id="more-menu"
+       style="display:none;position:fixed;bottom:64px;left:50%;transform:translateX(-50%);width:min(420px,100vw - 16px);z-index:50;border-radius:24px 24px 0 0;padding:8px 0 4px;"
+       class="glass border border-pink-100/60 shadow-2xl">
+    <!-- Handle bar -->
+    <div class="flex justify-center mb-3 mt-1">
+      <div class="w-10 h-1 rounded-full bg-gray-300"></div>
+    </div>
+
+    <!-- Premium -->
+    <a href="/premium" onclick="closeMoreMenu()"
+       class="flex items-center gap-4 px-6 py-3.5 hover:bg-pink-50/70 transition-colors {% if request.url.path == '/premium' %}text-pink-500{% else %}text-gray-700{% endif %}">
+      <svg class="w-6 h-6 flex-shrink-0 {% if request.url.path == '/premium' %}stroke-pink-500{% else %}stroke-gray-500{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3l3.5 5L12 4l3.5 4L19 3l1 14H4L5 3z"/>
+      </svg>
+      <span class="font-semibold">Premium</span>
+      {% if request.url.path == '/premium' %}
+      <span class="ml-auto w-2 h-2 rounded-full bg-pink-500"></span>
+      {% endif %}
+    </a>
+
+    <div class="mx-6 border-t border-gray-100"></div>
+
+    <!-- Push notifications -->
+    <button id="push-btn" onclick="togglePush()" style="display:none"
+            class="w-full flex items-center gap-4 px-6 py-3.5 hover:bg-pink-50/70 transition-colors text-gray-700">
+      <span id="push-icon" class="text-2xl leading-none w-6 text-center">🔔</span>
+      <span id="push-label" class="font-semibold">{% if t is defined %}{{ t.get('push_notifications', 'Уведомления') }}{% else %}Уведомления{% endif %}</span>
+      <span id="push-status" class="ml-auto text-xs text-gray-400"></span>
+    </button>
+
+    <div id="push-divider" style="display:none" class="mx-6 border-t border-gray-100"></div>
+
+    <!-- Dark mode -->
+    <button onclick="toggleDark(); closeMoreMenu()"
+            class="w-full flex items-center gap-4 px-6 py-3.5 hover:bg-pink-50/70 transition-colors text-gray-700">
+      <span class="text-2xl leading-none w-6 text-center dark-icon-moon">🌙</span>
+      <span class="font-semibold dark-label-moon">{{ t.get('dark_mode','Тема') if t is defined else 'Тема' }}</span>
+    </button>
+
+    <div class="mx-6 border-t border-gray-100"></div>
+
+    <!-- Logout -->
+    <form method="POST" action="/logout">
+      <input type="hidden" name="csrftoken" value="{{ request.state.csrf_token }}" />
+      <button type="submit"
+              class="w-full flex items-center gap-4 px-6 py-3.5 hover:bg-red-50/70 transition-colors text-red-500 rounded-b-3xl">
+        <svg class="w-6 h-6 flex-shrink-0 stroke-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+        </svg>
+        <span class="font-semibold">{% if t is defined %}{{ t.get('logout', 'Выйти') }}{% else %}Выйти{% endif %}</span>
+      </button>
+    </form>
+  </div>
+
+  <!-- ── Bottom navigation bar (3 items + More) ── -->
   <nav id="bottom-nav" class="bottom-nav fixed bottom-0 left-0 right-0 glass border-t border-pink-100/60 z-50">
-    <div class="max-w-lg mx-auto flex justify-around items-center py-2 px-4">
+    <div class="max-w-lg mx-auto flex justify-around items-center py-2 px-2">
 
       <!-- Swipe -->
-      <a href="/swipe" class="nav-icon {% if request.url.path == '/swipe' %}active{% endif %} flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-2xl transition-all
+      <a href="/swipe" class="nav-icon {% if request.url.path == '/swipe' %}active{% endif %} flex flex-col items-center gap-0.5 px-5 py-1.5 rounded-2xl transition-all
          {% if request.url.path == '/swipe' %}bg-pink-50{% endif %}">
         <svg class="w-6 h-6 {% if request.url.path == '/swipe' %}stroke-pink-500{% else %}stroke-gray-400{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>
@@ -129,22 +195,22 @@
       </a>
 
       <!-- Matches (with dynamic badge) -->
-      <a href="/matches" class="nav-icon {% if request.url.path == '/matches' %}active{% endif %} relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-2xl transition-all
-         {% if request.url.path == '/matches' %}bg-pink-50{% endif %}">
-        <svg class="w-6 h-6 {% if request.url.path == '/matches' %}stroke-pink-500{% else %}stroke-gray-400{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <a href="/matches" class="nav-icon {% if request.url.path == '/matches' or request.url.path.startswith('/chat/') %}active{% endif %} relative flex flex-col items-center gap-0.5 px-5 py-1.5 rounded-2xl transition-all
+         {% if request.url.path == '/matches' or request.url.path.startswith('/chat/') %}bg-pink-50{% endif %}">
+        <svg class="w-6 h-6 {% if request.url.path == '/matches' or request.url.path.startswith('/chat/') %}stroke-pink-500{% else %}stroke-gray-400{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
         </svg>
         <span id="nav-badge-match" style="display:none"
-              class="absolute top-1 right-1.5 bg-pink-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center"></span>
+              class="absolute top-1 right-3 bg-pink-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center"></span>
         <span id="nav-badge-msg" style="display:none"
-              class="absolute top-1 right-1.5 bg-violet-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center"></span>
-        <span class="text-[10px] font-medium {% if request.url.path == '/matches' %}text-pink-500{% else %}text-gray-400{% endif %}">
+              class="absolute top-1 right-3 bg-violet-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center"></span>
+        <span class="text-[10px] font-medium {% if request.url.path == '/matches' or request.url.path.startswith('/chat/') %}text-pink-500{% else %}text-gray-400{% endif %}">
           {% if t is defined %}{{ t.get('nav_matches', 'Матчи') }}{% else %}Матчи{% endif %}
         </span>
       </a>
 
       <!-- Profile -->
-      <a href="/profile/edit" class="nav-icon {% if request.url.path == '/profile/edit' %}active{% endif %} flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-2xl transition-all
+      <a href="/profile/edit" class="nav-icon {% if request.url.path == '/profile/edit' %}active{% endif %} flex flex-col items-center gap-0.5 px-5 py-1.5 rounded-2xl transition-all
          {% if request.url.path == '/profile/edit' %}bg-pink-50{% endif %}">
         <svg class="w-6 h-6 {% if request.url.path == '/profile/edit' %}stroke-pink-500{% else %}stroke-gray-400{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
@@ -154,41 +220,17 @@
         </span>
       </a>
 
-      <!-- Premium -->
-      <a href="/premium" class="nav-icon {% if request.url.path == '/premium' %}active{% endif %} flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-2xl transition-all
-         {% if request.url.path == '/premium' %}bg-pink-50{% endif %}">
+      <!-- More ⋯ -->
+      <button onclick="toggleMoreMenu()"
+              class="nav-icon {% if request.url.path == '/premium' %}active{% endif %} relative flex flex-col items-center gap-0.5 px-5 py-1.5 rounded-2xl transition-all"
+              id="more-btn">
         <svg class="w-6 h-6 {% if request.url.path == '/premium' %}stroke-pink-500{% else %}stroke-gray-400{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3l3.5 5L12 4l3.5 4L19 3l1 14H4L5 3z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h.01M12 12h.01M19 12h.01"/>
         </svg>
-        <span class="text-[10px] font-medium {% if request.url.path == '/premium' %}text-pink-500{% else %}text-gray-400{% endif %}">Premium</span>
-      </a>
-
-      <!-- Push notifications toggle -->
-      <button id="push-btn" onclick="togglePush()" style="display:none"
-              class="nav-icon flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-2xl">
-        <span id="push-icon" class="text-xl leading-none">🔔</span>
-        <span class="text-[10px] font-medium text-gray-400">Push</span>
+        <span class="text-[10px] font-medium {% if request.url.path == '/premium' %}text-pink-500{% else %}text-gray-400{% endif %}">
+          {% if t is defined %}{{ t.get('nav_more', 'Ещё') }}{% else %}Ещё{% endif %}
+        </span>
       </button>
-
-      <!-- Dark mode toggle -->
-      <button onclick="toggleDark()"
-              class="nav-icon flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-2xl">
-        <span class="text-xl leading-none dark-icon-moon">🌙</span>
-        <span class="text-[10px] font-medium text-gray-400 dark-label-moon">{{ t.get('dark_mode','Тема') if t is defined else 'Тема' }}</span>
-      </button>
-
-      <!-- Logout -->
-      <form method="POST" action="/logout" class="flex flex-col items-center">
-        <input type="hidden" name="csrftoken" value="{{ request.state.csrf_token }}" />
-        <button type="submit" class="nav-icon flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-2xl">
-          <svg class="w-6 h-6 stroke-gray-400 hover:stroke-red-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
-          </svg>
-          <span class="text-[10px] font-medium text-gray-400">
-            {% if t is defined %}{{ t.get('logout', 'Выйти') }}{% else %}Выйти{% endif %}
-          </span>
-        </button>
-      </form>
 
     </div>
   </nav>
@@ -209,6 +251,37 @@ function toggleDark() {
   const dark = document.documentElement.classList.contains('dark');
   document.querySelectorAll('.dark-icon-moon').forEach(el => el.textContent = dark ? '☀️' : '🌙');
 })();
+
+// ── More menu ────────────────────────────────────────────────────────────────
+var _moreOpen = false;
+function toggleMoreMenu() {
+  _moreOpen ? closeMoreMenu() : openMoreMenu();
+}
+function openMoreMenu() {
+  var menu = document.getElementById('more-menu');
+  var bd = document.getElementById('more-backdrop');
+  var btn = document.getElementById('more-btn');
+  if (!menu) return;
+  menu.style.display = 'block';
+  bd.style.display = 'block';
+  if (btn) btn.querySelector('svg').style.stroke = '#ec4899';
+  _moreOpen = true;
+  // Animate slide up
+  menu.style.transform = 'translateX(-50%) translateY(100%)';
+  menu.style.transition = 'transform 0.28s cubic-bezier(0.32,0.72,0,1)';
+  requestAnimationFrame(() => { menu.style.transform = 'translateX(-50%) translateY(0)'; });
+}
+function closeMoreMenu() {
+  var menu = document.getElementById('more-menu');
+  var bd = document.getElementById('more-backdrop');
+  var btn = document.getElementById('more-btn');
+  if (!menu || !_moreOpen) return;
+  menu.style.transform = 'translateX(-50%) translateY(100%)';
+  setTimeout(() => { menu.style.display = 'none'; }, 260);
+  bd.style.display = 'none';
+  if (btn) btn.querySelector('svg').style.stroke = '';
+  _moreOpen = false;
+}
 
 // ── Nav notification polling (replaces Alpine.js) ────────────────────────────
 (function() {
@@ -286,18 +359,24 @@ async function _initSW() {
     if (!kd.enabled) return; // server-side push not configured
 
     // Show push button if push API available
-    var btn = document.getElementById('push-btn');
-    if (btn && 'PushManager' in window) btn.style.display = 'flex';
+    if ('PushManager' in window) {
+      var btn = document.getElementById('push-btn');
+      var div = document.getElementById('push-divider');
+      if (btn) { btn.style.display = 'flex'; }
+      if (div) { div.style.display = 'block'; }
+    }
 
     // Auto-resubscribe if already subscribed
     var existing = await _swReg.pushManager.getSubscription();
-    if (existing) _updatePushIcon(true);
+    _updatePushIcon(!!existing);
   } catch(e) { console.warn('SW init:', e); }
 }
 
 function _updatePushIcon(subscribed) {
   var icon = document.getElementById('push-icon');
+  var status = document.getElementById('push-status');
   if (icon) icon.textContent = subscribed ? '🔔' : '🔕';
+  if (status) status.textContent = subscribed ? 'Вкл' : 'Выкл';
 }
 
 async function togglePush() {
