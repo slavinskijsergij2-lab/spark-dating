@@ -279,3 +279,14 @@ class QuizAnswer(Base):
     created_at = Column(DateTime, default=_utcnow)
 
     __table_args__ = (UniqueConstraint("user_id", "question_id", name="uq_quiz_answer"),)
+
+
+class PushSubscription(Base):
+    __tablename__ = "push_subscriptions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    endpoint = Column(Text, nullable=False, unique=True)
+    p256dh = Column(Text, nullable=False)
+    auth = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=_utcnow)

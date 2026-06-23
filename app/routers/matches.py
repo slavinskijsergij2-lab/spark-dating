@@ -4,7 +4,7 @@ import io
 import json as _json
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from PIL import Image
 from sqlalchemy import and_, func, or_, select, update, delete
@@ -18,6 +18,7 @@ from app.utils.time import utcnow as _utcnow
 from app.i18n import get_lang, get_translations, is_rtl
 from app.models.models import Block, Like, Match, Message, MessageReaction, QuizAnswer, User
 from app.quiz_questions import CATEGORY_ORDER, QID_TO_CATEGORY
+from app.push import send_push_to_user
 from app.rate_limit import rate_limit
 from app.templates import templates
 
@@ -322,6 +323,7 @@ async def chat_page(match_id: int, request: Request, user: User = Depends(get_cu
 @router.post("/chat/{match_id}/send", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(30, 60))])
 async def send_message(
     match_id: int,
+    background_tasks: BackgroundTasks,
     content: str = Form(...),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -354,6 +356,13 @@ async def send_message(
     _update_streak(match, db)
     await db.commit()
     await db.refresh(msg)
+
+    sender_name = user.profile.name if hasattr(user, "profile") and user.profile else "Spark"
+    preview = content[:60] + ("…" if len(content) > 60 else "")
+    background_tasks.add_task(
+        send_push_to_user, partner_id,
+        f"💬 {sender_name}", preview, f"/chat/{match_id}"
+    )
 
     return JSONResponse({
         "id": msg.id,

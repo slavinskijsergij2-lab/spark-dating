@@ -44,7 +44,7 @@ from app.database import Base, engine
 from app.i18n import get_lang, get_translations, is_rtl
 from app.routers import auth, profile, swipe, matches
 from app.utils.time import utcnow as _utcnow
-from app.routers import features, premium, social, stories, referral
+from app.routers import features, premium, social, stories, referral, push as push_router
 from app.templates import templates
 
 logging.info("startup: all app modules imported")
@@ -476,6 +476,7 @@ app.include_router(features.router)
 app.include_router(social.router)
 app.include_router(stories.router)
 app.include_router(referral.router)
+app.include_router(push_router.router)
 
 
 @app.exception_handler(HTTPException)
@@ -540,6 +541,15 @@ async def global_exception_handler(request: Request, exc: Exception):
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
     return FileResponse("static/favicon.ico", media_type="image/x-icon")
+
+
+@app.get("/sw.js", include_in_schema=False)
+def service_worker():
+    return FileResponse(
+        "static/sw.js",
+        media_type="application/javascript",
+        headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"},
+    )
 
 
 @app.get("/health")

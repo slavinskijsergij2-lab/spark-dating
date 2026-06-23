@@ -13,6 +13,7 @@ from app.database import get_db
 from app.email_utils import is_smtp_configured, send_match_email
 from app.i18n import get_lang, get_translations, is_rtl
 from app.models.models import Block, Like, Match, Profile, ProfilePhoto, User, GenderEnum
+from app.push import send_push_to_user
 from app.templates import templates
 
 
@@ -332,6 +333,14 @@ async def do_swipe(
                             background_tasks.add_task(
                                 send_match_email, user.email, target_name,
                                 lang=user.language or "en"
+                            )
+                            background_tasks.add_task(
+                                send_push_to_user, target.id,
+                                "💘 Новый матч!", f"{user_name} тебя лайкнул(а) взаимно!", "/matches"
+                            )
+                            background_tasks.add_task(
+                                send_push_to_user, user.id,
+                                "💘 Новый матч!", f"Ты совпал(а) с {target_name}!", "/matches"
                             )
                     except IntegrityError:
                         await db.rollback()

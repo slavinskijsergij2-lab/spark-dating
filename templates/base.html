@@ -6,8 +6,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}Spark — Dating{% endblock %}</title>
+  <link rel="manifest" href="/static/manifest.json" />
+  <link rel="apple-touch-icon" href="/static/icon-192.png" />
+  <meta name="theme-color" content="#ec4899" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <script src="https://cdn.tailwindcss.com"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <style>
     [x-cloak] { display: none !important; }
 
@@ -108,37 +112,9 @@
   <!-- Support button (configure SUPPORT_URL env var) -->
 
   {% if show_nav %}
-  <!-- Nav i18n data — in a script element so " in JSON doesn't break HTML attributes -->
+  <!-- Nav i18n data -->
   <script id="nav-i18n" type="application/json">{{ (t | tojson | safe) if t is defined else '{}' }}</script>
-  <nav class="bottom-nav fixed bottom-0 left-0 right-0 glass border-t border-pink-100/60 z-50"
-       x-data="{ newMatches: 0, unreadMessages: 0 }"
-       x-init="
-         let prev = {m: 0, msg: 0}, first = true;
-         const t = JSON.parse(document.getElementById('nav-i18n').textContent || '{}');
-         // Notification permission must be requested on a user gesture, not a timer.
-         // The toggle button in the nav handles requestPermission() on click instead.
-         const notify = (title, body) => {
-           if ('Notification' in window && Notification.permission === 'granted') {
-             try { new Notification(title, {body}); } catch(e) {}
-           }
-         };
-         const poll = async () => {
-           try {
-             const r = await fetch('/api/notifications');
-             const d = await r.json();
-             newMatches = d.new_matches || 0;
-             unreadMessages = d.unread_messages || 0;
-             if (!first) {
-               if (newMatches > prev.m)   notify(t.notif_match_title || '💘 Новый матч!',   t.notif_match_body || 'У вас новый матч в Spark');
-               if (unreadMessages > prev.msg) notify(t.notif_msg_title || '💬 Новое сообщение', t.notif_msg_body || 'Вам написали в Spark');
-             }
-             prev = {m: newMatches, msg: unreadMessages};
-             first = false;
-           } catch(e) {}
-         };
-         poll();
-         setInterval(poll, 30000);
-       ">
+  <nav id="bottom-nav" class="bottom-nav fixed bottom-0 left-0 right-0 glass border-t border-pink-100/60 z-50">
     <div class="max-w-lg mx-auto flex justify-around items-center py-2 px-4">
 
       <!-- Swipe -->
@@ -152,20 +128,16 @@
         </span>
       </a>
 
-      <!-- Matches -->
+      <!-- Matches (with dynamic badge) -->
       <a href="/matches" class="nav-icon {% if request.url.path == '/matches' %}active{% endif %} relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-2xl transition-all
          {% if request.url.path == '/matches' %}bg-pink-50{% endif %}">
         <svg class="w-6 h-6 {% if request.url.path == '/matches' %}stroke-pink-500{% else %}stroke-gray-400{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
         </svg>
-        <!-- New matches badge -->
-        <span x-show="newMatches > 0" x-cloak
-              class="absolute top-1 right-1.5 bg-pink-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center"
-              x-text="newMatches > 9 ? '9+' : newMatches"></span>
-        <!-- Unread messages badge -->
-        <span x-show="newMatches === 0 && unreadMessages > 0" x-cloak
-              class="absolute top-1 right-1.5 bg-violet-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center"
-              x-text="unreadMessages > 9 ? '9+' : unreadMessages"></span>
+        <span id="nav-badge-match" style="display:none"
+              class="absolute top-1 right-1.5 bg-pink-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center"></span>
+        <span id="nav-badge-msg" style="display:none"
+              class="absolute top-1 right-1.5 bg-violet-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center"></span>
         <span class="text-[10px] font-medium {% if request.url.path == '/matches' %}text-pink-500{% else %}text-gray-400{% endif %}">
           {% if t is defined %}{{ t.get('nav_matches', 'Матчи') }}{% else %}Матчи{% endif %}
         </span>
@@ -190,6 +162,13 @@
         </svg>
         <span class="text-[10px] font-medium {% if request.url.path == '/premium' %}text-pink-500{% else %}text-gray-400{% endif %}">Premium</span>
       </a>
+
+      <!-- Push notifications toggle -->
+      <button id="push-btn" onclick="togglePush()" style="display:none"
+              class="nav-icon flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-2xl">
+        <span id="push-icon" class="text-xl leading-none">🔔</span>
+        <span class="text-[10px] font-medium text-gray-400">Push</span>
+      </button>
 
       <!-- Dark mode toggle -->
       <button onclick="toggleDark()"
@@ -230,6 +209,130 @@ function toggleDark() {
   const dark = document.documentElement.classList.contains('dark');
   document.querySelectorAll('.dark-icon-moon').forEach(el => el.textContent = dark ? '☀️' : '🌙');
 })();
+
+// ── Nav notification polling (replaces Alpine.js) ────────────────────────────
+(function() {
+  var _prev = {m: 0, msg: 0}, _first = true;
+  var _tr = {};
+  try { _tr = JSON.parse(document.getElementById('nav-i18n').textContent || '{}'); } catch(e) {}
+
+  function _setBadge(matchCount, msgCount) {
+    var bm = document.getElementById('nav-badge-match');
+    var bMsg = document.getElementById('nav-badge-msg');
+    if (!bm || !bMsg) return;
+    if (matchCount > 0) {
+      bm.textContent = matchCount > 9 ? '9+' : matchCount;
+      bm.style.display = 'flex';
+      bMsg.style.display = 'none';
+    } else if (msgCount > 0) {
+      bMsg.textContent = msgCount > 9 ? '9+' : msgCount;
+      bMsg.style.display = 'flex';
+      bm.style.display = 'none';
+    } else {
+      bm.style.display = 'none';
+      bMsg.style.display = 'none';
+    }
+  }
+
+  async function poll() {
+    try {
+      var r = await fetch('/api/notifications');
+      var d = await r.json();
+      var m = d.new_matches || 0, msg = d.unread_messages || 0;
+      _setBadge(m, msg);
+      if (!_first) {
+        if (m > _prev.m)   _swPush(_tr.notif_match_title || '💘 Новый матч!',   _tr.notif_match_body || 'У вас новый матч в Spark', '/matches');
+        if (msg > _prev.msg) _swPush(_tr.notif_msg_title || '💬 Новое сообщение', _tr.notif_msg_body || 'Вам написали в Spark', '/matches');
+      }
+      _prev = {m: m, msg: msg};
+      _first = false;
+    } catch(e) {}
+  }
+
+  poll();
+  setInterval(poll, 30000);
+})();
+
+// ── Service Worker + Web Push ─────────────────────────────────────────────────
+var _swReg = null;
+var _vapidKey = '';
+
+function _urlBase64ToUint8Array(base64String) {
+  var padding = '='.repeat((4 - base64String.length % 4) % 4);
+  var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  var raw = atob(base64);
+  var arr = new Uint8Array(raw.length);
+  for (var i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
+function _swPush(title, body, url) {
+  // Called when polling detects a new event — shows notification via SW or fallback
+  if (_swReg && _swReg.showNotification) {
+    _swReg.showNotification(title, {body: body, icon: '/static/icon-192.png', data: {url: url}});
+  } else if ('Notification' in window && Notification.permission === 'granted') {
+    try { new Notification(title, {body: body}); } catch(e) {}
+  }
+}
+
+async function _initSW() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    _swReg = await navigator.serviceWorker.register('/sw.js', {scope: '/'});
+    // Load VAPID key
+    var kr = await fetch('/api/vapid-public-key');
+    var kd = await kr.json();
+    _vapidKey = kd.key || '';
+    if (!kd.enabled) return; // server-side push not configured
+
+    // Show push button if push API available
+    var btn = document.getElementById('push-btn');
+    if (btn && 'PushManager' in window) btn.style.display = 'flex';
+
+    // Auto-resubscribe if already subscribed
+    var existing = await _swReg.pushManager.getSubscription();
+    if (existing) _updatePushIcon(true);
+  } catch(e) { console.warn('SW init:', e); }
+}
+
+function _updatePushIcon(subscribed) {
+  var icon = document.getElementById('push-icon');
+  if (icon) icon.textContent = subscribed ? '🔔' : '🔕';
+}
+
+async function togglePush() {
+  if (!_swReg || !_vapidKey) return;
+  try {
+    var existing = await _swReg.pushManager.getSubscription();
+    if (existing) {
+      // Unsubscribe
+      await fetch('/push/unsubscribe', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken()},
+        body: JSON.stringify({endpoint: existing.endpoint}),
+      });
+      await existing.unsubscribe();
+      _updatePushIcon(false);
+    } else {
+      // Request permission and subscribe
+      var perm = await Notification.requestPermission();
+      if (perm !== 'granted') return;
+      var sub = await _swReg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: _urlBase64ToUint8Array(_vapidKey),
+      });
+      var subJson = sub.toJSON();
+      await fetch('/push/subscribe', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken()},
+        body: JSON.stringify(subJson),
+      });
+      _updatePushIcon(true);
+    }
+  } catch(e) { console.warn('togglePush:', e); }
+}
+
+_initSW();
 </script>
 </body>
 </html>
