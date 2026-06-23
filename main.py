@@ -8,6 +8,7 @@ import time
 import traceback
 from collections import defaultdict
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from pathlib import Path
 from threading import Lock
 
@@ -16,6 +17,18 @@ load_dotenv()
 
 from app.logging_config import setup_logging
 setup_logging()
+
+# Sentry error tracking — enabled when SENTRY_DSN env var is set on Railway.
+_sentry_dsn = os.getenv("SENTRY_DSN")
+if _sentry_dsn:
+    import sentry_sdk
+    sentry_sdk.init(
+        dsn=_sentry_dsn,
+        traces_sample_rate=0.05,
+        environment=os.getenv("RAILWAY_ENVIRONMENT", "development"),
+        send_default_pii=False,
+    )
+    logging.info("startup: Sentry enabled (environment=%s)", os.getenv("RAILWAY_ENVIRONMENT", "development"))
 
 logging.info("startup: imports begin")
 
@@ -108,9 +121,8 @@ async def _run_startup_tasks() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not os.getenv("TESTING"):
-        # Production: fire-and-forget so the port opens before migrations finish.
-        # Railway's health check sees the port immediately; tasks run in background.
         asyncio.create_task(_run_startup_tasks())
+        asyncio.create_task(_periodic_cleanup())
     yield
 
 
@@ -268,6 +280,57 @@ def _delete_bot_accounts() -> None:
                 logging.info("delete_bots: removed %d bot accounts", deleted)
     except Exception as _e:
         logging.warning("delete_bots: %s", _e)
+
+
+def _do_cleanup() -> None:
+    """Periodic DB housekeeping: expired boosts, old views, unverified accounts, expired stories."""
+    from sqlalchemy import text as _t
+    now = _utcnow()
+    try:
+        with engine.begin() as conn:
+            r = conn.execute(_t(
+                "UPDATE users SET boost_until = NULL WHERE boost_until IS NOT NULL AND boost_until < :now"
+            ), {"now": now})
+            if r.rowcount:
+                logging.info("cleanup: cleared %d expired boosts", r.rowcount)
+
+            cutoff_views = now - timedelta(days=30)
+            r = conn.execute(_t(
+                "DELETE FROM profile_views WHERE created_at < :cutoff"
+            ), {"cutoff": cutoff_views})
+            if r.rowcount:
+                logging.info("cleanup: deleted %d old profile views", r.rowcount)
+
+            cutoff_unverified = now - timedelta(days=7)
+            r = conn.execute(_t(
+                "DELETE FROM users WHERE is_active = FALSE AND created_at < :cutoff"
+            ), {"cutoff": cutoff_unverified})
+            if r.rowcount:
+                logging.info("cleanup: deleted %d stale unverified accounts", r.rowcount)
+
+            try:
+                cutoff_stories = now - timedelta(hours=24)
+                r = conn.execute(_t(
+                    "DELETE FROM stories WHERE created_at < :cutoff"
+                ), {"cutoff": cutoff_stories})
+                if r.rowcount:
+                    logging.info("cleanup: deleted %d expired stories", r.rowcount)
+            except Exception:
+                pass
+    except Exception as _e:
+        logging.warning("_do_cleanup: %s", _e)
+
+
+async def _periodic_cleanup() -> None:
+    """Background loop: run housekeeping every hour. Starts 5 min after startup."""
+    await asyncio.sleep(300)
+    while True:
+        try:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, _do_cleanup)
+        except Exception as _e:
+            logging.error("periodic_cleanup: unexpected error: %s", _e, exc_info=True)
+        await asyncio.sleep(3600)
 
 
 # HIGH-6: Reject oversized request bodies before they reach route handlers.
