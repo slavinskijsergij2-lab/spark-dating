@@ -58,7 +58,16 @@ async def save_photo(file: UploadFile) -> str:
     except Exception:
         raise HTTPException(400, "photo_process_error")
 
-    # Store as base64 data URL — survives Railway redeploys without a Volume.
+    # If PHOTO_DIR is set (Railway Volume mounted), save to filesystem.
+    # Otherwise fall back to base64 data URL (no Volume required).
+    photo_dir_env = os.getenv("PHOTO_DIR")
+    if photo_dir_env:
+        photo_dir = Path(photo_dir_env)
+        photo_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{uuid.uuid4().hex}.jpg"
+        (photo_dir / filename).write_bytes(buf.getvalue())
+        return f"/photos/{filename}"
+
     data = base64.b64encode(buf.getvalue()).decode()
     return f"data:image/jpeg;base64,{data}"
 
