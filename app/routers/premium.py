@@ -63,7 +63,7 @@ async def activate_premium(
     return JSONResponse({"success": True})
 
 
-@router.post("/premium/deactivate", dependencies=[Depends(validate_csrf_header)])
+@router.post("/premium/deactivate", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(5, 60))])
 async def deactivate_premium(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     user.is_premium = False
     user.premium_until = None

@@ -118,7 +118,7 @@ async def notifications(user: User = Depends(get_current_user), db: AsyncSession
     return JSONResponse({"new_matches": new_matches, "unread_messages": unread_messages})
 
 
-@router.get("/matches", response_class=HTMLResponse)
+@router.get("/matches", response_class=HTMLResponse, dependencies=[Depends(rate_limit(30, 60))])
 async def matches_page(
     request: Request,
     page: int = Query(1, ge=1),

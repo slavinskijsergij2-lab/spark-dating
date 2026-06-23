@@ -154,7 +154,7 @@ async def find_next_candidate(
     return result.scalar_one_or_none()
 
 
-@router.get("/swipe", response_class=HTMLResponse)
+@router.get("/swipe", response_class=HTMLResponse, dependencies=[Depends(rate_limit(60, 60))])
 async def swipe_page(
     request: Request,
     intention: str = Query(None),
