@@ -92,210 +92,243 @@
 {% set os = online_status(candidate.last_seen, lang) %}
 {% endif %}
 
-<script>
-function swipeApp() {
-  return {
-    noMore:    {{ 'true' if not candidate else 'false' }},
-    swiping:   false,
-    superLeft: {{ super_likes_left }},
-    card:      null,
-    err:       '',
+{% if not candidate %}
+<!-- ══ НЕТ БОЛЬШЕ ЛЮДЕЙ ══ -->
+<div class="flex flex-col items-center justify-center text-center py-16 px-6">
+  <div class="text-6xl mb-5">😔</div>
+  <h2 class="text-xl font-black text-gray-700 mb-2">{{ t.get('no_more_title','Никого не нашлось') }}</h2>
+  <p class="text-gray-400 text-sm mb-8 max-w-xs leading-relaxed">{{ t.get('no_more_desc','Попробуйте расширить фильтры или зайдите позже') }}</p>
+  <a href="/swipe" class="gradient-pink text-white px-8 py-3 rounded-full font-bold shadow-lg hover:opacity-90 transition">
+    🔄 {{ t.get('filter_reset','Сбросить фильтры') }}
+  </a>
+</div>
 
-    init() {
-      try {
-        var el = document.getElementById('_swipe_card');
-        this.card = el ? JSON.parse(el.textContent) : null;
-      } catch(e) { this.card = null; }
-      if (!this.card) this.noMore = true;
-      window.addEventListener('pageshow', function(e) {
-        if (e.persisted) window.location.reload();
-      });
-    },
+{% else %}
+<!-- ══ КАРТОЧКА ══ -->
+<div id="swipe-root">
 
-    _req(url, opts) {
-      var ac = new AbortController();
-      var tid = setTimeout(function() { ac.abort(); }, 10000);
-      return fetch(url, Object.assign({}, opts, { signal: ac.signal }))
-        .then(function(r) { clearTimeout(tid); return r; })
-        .catch(function(e) { clearTimeout(tid); throw e; });
-    },
+  <!-- Фильтр по намерениям -->
+  <div class="flex gap-2 overflow-x-auto pb-2 mb-3 no-scrollbar" style="-ms-overflow-style:none;scrollbar-width:none;">
+    <a href="/swipe"
+       class="filter-pill {% if not current_intention %}active{% endif %} flex-shrink-0">
+      {{ t.get('filter_all','Все') }}
+    </a>
+    {% for code, emoji, label_key in [
+        ('serious','💍','intention_serious'),
+        ('casual','😊','intention_casual'),
+        ('today','🔥','intention_today'),
+        ('browsing','👀','intention_browsing')] %}
+    <a href="/swipe?intention={{ code }}"
+       class="filter-pill {% if current_intention == code %}active{% endif %} flex-shrink-0">
+      {{ emoji }} {{ t.get(label_key, code) }}
+    </a>
+    {% endfor %}
+  </div>
 
-    async swipe(action) {
-      if (this.swiping || this.noMore || !this.card) return;
-      this.swiping = true;
-      this.err = '';
+  <!-- Карточка — рендерится сервером, Alpine обновляет динамически -->
+  <div class="swipe-card" id="card-el">
+    <!-- Фото -->
+    <div class="card-photo">
+      <span>👤</span>
+      {# Серверный рендер фото — показывается сразу без JS #}
+      {% if first_photo %}
+      <img id="card-img" src="{{ first_photo }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;"
+           onerror="this.style.display='none'" />
+      {% else %}
+      <img id="card-img" src="" style="display:none;" />
+      {% endif %}
+      <div class="photo-gradient"></div>
+      <div class="card-name">
+        <span id="card-name">{{ profile.name }}, {{ profile.age }}</span>
+        {% if os and os.is_online %}<span class="online-dot"></span>{% endif %}
+        <span id="card-online-dot" class="online-dot" style="display:none;"></span>
+      </div>
+    </div>
+    <!-- Инфо -->
+    <div class="card-body">
+      {% if profile.city %}
+      <p id="card-city" class="text-gray-400 text-sm mb-2">📍 {{ profile.city }}</p>
+      {% else %}
+      <p id="card-city" class="text-gray-400 text-sm mb-2" style="display:none;"></p>
+      {% endif %}
+      {% if profile.bio %}
+      <p id="card-bio" class="text-gray-600 text-sm leading-relaxed line-clamp-3">{{ profile.bio }}</p>
+      {% else %}
+      <p id="card-bio" class="text-gray-600 text-sm leading-relaxed line-clamp-3" style="display:none;"></p>
+      {% endif %}
+    </div>
+  </div>
 
-      var cardEl = this.$refs.card;
-      if (cardEl) cardEl.classList.add(action === 'like' ? 'fly-right' : 'fly-left');
-      await new Promise(function(r) { setTimeout(r, 220); });
+  <!-- Ошибка -->
+  <div id="swipe-err" style="display:none;"
+       class="text-center text-sm text-red-500 bg-red-50 rounded-xl py-2 px-4 mt-4"></div>
 
-      try {
-        var resp = await this._req('/swipe/' + this.card.id + '?action=' + action, {
-          method: 'POST',
-          headers: { 'x-csrf-token': getCsrfToken() }
-        });
-        if (resp.status === 401) { window.location.href = '/login'; return; }
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+  <!-- Кнопки -->
+  <div class="flex items-center justify-center gap-6 mt-6">
+    <button onclick="doSwipe('dislike')" id="btn-no"  class="btn-no"  title="{{ t.get('swipe_hint_left','Нет') }}">✖️</button>
+    <button onclick="doSuperLike()"      id="btn-star" class="btn-super" title="⭐ {{ super_likes_left }}">⭐</button>
+    <button onclick="doSwipe('like')"    id="btn-yes" class="btn-yes" title="{{ t.get('swipe_hint_right','Да') }}">💚</button>
+  </div>
 
-        var data = await resp.json();
-        if (data.matched) { window.location.href = '/matches'; return; }
-        if (data.super_likes_left !== undefined) this.superLeft = data.super_likes_left;
-        if (data.next) {
-          var n = data.next;
-          this.card = { id: n.id, name: n.name, age: n.age, city: n.city,
-                        bio: n.bio, photo: n.photos && n.photos[0] ? n.photos[0] : '',
-                        online: n.is_online };
-        } else {
-          this.noMore = true;
-        }
-      } catch(e) {
-        this.err = '{{ t.get("swipe_err","Ошибка соединения") }}';
-        var self = this;
-        setTimeout(function() { self.err = ''; }, 3000);
-      }
+  <!-- Подсказка -->
+  <div class="flex justify-between text-xs text-gray-300 mt-3 px-10">
+    <span>← {{ t.get('swipe_hint_left','нет') }}</span>
+    <span id="super-left-badge" class="text-yellow-400 font-semibold"
+          {% if super_likes_left <= 0 %}style="display:none;"{% endif %}>⭐ {{ super_likes_left }}</span>
+    <span>{{ t.get('swipe_hint_right','да') }} →</span>
+  </div>
 
-      if (cardEl) cardEl.classList.remove('fly-right', 'fly-left');
-      this.swiping = false;
-    },
-
-    async superLike() {
-      if (this.superLeft <= 0 || this.swiping || this.noMore || !this.card) return;
-      this.swiping = true;
-      this.superLeft--;
-      this.err = '';
-
-      var cardEl = this.$refs.card;
-      if (cardEl) cardEl.classList.add('fly-right');
-      await new Promise(function(r) { setTimeout(r, 220); });
-
-      try {
-        var resp = await this._req('/swipe/' + this.card.id + '?action=like&is_super=1', {
-          method: 'POST',
-          headers: { 'x-csrf-token': getCsrfToken() }
-        });
-        if (resp.status === 401) { window.location.href = '/login'; return; }
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        var data = await resp.json();
-        if (data.matched) { window.location.href = '/matches'; return; }
-        if (data.super_likes_left !== undefined) this.superLeft = data.super_likes_left;
-        if (data.next) {
-          var n = data.next;
-          this.card = { id: n.id, name: n.name, age: n.age, city: n.city,
-                        bio: n.bio, photo: n.photos && n.photos[0] ? n.photos[0] : '',
-                        online: n.is_online };
-        } else { this.noMore = true; }
-      } catch(e) {
-        this.superLeft++;
-        this.err = '{{ t.get("swipe_err","Ошибка соединения") }}';
-        var self = this;
-        setTimeout(function() { self.err = ''; }, 3000);
-      }
-
-      if (cardEl) cardEl.classList.remove('fly-right');
-      this.swiping = false;
-    }
-  };
-}
-</script>
-
-<script type="application/json" id="_swipe_card">
-{% if candidate and profile %}
-{{ {"id": candidate.id, "name": profile.name, "age": profile.age, "city": profile.city or "", "bio": profile.bio or "", "photo": first_photo or "", "online": (os.is_online if os else False)} | tojson | safe }}
-{% else %}null{% endif %}
-</script>
-
-<div x-data="swipeApp()" x-init="init()">
-
-  <!-- ══ НЕТ БОЛЬШЕ ЛЮДЕЙ ══ -->
-  <div x-show="noMore" x-cloak
-       class="flex flex-col items-center justify-center text-center py-16 px-6">
-    <div class="text-6xl mb-5">😔</div>
-    <h2 class="text-xl font-black text-gray-700 mb-2">{{ t.get('no_more_title','Никого не нашлось') }}</h2>
-    <p class="text-gray-400 text-sm mb-8 max-w-xs leading-relaxed">{{ t.get('no_more_desc','Попробуйте расширить фильтры или зайдите позже') }}</p>
-    <a href="/swipe" class="gradient-pink text-white px-8 py-3 rounded-full font-bold shadow-lg hover:opacity-90 transition">
-      🔄 {{ t.get('filter_reset','Сбросить фильтры') }}
+  <!-- Посмотреть профиль -->
+  <div class="flex justify-center mt-3">
+    <a id="card-profile-link" href="/profile/{{ candidate.id }}"
+       class="text-gray-300 text-xs hover:text-pink-400 transition flex items-center gap-1">
+      👁 {{ t.get('view_profile', 'Посмотреть профиль') }}
     </a>
   </div>
 
-  <!-- ══ КАРТОЧКА ══ -->
-  <div x-show="!noMore" x-cloak>
-
-    <!-- Фильтр по намерениям -->
-    <div class="flex gap-2 overflow-x-auto pb-2 mb-3 no-scrollbar" style="-ms-overflow-style:none;scrollbar-width:none;">
-      <a href="/swipe"
-         class="filter-pill {% if not current_intention %}active{% endif %} flex-shrink-0">
-        {{ t.get('filter_all','Все') }}
-      </a>
-      {% for code, emoji, label_key in [
-          ('serious','💍','intention_serious'),
-          ('casual','😊','intention_casual'),
-          ('today','🔥','intention_today'),
-          ('browsing','👀','intention_browsing')] %}
-      <a href="/swipe?intention={{ code }}"
-         class="filter-pill {% if current_intention == code %}active{% endif %} flex-shrink-0">
-        {{ emoji }} {{ t.get(label_key, code) }}
-      </a>
-      {% endfor %}
-    </div>
-
-    <!-- Карточка -->
-    <div class="swipe-card" x-ref="card">
-
-      <!-- Фото -->
-      <div class="card-photo">
-        <span>👤</span>
-        <img x-show="card && card.photo"
-             :src="card ? card.photo : ''"
-             @error="$el.style.display='none'"
-             style="display:none;" />
-        <div class="photo-gradient"></div>
-        <div class="card-name">
-          <span x-text="card ? card.name + ', ' + card.age : ''"></span>
-          <span class="online-dot" x-show="card && card.online"></span>
-        </div>
-      </div>
-
-      <!-- Инфо -->
-      <div class="card-body">
-        <p x-show="card && card.city"
-           x-text="card ? '📍 ' + card.city : ''"
-           class="text-gray-400 text-sm mb-2"></p>
-        <p x-show="card && card.bio"
-           x-text="card ? card.bio : ''"
-           class="text-gray-600 text-sm leading-relaxed line-clamp-3"></p>
-      </div>
-    </div>
-
-    <!-- Ошибка соединения -->
-    <div x-show="err" x-cloak x-text="err"
-         class="text-center text-sm text-red-500 bg-red-50 rounded-xl py-2 px-4 mt-4"></div>
-
-    <!-- Кнопки -->
-    <div class="flex items-center justify-center gap-6 mt-6">
-      <button @click="swipe('dislike')" :disabled="swiping" class="btn-no" title="{{ t.get('swipe_hint_left','Нет') }}">✖️</button>
-
-      <button @click="superLike()" :disabled="swiping || superLeft <= 0" class="btn-super"
-              :title="'⭐ ' + superLeft">⭐</button>
-
-      <button @click="swipe('like')" :disabled="swiping" class="btn-yes" title="{{ t.get('swipe_hint_right','Да') }}">💚</button>
-    </div>
-
-    <!-- Подсказка -->
-    <div class="flex justify-between text-xs text-gray-300 mt-3 px-10">
-      <span>← {{ t.get('swipe_hint_left','нет') }}</span>
-      <span x-show="superLeft > 0" x-text="'⭐ ' + superLeft" class="text-yellow-400 font-semibold"></span>
-      <span>{{ t.get('swipe_hint_right','да') }} →</span>
-    </div>
-
-    <!-- Посмотреть профиль -->
-    <div class="flex justify-center mt-3">
-      <a :href="card ? '/profile/' + card.id : '#'"
-         class="text-gray-300 text-xs hover:text-pink-400 transition flex items-center gap-1">
-        👁 {{ t.get('view_profile', 'Посмотреть профиль') }}
-      </a>
-    </div>
-
-
-  </div>
 </div>
+
+<script>
+(function() {
+  var cardId    = {{ candidate.id }};
+  var superLeft = {{ super_likes_left }};
+  var swiping   = false;
+
+  function getCsrf() {
+    var c = document.cookie.split('; ').find(function(r){ return r.startsWith('csrftoken='); });
+    return c ? c.slice('csrftoken='.length) : '';
+  }
+
+  function showErr(msg) {
+    var el = document.getElementById('swipe-err');
+    if (!el) return;
+    el.textContent = msg;
+    el.style.display = 'block';
+    setTimeout(function(){ el.style.display = 'none'; }, 3000);
+  }
+
+  function setBusy(val) {
+    swiping = val;
+    ['btn-no','btn-yes','btn-star'].forEach(function(id){
+      var b = document.getElementById(id);
+      if (b) b.disabled = val;
+    });
+  }
+
+  function updateCard(n) {
+    cardId = n.id;
+    var photo  = n.photos && n.photos[0] ? n.photos[0] : '';
+    var img    = document.getElementById('card-img');
+    var name   = document.getElementById('card-name');
+    var city   = document.getElementById('card-city');
+    var bio    = document.getElementById('card-bio');
+    var dot    = document.getElementById('card-online-dot');
+    var link   = document.getElementById('card-profile-link');
+    if (img)  { img.src = photo; img.style.display = photo ? '' : 'none'; }
+    if (name) name.textContent = n.name + ', ' + n.age;
+    if (city) { city.textContent = n.city ? '📍 ' + n.city : ''; city.style.display = n.city ? '' : 'none'; }
+    if (bio)  { bio.textContent = n.bio || ''; bio.style.display = n.bio ? '' : 'none'; }
+    if (dot)  dot.style.display = n.is_online ? '' : 'none';
+    if (link) link.href = '/profile/' + n.id;
+  }
+
+  function hideCard() {
+    var root = document.getElementById('swipe-root');
+    if (!root) return;
+    root.innerHTML = '<div class="flex flex-col items-center justify-center text-center py-16 px-6">' +
+      '<div class="text-6xl mb-5">😔</div>' +
+      '<h2 class="text-xl font-black text-gray-700 mb-2">{{ t.get("no_more_title","Никого не нашлось") }}</h2>' +
+      '<p class="text-gray-400 text-sm mb-8 max-w-xs leading-relaxed">{{ t.get("no_more_desc","Попробуйте расширить фильтры или зайдите позже") }}</p>' +
+      '<a href="/swipe" class="gradient-pink text-white px-8 py-3 rounded-full font-bold shadow-lg hover:opacity-90 transition">🔄 {{ t.get("filter_reset","Сбросить фильтры") }}</a>' +
+      '</div>';
+  }
+
+  function flyCard(cls, cb) {
+    var el = document.getElementById('card-el');
+    if (!el) { cb(); return; }
+    el.classList.add(cls);
+    setTimeout(function(){
+      el.classList.remove(cls);
+      cb();
+    }, 220);
+  }
+
+  window.doSwipe = function(action) {
+    if (swiping) return;
+    setBusy(true);
+    flyCard(action === 'like' ? 'fly-right' : 'fly-left', function() {
+      var ac = new AbortController();
+      var tid = setTimeout(function(){ ac.abort(); }, 10000);
+      fetch('/swipe/' + cardId + '?action=' + action, {
+        method: 'POST',
+        headers: { 'x-csrf-token': getCsrf() },
+        signal: ac.signal
+      })
+      .then(function(r){
+        clearTimeout(tid);
+        if (r.status === 401) { window.location.href = '/login'; return null; }
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(data){
+        if (!data) return;
+        if (data.matched) { window.location.href = '/matches'; return; }
+        if (data.super_likes_left !== undefined) {
+          superLeft = data.super_likes_left;
+          var badge = document.getElementById('super-left-badge');
+          if (badge) { badge.textContent = '⭐ ' + superLeft; badge.style.display = superLeft > 0 ? '' : 'none'; }
+        }
+        if (data.next) { updateCard(data.next); }
+        else { hideCard(); return; }
+        setBusy(false);
+      })
+      .catch(function(e){
+        showErr('{{ t.get("swipe_err","Ошибка соединения") }}');
+        setBusy(false);
+      });
+    });
+  };
+
+  window.doSuperLike = function() {
+    if (swiping || superLeft <= 0) return;
+    superLeft--;
+    setBusy(true);
+    flyCard('fly-right', function() {
+      var ac = new AbortController();
+      var tid = setTimeout(function(){ ac.abort(); }, 10000);
+      fetch('/swipe/' + cardId + '?action=like&is_super=1', {
+        method: 'POST',
+        headers: { 'x-csrf-token': getCsrf() },
+        signal: ac.signal
+      })
+      .then(function(r){
+        clearTimeout(tid);
+        if (r.status === 401) { window.location.href = '/login'; return null; }
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(data){
+        if (!data) return;
+        if (data.matched) { window.location.href = '/matches'; return; }
+        if (data.super_likes_left !== undefined) {
+          superLeft = data.super_likes_left;
+          var badge = document.getElementById('super-left-badge');
+          if (badge) { badge.textContent = '⭐ ' + superLeft; badge.style.display = superLeft > 0 ? '' : 'none'; }
+        }
+        if (data.next) { updateCard(data.next); }
+        else { hideCard(); return; }
+        setBusy(false);
+      })
+      .catch(function(e){
+        superLeft++;
+        showErr('{{ t.get("swipe_err","Ошибка соединения") }}');
+        setBusy(false);
+      });
+    });
+  };
+
+  window.addEventListener('pageshow', function(e){ if (e.persisted) window.location.reload(); });
+})();
+</script>
+{% endif %}
 {% endblock %}
