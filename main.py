@@ -599,6 +599,12 @@ def app_errors(token: str = Query(default="")):
         return JSONResponse({"errors": list(_error_log)})
 
 
+@app.get("/sentry-debug/")
+@app.get("/sentry-debug")
+async def sentry_debug():
+    raise RuntimeError("Sentry debug: error tracking is working!")
+
+
 @app.get("/", response_class=HTMLResponse)
 @app.head("/")
 def index(request: Request):
