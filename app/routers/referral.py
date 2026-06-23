@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
-from sqlalchemy import select
+from sqlalchemy import func as _func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
@@ -43,8 +43,10 @@ async def referral_page(request: Request, user: User = Depends(get_current_user)
         user.referral_code = await _generate_referral_code(db)
         await db.commit()
 
-    result = await db.execute(select(User).where(User.referred_by_id == user.id))
-    referred_count = len(result.scalars().all())
+    result = await db.execute(
+        select(_func.count(User.id)).where(User.referred_by_id == user.id)
+    )
+    referred_count = result.scalar() or 0
     days_earned = referred_count * REFERRAL_BONUS_DAYS
 
     now = _utcnow()
