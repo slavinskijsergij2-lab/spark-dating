@@ -47,8 +47,12 @@ def rate_limit(max_calls: int, window_seconds: int = 60) -> Callable:
             calls.append(now)
             _store[key] = calls
             # Prevent unbounded memory growth: evict expired keys when store is large.
+            # Use a generous 1-hour threshold so entries belonging to long-window
+            # limiters (e.g. rate_limit(3, 300)) aren't evicted by a short-window
+            # limiter (e.g. rate_limit(120, 60)) triggering the cleanup.
             if len(_store) > 5000:
-                to_del = [k for k, v in _store.items() if not v or max(v) <= cutoff]
+                evict_before = now - 3600
+                to_del = [k for k, v in _store.items() if not v or max(v) <= evict_before]
                 for k in to_del:
                     del _store[k]
     return dependency
