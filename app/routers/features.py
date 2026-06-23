@@ -175,7 +175,7 @@ async def rate_politeness(
     return JSONResponse({"success": True, "message": t.get("rate_success", "Rated!")})
 
 
-@router.get("/quiz", response_class=HTMLResponse)
+@router.get("/quiz", response_class=HTMLResponse, dependencies=[Depends(rate_limit(30, 60))])
 async def quiz_page(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(QuizAnswer).where(QuizAnswer.user_id == user.id)

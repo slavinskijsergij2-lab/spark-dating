@@ -23,7 +23,7 @@ _PREMIUM_CODES: set[str] = set(
 )
 
 
-@router.get("/premium", response_class=HTMLResponse)
+@router.get("/premium", response_class=HTMLResponse, dependencies=[Depends(rate_limit(30, 60))])
 async def premium_page(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     lang = get_lang(request, user)
     now = _utcnow()

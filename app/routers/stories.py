@@ -154,7 +154,7 @@ async def stories_feed(user: User = Depends(get_current_user), db: AsyncSession 
     return JSONResponse(feed)
 
 
-@router.get("/stories/page", response_class=HTMLResponse)
+@router.get("/stories/page", response_class=HTMLResponse, dependencies=[Depends(rate_limit(30, 60))])
 async def stories_page(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     from app.i18n import get_lang, get_translations, is_rtl
     lang = get_lang(request, user)

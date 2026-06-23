@@ -92,7 +92,7 @@ async def report_user(
     return JSONResponse({"success": True})
 
 
-@router.get("/settings/blocks", response_class=HTMLResponse)
+@router.get("/settings/blocks", response_class=HTMLResponse, dependencies=[Depends(rate_limit(30, 60))])
 async def blocked_list(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     lang = get_lang(request, user)
     result = await db.execute(
