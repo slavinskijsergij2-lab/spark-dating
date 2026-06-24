@@ -7,6 +7,11 @@ Create Date: 2026-06-23
 from alembic import op
 import sqlalchemy as sa
 
+revision = "004"
+down_revision = "003"
+branch_labels = None
+depends_on = None
+
 
 def upgrade():
     op.create_table(
