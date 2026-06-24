@@ -54,11 +54,13 @@ async def debug_check_email(email: str, secret: str, db: AsyncSession = Depends(
         with _ur.build_opener(_ur.HTTPSHandler(context=ctx)).open(req, timeout=10) as r:
             resp_body = r.read().decode()
         return {"found": True, "id": row[0], "email_sent": True, "resend_resp": resp_body}
-    except _ur.error.HTTPError as e:
-        body = e.read().decode()
-        return {"found": True, "id": row[0], "email_sent": False, "error": str(e), "body": body, "key_used": key[:8] + "..."}
     except Exception as e:
-        return {"found": True, "id": row[0], "email_sent": False, "error": str(e), "error_type": type(e).__name__}
+        body = ""
+        try:
+            body = e.read().decode()
+        except Exception:
+            pass
+        return {"found": True, "id": row[0], "email_sent": False, "error": str(e), "body": body, "key_used": key[:10] + "...", "error_type": type(e).__name__}
 _SECURE_COOKIES = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("SECURE_COOKIES"))
 
 from app.utils.time import utcnow as _utcnow
