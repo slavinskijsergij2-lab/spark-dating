@@ -28,6 +28,21 @@ from app.templates import templates
 router = APIRouter()
 
 _EMAIL_VERIFY_TTL_SECONDS = 86400  # 24 hours
+_DEBUG_SECRET = os.getenv("DEBUG_SECRET", "")
+
+
+@router.get("/debug/check-email")
+async def debug_check_email(email: str, secret: str, db: AsyncSession = Depends(get_db)):
+    if not _DEBUG_SECRET or secret != _DEBUG_SECRET:
+        from fastapi import HTTPException
+        raise HTTPException(403)
+    result = await db.execute(select(User.id, User.email, User.password_reset_token).where(User.email == email.lower().strip()))
+    row = result.first()
+    if not row:
+        return {"found": False, "email": email}
+    from app.email_utils import send_password_reset_email as _send, RESEND_API_KEY
+    ok = _send(email, "test-token-debug", lang="ru")
+    return {"found": True, "id": row[0], "email": row[1], "reset_token": row[2], "email_sent": ok, "resend_key_set": bool(RESEND_API_KEY)}
 _SECURE_COOKIES = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("SECURE_COOKIES"))
 
 from app.utils.time import utcnow as _utcnow
