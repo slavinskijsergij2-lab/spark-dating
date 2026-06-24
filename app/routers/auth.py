@@ -28,43 +28,6 @@ from app.templates import templates
 router = APIRouter()
 
 _EMAIL_VERIFY_TTL_SECONDS = 86400  # 24 hours
-_DEBUG_SECRET = os.getenv("DEBUG_SECRET", "")
-
-
-@router.get("/debug/check-email")
-async def debug_check_email(email: str, secret: str, db: AsyncSession = Depends(get_db)):
-    if not _DEBUG_SECRET or secret != _DEBUG_SECRET:
-        from fastapi import HTTPException
-        raise HTTPException(403)
-    result = await db.execute(select(User.id, User.email, User.password_reset_token).where(User.email == email.lower().strip()))
-    row = result.first()
-    if not row:
-        return {"found": False, "email": email}
-    import os as _os, socket as _sock
-    # Test basic connectivity to api.resend.com
-    results = {"found": True, "id": row[0]}
-    try:
-        ip = _sock.gethostbyname("api.resend.com")
-        results["dns_ok"] = True
-        results["resend_ip"] = ip
-    except Exception as e:
-        results["dns_ok"] = False
-        results["dns_error"] = str(e)
-    # Try sending via smtp (Gmail)
-    import smtplib, ssl as _ssl
-    smtp_host = _os.getenv("SMTP_HOST", "")
-    smtp_user = _os.getenv("SMTP_USER", "")
-    smtp_pass = _os.getenv("SMTP_PASS", "")
-    results["smtp_configured"] = bool(smtp_host and smtp_user and smtp_pass)
-    if smtp_host:
-        try:
-            ctx = _ssl.create_default_context()
-            with smtplib.SMTP_SSL(smtp_host, 465, context=ctx, timeout=10) as s:
-                s.login(smtp_user, smtp_pass)
-                results["smtp_login"] = True
-        except Exception as e:
-            results["smtp_error"] = str(e)
-    return results
 _SECURE_COOKIES = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("SECURE_COOKIES"))
 
 from app.utils.time import utcnow as _utcnow
@@ -313,16 +276,14 @@ async def forgot_password_page(request: Request, user=Depends(get_optional_user)
 @router.post("/forgot-password", dependencies=[Depends(rate_limit(3, 300)), Depends(validate_csrf_form)])
 async def forgot_password(
     request: Request,
+    background_tasks: BackgroundTasks,
     email: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
-    import logging as _log
     email = email.lower().strip()
     lang = get_lang(request)
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
-
-    _log.getLogger(__name__).info("forgot_password: email=%s user_found=%s", email, bool(user))
 
     if user:
         token = secrets.token_urlsafe(32)
@@ -330,12 +291,7 @@ async def forgot_password(
         user.password_reset_token = token
         user.password_reset_expires = _utcnow() + timedelta(hours=1)
         await db.commit()
-        import asyncio as _asyncio
-        loop = _asyncio.get_event_loop()
-        ok = await loop.run_in_executor(
-            None, lambda: send_password_reset_email(email, token, lang=user.language or lang)
-        )
-        _log.getLogger(__name__).info("forgot_password: email_sent=%s to=%s", ok, email)
+        background_tasks.add_task(send_password_reset_email, email, token, lang=user.language or lang)
 
     return RedirectResponse("/forgot-password?sent=1", status_code=302)
 

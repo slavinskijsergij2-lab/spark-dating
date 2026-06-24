@@ -2,14 +2,33 @@ import html as _html
 import json
 import logging
 import os
-import urllib.request
-import urllib.error
 
 logger = logging.getLogger(__name__)
 
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
 RESEND_FROM = os.getenv("RESEND_FROM", "Spark <onboarding@resend.dev>")
 APP_URL = os.getenv("APP_URL", "https://spark-dating.club")
+
+
+def _resend_post(payload: dict) -> bool:
+    """Send one email via Resend API using httpx (avoids urllib Cloudflare block)."""
+    if not RESEND_API_KEY:
+        return False
+    try:
+        import httpx
+        r = httpx.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=15,
+        )
+        if r.is_success:
+            return True
+        logger.error("Resend API %s: %s", r.status_code, r.text[:200])
+        return False
+    except Exception:
+        logger.exception("Failed to post to Resend API")
+        return False
 
 
 def is_smtp_configured() -> bool:
@@ -114,25 +133,7 @@ def send_match_email(to_email: str, partner_name: str, matches_url: str = "", la
 </body>
 </html>"""
 
-    payload = json.dumps({"from": RESEND_FROM, "to": [to_email], "subject": subject, "html": html}).encode()
-    req = urllib.request.Request(
-        "https://api.resend.com/emails", data=payload,
-        headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        import ssl
-        try:
-            import certifi
-            ctx = ssl.create_default_context(cafile=certifi.where())
-        except ImportError:
-            ctx = ssl.create_default_context()
-        opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
-        with opener.open(req, timeout=10):
-            return True
-    except Exception:
-        logger.exception("Failed to send match email to %s", to_email)
-        return False
+    return _resend_post({"from": RESEND_FROM, "to": [to_email], "subject": subject, "html": html})
 
 
 def send_password_reset_email(to_email: str, token: str, lang: str = "en") -> bool:
@@ -179,25 +180,7 @@ def send_password_reset_email(to_email: str, token: str, lang: str = "en") -> bo
 </body>
 </html>"""
 
-    payload = json.dumps({"from": RESEND_FROM, "to": [to_email], "subject": subject, "html": html}).encode()
-    req = urllib.request.Request(
-        "https://api.resend.com/emails", data=payload,
-        headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        import ssl
-        try:
-            import certifi
-            ctx = ssl.create_default_context(cafile=certifi.where())
-        except ImportError:
-            ctx = ssl.create_default_context()
-        opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
-        with opener.open(req, timeout=10):
-            return True
-    except Exception:
-        logger.exception("Failed to send reset email to %s", to_email)
-        return False
+    return _resend_post({"from": RESEND_FROM, "to": [to_email], "subject": subject, "html": html})
 
 
 def send_verification_email(to_email: str, token: str, lang: str = "en") -> bool:
@@ -234,39 +217,4 @@ def send_verification_email(to_email: str, token: str, lang: str = "en") -> bool
 </body>
 </html>"""
 
-    payload = json.dumps({
-        "from": RESEND_FROM,
-        "to": [to_email],
-        "subject": subject,
-        "html": html,
-    }).encode()
-
-    req = urllib.request.Request(
-        "https://api.resend.com/emails",
-        data=payload,
-        headers={
-            "Authorization": f"Bearer {RESEND_API_KEY}",
-            "Content-Type": "application/json",
-            "User-Agent": "python-requests/2.31.0",
-        },
-        method="POST",
-    )
-
-    try:
-        import ssl
-        try:
-            import certifi
-            ctx = ssl.create_default_context(cafile=certifi.where())
-        except ImportError:
-            ctx = ssl.create_default_context()
-
-        opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
-        with opener.open(req, timeout=10) as resp:
-            logger.info("Verification email sent to %s (status %s)", to_email, resp.status)
-            return True
-    except urllib.error.HTTPError as e:
-        logger.error("Resend API error %s: %s", e.code, e.read().decode())
-        return False
-    except Exception:
-        logger.exception("Failed to send verification email to %s", to_email)
-        return False
+    return _resend_post({"from": RESEND_FROM, "to": [to_email], "subject": subject, "html": html})
