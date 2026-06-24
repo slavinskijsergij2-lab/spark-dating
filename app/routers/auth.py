@@ -40,9 +40,22 @@ async def debug_check_email(email: str, secret: str, db: AsyncSession = Depends(
     row = result.first()
     if not row:
         return {"found": False, "email": email}
-    from app.email_utils import send_password_reset_email as _send, RESEND_API_KEY
-    ok = _send(email, "test-token-debug", lang="ru")
-    return {"found": True, "id": row[0], "email": row[1], "reset_token": row[2], "email_sent": ok, "resend_key_set": bool(RESEND_API_KEY)}
+    import json as _json, urllib.request as _ur, os as _os
+    key = _os.getenv("RESEND_API_KEY", "")
+    payload = _json.dumps({"from": "Spark <onboarding@resend.dev>", "to": [email], "subject": "Spark reset test", "html": "<p>test</p>"}).encode()
+    req = _ur.Request("https://api.resend.com/emails", data=payload,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"}, method="POST")
+    try:
+        import ssl
+        try:
+            import certifi; ctx = ssl.create_default_context(cafile=certifi.where())
+        except ImportError:
+            ctx = ssl.create_default_context()
+        with _ur.build_opener(_ur.HTTPSHandler(context=ctx)).open(req, timeout=10) as r:
+            resp_body = r.read().decode()
+        return {"found": True, "id": row[0], "email_sent": True, "resend_resp": resp_body}
+    except Exception as e:
+        return {"found": True, "id": row[0], "email_sent": False, "error": str(e), "error_type": type(e).__name__}
 _SECURE_COOKIES = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("SECURE_COOKIES"))
 
 from app.utils.time import utcnow as _utcnow
