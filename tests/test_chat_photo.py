@@ -61,7 +61,8 @@ def test_send_photo_png_success(db):
     assert r.json().get("is_image") is True
 
 
-def test_send_photo_content_is_base64_data_url(db):
+def test_send_photo_content_is_url_or_base64(db):
+    """Photo content is either a /photos/ file path (Volume) or base64 data URL."""
     client_a, csrf_a, _, _, mid = _setup_match(db)
     r = client_a.post(
         f"/chat/{mid}/photo",
@@ -69,8 +70,9 @@ def test_send_photo_content_is_base64_data_url(db):
         headers={"x-csrf-token": csrf_a},
     )
     content = r.json().get("content", "")
-    assert content.startswith("data:image/")
-    assert ";base64," in content
+    assert content.startswith("/photos/") or (
+        content.startswith("data:image/") and ";base64," in content
+    )
 
 
 def test_send_photo_invalid_mime_rejected(db):

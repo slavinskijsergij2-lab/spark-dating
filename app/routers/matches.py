@@ -568,8 +568,11 @@ async def send_photo(
     if mime not in ALLOWED_IMAGE_MIMES:
         return JSONResponse({"error": "Unsupported image format"}, status_code=400)
 
-    b64 = base64.b64encode(raw).decode()
-    content = f"data:{mime};base64,{b64}"
+    from app.utils.photos import save_image_bytes
+    try:
+        content = save_image_bytes(raw, prefix="chat_")
+    except ValueError:
+        return JSONResponse({"error": "Cannot process image"}, status_code=400)
 
     msg = Message(match_id=match_id, sender_id=user.id, content=content, is_image=True)
     db.add(msg)
@@ -578,7 +581,6 @@ async def send_photo(
     await db.refresh(msg)
 
     sender_name = user.profile.name if hasattr(user, "profile") and user.profile else "Spark"
-    from app.push import send_push_to_user as _push
     import asyncio as _asyncio
     _asyncio.ensure_future(send_push_to_user(partner_id, f"📷 {sender_name}", "Фото", f"/chat/{match_id}", "message"))
 

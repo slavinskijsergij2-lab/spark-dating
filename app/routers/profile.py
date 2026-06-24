@@ -1,7 +1,4 @@
-import base64
-import io
 import os
-import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -10,7 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import and_, func as _func, or_, select, update as _update
 from sqlalchemy.exc import IntegrityError as _IE
 from sqlalchemy.ext.asyncio import AsyncSession
-from PIL import Image, ImageOps
+from PIL import Image
 Image.MAX_IMAGE_PIXELS = 25_000_000  # ~5000×5000 — blocks decompression bomb attacks
 try:
     import pillow_heif
@@ -29,7 +26,6 @@ from app.utils.time import utcnow as _utcnow
 
 router = APIRouter()
 
-MAX_SIZE = (800, 800)
 MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_NAME_LEN = 100
 MAX_BIO_LEN = 1000
@@ -37,39 +33,16 @@ MAX_CITY_LEN = 100
 VALID_INTENTIONS = {"serious", "casual", "today", "browsing"}
 
 
-def _photo_dir() -> Path:
-    d = Path(os.getenv("PHOTO_DIR", "static/photos"))
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
 
 async def save_photo(file: UploadFile) -> str:
+    from app.utils.photos import save_image_bytes
     raw = await file.read(MAX_FILE_BYTES + 1)
     if len(raw) > MAX_FILE_BYTES:
         raise HTTPException(400, "photo_size_error")
-
     try:
-        img = Image.open(io.BytesIO(raw))
-        img = ImageOps.exif_transpose(img)  # fix sideways/upside-down mobile photos
-        img.thumbnail(MAX_SIZE, Image.LANCZOS)
-        img = img.convert("RGB")
-        buf = io.BytesIO()
-        img.save(buf, "JPEG", quality=80)
-    except Exception:
+        return save_image_bytes(raw, prefix="profile_")
+    except ValueError:
         raise HTTPException(400, "photo_process_error")
-
-    # If PHOTO_DIR is set (Railway Volume mounted), save to filesystem.
-    # Otherwise fall back to base64 data URL (no Volume required).
-    photo_dir_env = os.getenv("PHOTO_DIR")
-    if photo_dir_env:
-        photo_dir = Path(photo_dir_env)
-        photo_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"{uuid.uuid4().hex}.jpg"
-        (photo_dir / filename).write_bytes(buf.getvalue())
-        return f"/photos/{filename}"
-
-    data = base64.b64encode(buf.getvalue()).decode()
-    return f"data:image/jpeg;base64,{data}"
 
 
 @router.get("/profile/edit", response_class=HTMLResponse, dependencies=[Depends(rate_limit(30, 60))])
@@ -296,9 +269,12 @@ async def delete_account(
 def _try_remove_photo(url: str | None) -> None:
     if not url or not url.startswith("/photos/"):
         return
+    photo_dir_env = os.getenv("PHOTO_DIR")
+    if not photo_dir_env:
+        return
     try:
         fname = url.split("/")[-1]
-        p = _photo_dir() / fname
+        p = Path(photo_dir_env) / fname
         p.unlink(missing_ok=True)
     except Exception:
         pass
