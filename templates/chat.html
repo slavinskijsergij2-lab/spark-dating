@@ -236,19 +236,19 @@
     {% endif %}
     {% endfor %}
 
-  </div>
+    <!-- TYPING INDICATOR (inside container so insertBefore works) -->
+    <div id="typing-indicator" style="display:none;" class="msg-row-partner px-3 pb-1">
+      <div class="w-6 h-6 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center
+                  {% if partner.profile and partner.profile.photo %}partner-avatar{% endif %}">
+        {% if not (partner.profile and partner.profile.photo) %}<span class="text-xs">👤</span>{% endif %}
+      </div>
+      <div class="bubble-partner flex gap-1 items-center px-4 py-3">
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+      </div>
+    </div>
 
-  <!-- TYPING INDICATOR -->
-  <div id="typing-indicator" style="display:none;" class="msg-row-partner px-3 pb-1">
-    <div class="w-6 h-6 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center
-                {% if partner.profile and partner.profile.photo %}partner-avatar{% endif %}">
-      {% if not (partner.profile and partner.profile.photo) %}<span class="text-xs">👤</span>{% endif %}
-    </div>
-    <div class="bubble-partner flex gap-1 items-center px-4 py-3">
-      <span class="typing-dot"></span>
-      <span class="typing-dot"></span>
-      <span class="typing-dot"></span>
-    </div>
   </div>
 
   <!-- ERROR -->
@@ -430,10 +430,7 @@
     .then(function(r) {
       clearTimeout(tid);
       if (r.status === 401) { window.location.href = '/login'; return null; }
-      return r.text().then(function(txt) {
-        try { return JSON.parse(txt); }
-        catch(_) { throw new Error('HTTP ' + r.status + ': ' + txt.slice(0, 120)); }
-      });
+      return r.json();
     })
     .then(function(d) {
       if (!d) return;
@@ -448,9 +445,7 @@
     })
     .catch(function(e) {
       input.value = text;
-      var msg = (e && e.name === 'AbortError') ? 'Таймаут (10с)' : ('Нет соединения: ' + (e && e.message || e));
-      showErr(msg);
-      console.error('sendMessage error:', e);
+      showErr('Нет соединения');
     })
     .finally(function() {
       sending = false;
