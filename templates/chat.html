@@ -430,7 +430,10 @@
     .then(function(r) {
       clearTimeout(tid);
       if (r.status === 401) { window.location.href = '/login'; return null; }
-      return r.json();
+      return r.text().then(function(txt) {
+        try { return JSON.parse(txt); }
+        catch(_) { throw new Error('HTTP ' + r.status + ': ' + txt.slice(0, 120)); }
+      });
     })
     .then(function(d) {
       if (!d) return;
@@ -445,7 +448,9 @@
     })
     .catch(function(e) {
       input.value = text;
-      showErr('Нет соединения');
+      var msg = (e && e.name === 'AbortError') ? 'Таймаут (10с)' : ('Нет соединения: ' + (e && e.message || e));
+      showErr(msg);
+      console.error('sendMessage error:', e);
     })
     .finally(function() {
       sending = false;
