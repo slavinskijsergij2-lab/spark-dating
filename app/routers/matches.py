@@ -793,6 +793,8 @@ async def get_messages(
         "created_at": m.created_at.isoformat(),
         "is_read": m.is_read,
         "is_voice": m.is_voice,
+        "is_image": m.is_image,
+        "edited_at": m.edited_at.isoformat() if m.edited_at else None,
         "reactions": reactions_by_msg.get(m.id, {}),
     } for m in messages])
 
