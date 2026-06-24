@@ -227,6 +227,20 @@
 
     <div id="push-divider" style="display:none" class="mx-6 border-t border-gray-100"></div>
 
+    <!-- Notification settings -->
+    <a href="/settings/notifications" onclick="closeMoreMenu()"
+       class="flex items-center gap-4 px-6 py-3.5 hover:bg-pink-50/70 transition-colors {% if request.url.path == '/settings/notifications' %}text-pink-500{% else %}text-gray-700{% endif %}">
+      <svg class="w-6 h-6 flex-shrink-0 {% if request.url.path == '/settings/notifications' %}stroke-pink-500{% else %}stroke-gray-500{% endif %}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+      </svg>
+      <span class="font-semibold">{% if t is defined %}{{ t.get('notif_settings_title','Уведомления') }}{% else %}Уведомления{% endif %}</span>
+      {% if request.url.path == '/settings/notifications' %}
+      <span class="ml-auto w-2 h-2 rounded-full bg-pink-500"></span>
+      {% endif %}
+    </a>
+
+    <div class="mx-6 border-t border-gray-100"></div>
+
     <!-- Dark mode -->
     <button onclick="toggleDark(); closeMoreMenu()"
             class="w-full flex items-center gap-4 px-6 py-3.5 hover:bg-pink-50/70 transition-colors text-gray-700">
@@ -240,13 +254,53 @@
     <form method="POST" action="/logout">
       <input type="hidden" name="csrftoken" value="{{ request.state.csrf_token }}" />
       <button type="submit"
-              class="w-full flex items-center gap-4 px-6 py-3.5 hover:bg-red-50/70 transition-colors text-red-500 rounded-b-3xl">
+              class="w-full flex items-center gap-4 px-6 py-3.5 hover:bg-red-50/70 transition-colors text-red-500">
         <svg class="w-6 h-6 flex-shrink-0 stroke-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
         </svg>
         <span class="font-semibold">{% if t is defined %}{{ t.get('logout', 'Выйти') }}{% else %}Выйти{% endif %}</span>
       </button>
     </form>
+
+    <div class="mx-6 border-t border-gray-100"></div>
+
+    <!-- Delete account -->
+    <button onclick="closeMoreMenu(); document.getElementById('base-delete-modal').style.display='flex'"
+            class="w-full flex items-center gap-4 px-6 py-3.5 hover:bg-red-50/70 transition-colors text-gray-400 hover:text-red-500 rounded-b-3xl">
+      <svg class="w-6 h-6 flex-shrink-0 stroke-current" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+      </svg>
+      <span class="font-semibold text-sm">{% if t is defined %}{{ t.get('delete_account','Удалить аккаунт') }}{% else %}Удалить аккаунт{% endif %}</span>
+    </button>
+  </div>
+
+  <!-- Delete account modal (base) -->
+  <div id="base-delete-modal" style="display:none"
+       class="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+      <div class="text-4xl text-center mb-3">🗑️</div>
+      <h3 class="text-lg font-bold text-gray-900 mb-2 text-center">{% if t is defined %}{{ t.get('delete_account','Удалить аккаунт') }}{% else %}Удалить аккаунт{% endif %}?</h3>
+      <p class="text-sm text-gray-500 mb-4 text-center">
+        {% if t is defined %}{{ t.get('delete_account_desc','Все данные, матчи и переписка будут удалены безвозвратно.') }}{% else %}Все данные, матчи и переписка будут удалены безвозвратно.{% endif %}
+      </p>
+      <p class="text-xs text-gray-400 mb-2 text-center">{% if t is defined %}{{ t.get('type_delete','Введи DELETE для подтверждения') }}{% else %}Введи DELETE для подтверждения{% endif %}</p>
+      <form method="POST" action="/account/delete">
+        <input type="hidden" name="csrftoken" value="{{ request.cookies.get('csrftoken','') }}" />
+        <input type="text" name="confirm" placeholder="DELETE"
+               class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm mb-4 text-center tracking-widest font-mono focus:outline-none focus:ring-2 focus:ring-red-300" />
+        <div class="flex gap-3">
+          <button type="button"
+                  onclick="document.getElementById('base-delete-modal').style.display='none'"
+                  class="flex-1 border border-gray-200 text-gray-600 py-2.5 rounded-full text-sm font-semibold">
+            {% if t is defined %}{{ t.get('cancel','Отмена') }}{% else %}Отмена{% endif %}
+          </button>
+          <button type="submit"
+                  class="flex-1 bg-red-500 text-white py-2.5 rounded-full text-sm font-semibold">
+            {% if t is defined %}{{ t.get('delete_account','Удалить') }}{% else %}Удалить{% endif %}
+          </button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <!-- ── Bottom navigation bar (3 items + More) ── -->
