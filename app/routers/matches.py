@@ -27,10 +27,13 @@ router = APIRouter()
 MAX_MESSAGE_LENGTH = 2000
 CHAT_PAGE_SIZE = 100
 MAX_VOICE_BYTES = 5 * 1024 * 1024
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
 POLL_PAGE_SIZE = 50
 MATCHES_PAGE_SIZE = 20
 LIKED_ME_PREVIEW = 12
 ALLOWED_AUDIO_MIMES = {"audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav"}
+ALLOWED_IMAGE_MIMES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+ARCHIVE_AFTER_DAYS = 7
 
 
 def _update_streak(match: "Match", db):
@@ -93,6 +96,39 @@ async def compute_compatibility_batch(user_id: int, partner_ids: list, db: Async
     return out
 
 
+@router.get("/matches/archived", response_class=HTMLResponse, dependencies=[Depends(rate_limit(30, 60))])
+async def archived_matches_page(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    base_where = or_(Match.user1_id == user.id, Match.user2_id == user.id)
+    result = await db.execute(
+        select(Match).where(base_where, Match.archived_at.isnot(None)).order_by(Match.archived_at.desc())
+    )
+    matches = result.scalars().all()
+
+    partner_id_by_match = {
+        m.id: (m.user2_id if m.user1_id == user.id else m.user1_id) for m in matches
+    }
+    all_partner_ids = list(partner_id_by_match.values())
+    if all_partner_ids:
+        result = await db.execute(
+            select(User).options(joinedload(User.profile)).where(User.id.in_(all_partner_ids))
+        )
+        partners_map = {u.id: u for u in result.scalars().unique().all()}
+    else:
+        partners_map = {}
+
+    partners = [(m, partners_map[partner_id_by_match[m.id]]) for m in matches if partner_id_by_match[m.id] in partners_map]
+
+    lang = get_lang(request, user)
+    return templates.TemplateResponse(request, "matches_archived.html", {
+        "user": user, "partners": partners,
+        "t": get_translations(lang), "rtl": is_rtl(lang), "lang": lang,
+    })
+
+
 @router.get("/api/notifications", dependencies=[Depends(rate_limit(120, 60))])
 async def notifications(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
@@ -128,19 +164,49 @@ async def matches_page(
 ):
     base_where = or_(Match.user1_id == user.id, Match.user2_id == user.id)
 
-    result = await db.execute(select(func.count(Match.id)).where(base_where))
+    # Auto-archive matches with no messages for 7+ days
+    from datetime import timedelta
+    archive_cutoff = _utcnow() - timedelta(days=ARCHIVE_AFTER_DAYS)
+    stale_ids_q = (
+        select(Match.id)
+        .where(base_where, Match.archived_at.is_(None))
+        .where(Match.created_at < archive_cutoff)
+        .where(
+            ~select(Message.id).where(
+                Message.match_id == Match.id,
+                Message.created_at > archive_cutoff,
+            ).correlate(Match).exists()
+        )
+    )
+    stale_result = await db.execute(stale_ids_q)
+    stale_ids = [r[0] for r in stale_result.all()]
+    if stale_ids:
+        await db.execute(
+            update(Match).where(Match.id.in_(stale_ids)).values(archived_at=_utcnow())
+        )
+        await db.commit()
+
+    active_where = and_(base_where, Match.archived_at.is_(None))
+
+    result = await db.execute(select(func.count(Match.id)).where(active_where))
     total_matches = result.scalar() or 0
     total_pages = max(1, (total_matches + MATCHES_PAGE_SIZE - 1) // MATCHES_PAGE_SIZE)
     page = min(page, total_pages)
 
     result = await db.execute(
         select(Match)
-        .where(base_where)
+        .where(active_where)
         .order_by(Match.created_at.desc())
         .offset((page - 1) * MATCHES_PAGE_SIZE)
         .limit(MATCHES_PAGE_SIZE)
     )
     matches = result.scalars().all()
+
+    # Count archived for the banner
+    arch_result = await db.execute(
+        select(func.count(Match.id)).where(base_where, Match.archived_at.isnot(None))
+    )
+    archived_count = arch_result.scalar() or 0
 
     match_ids = [m.id for m in matches]
     if match_ids:
@@ -255,6 +321,7 @@ async def matches_page(
         "liked_me_total": liked_me_total,
         "partner_names": partner_names,
         "last_message_by_match": last_message_by_match,
+        "archived_count": archived_count,
         "page": page,
         "total_pages": total_pages,
         "total_matches": total_matches,
@@ -322,6 +389,8 @@ async def chat_page(match_id: int, request: Request, user: User = Depends(get_cu
             "created_at": m.created_at.isoformat(),
             "is_read": m.is_read,
             "is_voice": m.is_voice,
+            "is_image": m.is_image,
+            "edited_at": m.edited_at.isoformat() if m.edited_at else None,
             "reactions": reactions_by_msg.get(m.id, {}),
         }
         for m in messages_raw
@@ -386,7 +455,7 @@ async def send_message(
     preview = content[:60] + ("…" if len(content) > 60 else "")
     background_tasks.add_task(
         send_push_to_user, partner_id,
-        f"💬 {sender_name}", preview, f"/chat/{match_id}"
+        f"💬 {sender_name}", preview, f"/chat/{match_id}", "message"
     )
 
     return JSONResponse({
@@ -465,6 +534,115 @@ async def send_voice(
         "created_at": msg.created_at.isoformat(),
         "is_voice": True,
     })
+
+
+@router.post("/chat/{match_id}/photo", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(10, 60))])
+async def send_photo(
+    match_id: int,
+    photo: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Match).where(Match.id == match_id))
+    match = result.scalar_one_or_none()
+    if not match or (match.user1_id != user.id and match.user2_id != user.id):
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
+
+    partner_id = match.user2_id if match.user1_id == user.id else match.user1_id
+    block = await db.execute(
+        select(Block).where(
+            or_(
+                and_(Block.blocker_id == user.id, Block.blocked_id == partner_id),
+                and_(Block.blocker_id == partner_id, Block.blocked_id == user.id),
+            )
+        )
+    )
+    if block.scalar_one_or_none():
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
+
+    raw = await photo.read(MAX_IMAGE_BYTES + 1)
+    if len(raw) > MAX_IMAGE_BYTES:
+        return JSONResponse({"error": "Image too large (max 5 MB)"}, status_code=400)
+
+    mime = photo.content_type or "image/jpeg"
+    if mime not in ALLOWED_IMAGE_MIMES:
+        return JSONResponse({"error": "Unsupported image format"}, status_code=400)
+
+    b64 = base64.b64encode(raw).decode()
+    content = f"data:{mime};base64,{b64}"
+
+    msg = Message(match_id=match_id, sender_id=user.id, content=content, is_image=True)
+    db.add(msg)
+    _update_streak(match, db)
+    await db.commit()
+    await db.refresh(msg)
+
+    sender_name = user.profile.name if hasattr(user, "profile") and user.profile else "Spark"
+    from app.push import send_push_to_user as _push
+    import asyncio as _asyncio
+    _asyncio.ensure_future(send_push_to_user(partner_id, f"📷 {sender_name}", "Фото", f"/chat/{match_id}", "message"))
+
+    return JSONResponse({
+        "id": msg.id,
+        "content": msg.content,
+        "sender_id": msg.sender_id,
+        "created_at": msg.created_at.isoformat(),
+        "is_image": True,
+        "is_voice": False,
+    })
+
+
+@router.post("/chat/{match_id}/message/{msg_id}/edit", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(20, 60))])
+async def edit_message(
+    match_id: int,
+    msg_id: int,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Match).where(Match.id == match_id))
+    match = result.scalar_one_or_none()
+    if not match or (match.user1_id != user.id and match.user2_id != user.id):
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
+
+    result = await db.execute(
+        select(Message).where(Message.id == msg_id, Message.match_id == match_id, Message.sender_id == user.id)
+    )
+    msg = result.scalar_one_or_none()
+    if not msg:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    if msg.is_voice or msg.is_image:
+        return JSONResponse({"error": "Cannot edit media"}, status_code=400)
+
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    content = data.get("content", "").strip()
+    if not content or len(content) > MAX_MESSAGE_LENGTH:
+        return JSONResponse({"error": "Invalid content"}, status_code=400)
+
+    msg.content = content
+    msg.edited_at = _utcnow()
+    await db.commit()
+
+    return JSONResponse({"id": msg.id, "content": msg.content, "edited_at": msg.edited_at.isoformat()})
+
+
+@router.post("/match/{match_id}/unarchive", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(10, 60))])
+async def unarchive_match(
+    match_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Match).where(Match.id == match_id))
+    match = result.scalar_one_or_none()
+    if not match or (match.user1_id != user.id and match.user2_id != user.id):
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
+    match.archived_at = None
+    await db.commit()
+    return JSONResponse({"success": True})
 
 
 @router.post("/chat/{match_id}/reveal", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(5, 60))])

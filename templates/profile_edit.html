@@ -314,10 +314,14 @@ function fixAndPreviewPhoto(input, previewId, placeholderId, autoSubmit) {
     </button>
   </form>
 
-  <!-- Delete account -->
-  <div class="mt-8 pt-6 border-t border-gray-100 text-center">
+  <!-- Settings links -->
+  <div class="mt-6 pt-4 border-t border-gray-100 flex flex-col items-center gap-2">
+    <a href="/settings/notifications"
+       class="text-sm text-gray-500 hover:text-pink-500 transition flex items-center gap-1.5">
+      🔔 {{ t.get('notif_settings_title','Настройки уведомлений') }}
+    </a>
     <button onclick="document.getElementById('delete-modal').style.display='flex'"
-            class="text-sm text-gray-400 hover:text-red-500 transition">
+            class="text-sm text-gray-400 hover:text-red-500 transition mt-1">
       Удалить аккаунт
     </button>
   </div>

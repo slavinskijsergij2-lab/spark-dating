@@ -363,11 +363,11 @@ async def do_swipe(
                             )
                             background_tasks.add_task(
                                 send_push_to_user, target.id,
-                                "💘 Новый матч!", f"{user_name} тебя лайкнул(а) взаимно!", "/matches"
+                                "💘 Новый матч!", f"{user_name} тебя лайкнул(а) взаимно!", "/matches", "match"
                             )
                             background_tasks.add_task(
                                 send_push_to_user, user.id,
-                                "💘 Новый матч!", f"Ты совпал(а) с {target_name}!", "/matches"
+                                "💘 Новый матч!", f"Ты совпал(а) с {target_name}!", "/matches", "match"
                             )
                     except IntegrityError:
                         await db.rollback()

@@ -304,6 +304,39 @@ def _try_remove_photo(url: str | None) -> None:
         pass
 
 
+@router.get("/settings/notifications", response_class=HTMLResponse, dependencies=[Depends(rate_limit(30, 60))])
+async def notifications_settings_page(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    lang = get_lang(request, user)
+    saved = request.query_params.get("saved") == "1"
+    return templates.TemplateResponse(request, "settings_notifications.html", {
+        "user": user,
+        "t": get_translations(lang),
+        "rtl": is_rtl(lang),
+        "lang": lang,
+        "saved": saved,
+    })
+
+
+@router.post("/settings/notifications", dependencies=[Depends(validate_csrf_form), Depends(rate_limit(10, 60))])
+async def notifications_settings_save(
+    request: Request,
+    notif_matches: str = Form(None),
+    notif_messages: str = Form(None),
+    notif_likes: str = Form(None),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    user.notif_matches = notif_matches == "1"
+    user.notif_messages = notif_messages == "1"
+    user.notif_likes = notif_likes == "1"
+    await db.commit()
+    return RedirectResponse("/settings/notifications?saved=1", status_code=302)
+
+
 @router.get("/profile/{user_id}", response_class=HTMLResponse, dependencies=[Depends(rate_limit(60, 60))])
 async def view_profile(user_id: int, request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     from sqlalchemy.orm import selectinload

@@ -38,6 +38,14 @@
   .read-tick { font-size: 10px; margin-left: 3px; }
   .read-tick.sent   { color: #d1d5db; }
   .read-tick.read   { color: #ec4899; }
+  /* Image messages */
+  .bubble-img { border-radius: 14px; overflow: hidden; max-width: 220px; display: block; }
+  .bubble-img img { width: 100%; display: block; }
+  /* Edited label */
+  .edited-label { font-size: 9px; color: #9ca3af; margin-left: 4px; }
+  /* Edit button */
+  .edit-btn { font-size: 13px; color: #d1d5db; cursor: pointer; margin-left: 4px; }
+  .edit-btn:hover { color: #ec4899; }
   /* Typing dots */
   .typing-dot { display:inline-block; width:7px; height:7px; background:#d1d5db; border-radius:50%;
                 animation: typing-bounce 1.3s infinite; }
@@ -220,13 +228,34 @@
     {% if m.sender_id == user.id %}
     <div class="msg-row-own" data-msg-id="{{ m.id }}">
       <div class="flex flex-col items-end">
-        <div class="bubble-own">{{ m.content | e }}</div>
+        {% if m.is_image %}
+        <div class="bubble-img"><img src="{{ m.content }}" alt="фото" loading="lazy" /></div>
+        {% elif m.is_voice %}
+        <div class="bubble-own"><audio controls src="{{ m.content }}" style="max-width:200px;height:36px;"></audio></div>
+        {% else %}
+        <div class="bubble-own" id="msg-text-{{ m.id }}">{{ m.content | e }}</div>
+        {% endif %}
         <div class="msg-meta msg-meta-own">
           {{ m_time }}
+          {% if m.edited_at %}<span class="edited-label">{{ t.get('edited','изм.') }}</span>{% endif %}
+          {% if not m.is_image and not m.is_voice %}
+          <span class="edit-btn" onclick="startEdit({{ m.id }})" title="{{ t.get('edit_msg','Редактировать') }}">✏️</span>
+          {% endif %}
           <span class="read-tick {% if m.is_read %}read{% else %}sent{% endif %}">
             {% if m.is_read %}✓✓{% else %}✓{% endif %}
           </span>
         </div>
+        <!-- Inline edit form (hidden by default) -->
+        {% if not m.is_image and not m.is_voice %}
+        <div id="edit-form-{{ m.id }}" style="display:none;" class="mt-1 flex gap-1.5 items-center">
+          <input id="edit-input-{{ m.id }}" type="text" value="{{ m.content | e }}"
+                 class="text-sm border border-pink-300 rounded-xl px-3 py-1.5 outline-none focus:ring-2 focus:ring-pink-300"
+                 style="min-width:140px; max-width:200px;"
+                 onkeydown="if(event.key==='Enter'){submitEdit({{ m.id }});} if(event.key==='Escape'){cancelEdit({{ m.id }});}" />
+          <button onclick="submitEdit({{ m.id }})" class="text-xs bg-pink-500 text-white px-2.5 py-1.5 rounded-xl font-semibold">✓</button>
+          <button onclick="cancelEdit({{ m.id }})" class="text-xs text-gray-400 px-1.5 py-1.5">✕</button>
+        </div>
+        {% endif %}
       </div>
     </div>
     {% else %}
@@ -236,8 +265,14 @@
         {% if not (partner.profile and partner.profile.photo) %}<span class="text-xs">👤</span>{% endif %}
       </div>
       <div class="flex flex-col">
+        {% if m.is_image %}
+        <div class="bubble-img"><img src="{{ m.content }}" alt="фото" loading="lazy" /></div>
+        {% elif m.is_voice %}
+        <div class="bubble-partner"><audio controls src="{{ m.content }}" style="max-width:200px;height:36px;"></audio></div>
+        {% else %}
         <div class="bubble-partner">{{ m.content | e }}</div>
-        <div class="msg-meta">{{ m_time }}</div>
+        {% endif %}
+        <div class="msg-meta">{{ m_time }}{% if m.edited_at %}<span class="edited-label">{{ t.get('edited','изм.') }}</span>{% endif %}</div>
       </div>
     </div>
     {% endif %}
@@ -264,6 +299,14 @@
 
   <!-- INPUT -->
   <div class="flex-shrink-0 bg-white border-t border-gray-100 px-3 py-2 flex items-end gap-2">
+    <!-- Photo upload button -->
+    <input type="file" id="photo-file" accept="image/*" style="display:none" onchange="sendPhoto(this)" />
+    <button type="button" onclick="document.getElementById('photo-file').click()"
+            id="photo-btn"
+            class="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-gray-400 hover:bg-pink-50 hover:text-pink-400 transition text-xl">
+      📷
+    </button>
+
     <div class="flex-1 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-2.5 focus-within:border-pink-300 transition">
       <textarea id="msg-input"
                 rows="1"
@@ -328,17 +371,28 @@
     } catch(e) { return ''; }
   }
 
-  function appendMessage(id, content, senderId, time) {
+  function appendMessage(id, content, senderId, time, isImage, isVoice) {
     var empty = document.getElementById('empty-hint');
     if (empty) empty.style.display = 'none';
 
     var row = document.createElement('div');
+    var bubble;
+    if (isImage) {
+      bubble = '<div class="bubble-img"><img src="' + escHtml(content) + '" alt="фото" loading="lazy" /></div>';
+    } else if (isVoice) {
+      bubble = '<div class="bubble-own"><audio controls src="' + escHtml(content) + '" style="max-width:200px;height:36px;"></audio></div>';
+    } else {
+      bubble = null;
+    }
+
     if (senderId === USER) {
       row.className = 'msg-row-own';
+      var contentHtml = bubble || ('<div class="bubble-own" id="msg-text-' + id + '">' + escHtml(content) + '</div>');
       row.innerHTML =
         '<div class="flex flex-col items-end">' +
-          '<div class="bubble-own">' + escHtml(content) + '</div>' +
+          contentHtml +
           '<div class="msg-meta msg-meta-own">' + time +
+            (!bubble ? ' <span class="edit-btn" onclick="startEdit(' + id + ')" title="Редактировать">✏️</span>' : '') +
             ' <span class="read-tick sent">✓</span>' +
           '</div>' +
         '</div>';
@@ -346,12 +400,20 @@
       var avatarClass = '{% if partner.profile and partner.profile.photo %}partner-avatar{% endif %}';
       var avatarInner = '{% if not (partner.profile and partner.profile.photo) %}<span class="text-xs">👤</span>{% endif %}';
       row.className = 'msg-row-partner';
+      var partnerBubble;
+      if (isImage) {
+        partnerBubble = '<div class="bubble-img"><img src="' + escHtml(content) + '" alt="фото" loading="lazy" /></div>';
+      } else if (isVoice) {
+        partnerBubble = '<div class="bubble-partner"><audio controls src="' + escHtml(content) + '" style="max-width:200px;height:36px;"></audio></div>';
+      } else {
+        partnerBubble = '<div class="bubble-partner">' + escHtml(content) + '</div>';
+      }
       row.innerHTML =
         '<div class="w-6 h-6 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center ' + avatarClass + '">' +
           avatarInner +
         '</div>' +
         '<div class="flex flex-col">' +
-          '<div class="bubble-partner">' + escHtml(content) + '</div>' +
+          partnerBubble +
           '<div class="msg-meta">' + time + '</div>' +
         '</div>';
     }
@@ -443,7 +505,8 @@
       if (!d) return;
       if (d.id) {
         appendMessage(d.id, d.content, d.sender_id,
-          new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}));
+          new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
+          d.is_image, d.is_voice);
         lastId = d.id;
       } else {
         input.value = text;
@@ -549,7 +612,7 @@
         var msgs = d.messages || [];
         msgs.forEach(function(m) {
           if (!container.querySelector('[data-msg-id="' + m.id + '"]')) {
-            appendMessage(m.id, m.content, m.sender_id, fmtTime(m.created_at));
+            appendMessage(m.id, m.content, m.sender_id, fmtTime(m.created_at), m.is_image, m.is_voice);
             if (m.id > lastId) lastId = m.id;
           }
         });
@@ -569,6 +632,88 @@
       setTimeout(connectSSE, Math.min(3000 * sseRetries, 30000));
     };
   }
+
+  // ── Photo send ───────────────────────────────────────────────────
+  window.sendPhoto = function(input) {
+    if (!input.files || !input.files[0]) return;
+    var file = input.files[0];
+    input.value = '';
+    var btn = document.getElementById('photo-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+
+    var fd = new FormData();
+    fd.append('photo', file);
+    fetch('/chat/' + MATCH + '/photo', {
+      method: 'POST',
+      body: fd,
+      headers: { 'x-csrf-token': getCsrf() },
+    })
+    .then(function(r) {
+      if (r.status === 401) { window.location.href = '/login'; return null; }
+      return r.json();
+    })
+    .then(function(d) {
+      if (!d) return;
+      if (d.id) {
+        appendMessage(d.id, d.content, d.sender_id,
+          new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
+          true, false);
+        lastId = d.id;
+      } else {
+        showErr(d.error || 'Ошибка загрузки фото');
+      }
+    })
+    .catch(function() { showErr('Нет соединения'); })
+    .finally(function() {
+      if (btn) { btn.disabled = false; btn.textContent = '📷'; }
+    });
+  };
+
+  // ── Edit message ─────────────────────────────────────────────────
+  window.startEdit = function(msgId) {
+    var form = document.getElementById('edit-form-' + msgId);
+    if (form) { form.style.display = 'flex'; }
+    var inp = document.getElementById('edit-input-' + msgId);
+    if (inp) { inp.focus(); inp.select(); }
+  };
+  window.cancelEdit = function(msgId) {
+    var form = document.getElementById('edit-form-' + msgId);
+    if (form) form.style.display = 'none';
+  };
+  window.submitEdit = function(msgId) {
+    var inp = document.getElementById('edit-input-' + msgId);
+    if (!inp) return;
+    var newText = inp.value.trim();
+    if (!newText) return;
+    inp.disabled = true;
+    fetch('/chat/' + MATCH + '/message/' + msgId + '/edit', {
+      method: 'POST',
+      headers: {'x-csrf-token': getCsrf(), 'Content-Type': 'application/json'},
+      body: JSON.stringify({content: newText}),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.id) {
+        var bubble = document.getElementById('msg-text-' + msgId);
+        if (bubble) bubble.textContent = d.content;
+        var form = document.getElementById('edit-form-' + msgId);
+        if (form) form.style.display = 'none';
+        // Show "изм." label
+        var row = container.querySelector('[data-msg-id="' + msgId + '"]');
+        if (row) {
+          var meta = row.querySelector('.msg-meta');
+          if (meta && !meta.querySelector('.edited-label')) {
+            var lbl = document.createElement('span');
+            lbl.className = 'edited-label';
+            lbl.textContent = ' {{ t.get("edited","изм.") }}';
+            meta.insertBefore(lbl, meta.firstChild);
+          }
+        }
+      }
+    })
+    .catch(function() { showErr('Ошибка редактирования'); })
+    .finally(function() { inp.disabled = false; });
+  };
 
   connectSSE();
   scrollBottom();

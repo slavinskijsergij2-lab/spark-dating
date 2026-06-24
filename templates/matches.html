@@ -236,6 +236,18 @@ document.addEventListener('DOMContentLoaded', function() { loadStories(); });
   {% endif %}
 </div>
 
+<!-- ══ ARCHIVE BANNER ══ -->
+{% if archived_count %}
+<a href="/matches/archived"
+   class="flex items-center justify-between mb-4 px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-sm hover:bg-gray-100 transition">
+  <div class="flex items-center gap-2 text-gray-500">
+    <span class="text-base">📦</span>
+    <span>{{ t.get('archived_matches','В архиве') }}: <strong class="text-gray-700">{{ archived_count }}</strong></span>
+  </div>
+  <span class="text-gray-400 text-xs">{{ t.get('view_archive','Посмотреть') }} →</span>
+</a>
+{% endif %}
+
 <!-- ══ STORIES ROW ══ -->
 <div class="mb-5">
   <div class="flex gap-3 overflow-x-auto pb-1 no-scrollbar" id="stories-list">

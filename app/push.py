@@ -64,17 +64,31 @@ async def send_push_to_user(
     title: str,
     body: str,
     url: str = "/matches",
+    notif_type: str = "",
 ) -> None:
-    """Send Web Push to all subscriptions of user_id. Deletes expired subs."""
+    """Send Web Push to all subscriptions of user_id. Deletes expired subs.
+
+    notif_type: "match" | "message" | "like" — checked against user's notif_* prefs.
+    """
     if not push_enabled():
         return
 
     from sqlalchemy import select, delete as _delete
-    from sqlalchemy.ext.asyncio import AsyncSession
     from app.database import AsyncSessionLocal
-    from app.models.models import PushSubscription
+    from app.models.models import PushSubscription, User
 
     async with AsyncSessionLocal() as db:
+        if notif_type:
+            user_row = await db.execute(select(User).where(User.id == user_id))
+            u = user_row.scalar_one_or_none()
+            if u:
+                if notif_type == "match" and not u.notif_matches:
+                    return
+                if notif_type == "message" and not u.notif_messages:
+                    return
+                if notif_type == "like" and not u.notif_likes:
+                    return
+
         result = await db.execute(
             select(PushSubscription).where(PushSubscription.user_id == user_id)
         )

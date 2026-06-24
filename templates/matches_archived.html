@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get('archived_title','Архив') }} — Spark{% endblock %}
+
+{% block head %}
+<style>
+  .match-card {
+    position: relative; border-radius: 18px; overflow: hidden;
+    aspect-ratio: 4/5; cursor: pointer; display: block;
+    transition: transform .2s, box-shadow .2s;
+  }
+  .match-card:active { transform: scale(.97); }
+  .match-card:hover  { transform: scale(1.02); box-shadow: 0 10px 32px rgba(236,72,153,.2); }
+  .match-card-img    { width:100%; height:100%; object-fit:cover; display:block; }
+  .match-card-overlay {
+    position: absolute; inset: 0;
+    background: linear-gradient(to top, rgba(0,0,0,.75) 0%, transparent 60%);
+  }
+  .match-card-body   { position: absolute; bottom:0; left:0; right:0; padding: 8px 10px 10px; }
+  .match-card-name   { font-size:13px; font-weight:800; color:white; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .match-card-sub    { font-size:10px; color:rgba(255,255,255,.7); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="flex items-center gap-3 mb-6">
+  <a href="/matches" class="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-pink-50">
+    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"/>
+    </svg>
+  </a>
+  <div>
+    <h1 class="text-xl font-black text-gray-800">📦 {{ t.get('archived_title','Архив') }}</h1>
+    <p class="text-xs text-gray-400 mt-0.5">{{ t.get('archived_desc','Матчи без активности за 7 дней') }}</p>
+  </div>
+</div>
+
+{% if not partners %}
+<div class="flex flex-col items-center justify-center py-20 text-center">
+  <div class="text-5xl mb-4">📭</div>
+  <p class="text-gray-400 text-sm">{{ t.get('archived_empty','Архив пуст') }}</p>
+  <a href="/matches" class="mt-5 gradient-pink text-white text-sm font-bold px-6 py-2.5 rounded-full shadow hover:opacity-90 transition">
+    {{ t.get('back_to_matches','К матчам') }}
+  </a>
+</div>
+{% else %}
+<div class="grid grid-cols-2 gap-2">
+  {% for match, partner in partners %}
+  {% if partner.profile %}
+  <div class="relative">
+    <a href="/chat/{{ match.id }}" class="match-card">
+      {% if partner.profile.photo %}
+      <img src="{{ partner.profile.photo }}" class="match-card-img" loading="lazy" />
+      {% else %}
+      <div class="match-card-img bg-gradient-to-br from-gray-200 to-gray-300 flex items-center justify-center">
+        <span class="text-4xl">👤</span>
+      </div>
+      {% endif %}
+      <div class="match-card-overlay"></div>
+      <div class="match-card-body">
+        <div class="match-card-name">{{ partner.profile.name }}, {{ partner.profile.age }}</div>
+        <div class="match-card-sub">{{ t.get('archived_since','Архив с') }} {{ (match.archived_at or '').isoformat()[:10] }}</div>
+      </div>
+    </a>
+    <!-- Unarchive button -->
+    <button onclick="unarchive({{ match.id }}, this)"
+            class="absolute top-2 right-2 bg-white/90 backdrop-blur text-pink-500 text-xs font-bold px-2.5 py-1 rounded-full shadow hover:bg-white transition">
+      ♻️
+    </button>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+
+<script>
+function unarchive(matchId, btn) {
+  btn.disabled = true;
+  var card = btn.closest('.relative');
+  fetch('/match/' + matchId + '/unarchive', {
+    method: 'POST',
+    headers: {'x-csrf-token': (document.cookie.split('; ').find(function(r){ return r.startsWith('csrftoken='); }) || '').slice('csrftoken='.length)},
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.success && card) card.remove();
+  })
+  .catch(function() { btn.disabled = false; });
+}
+</script>
+{% endblock %}

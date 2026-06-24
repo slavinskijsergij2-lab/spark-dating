@@ -59,6 +59,11 @@ class User(Base):
     password_reset_token = Column(String(100), nullable=True, index=True)
     password_reset_expires = Column(DateTime, nullable=True)
 
+    # Notification preferences
+    notif_matches = Column(Boolean, default=True, nullable=False)
+    notif_messages = Column(Boolean, default=True, nullable=False)
+    notif_likes = Column(Boolean, default=True, nullable=False)
+
     # Stripe billing
     stripe_customer_id = Column(String(100), nullable=True, index=True)
     stripe_subscription_id = Column(String(100), nullable=True, index=True)
@@ -148,6 +153,9 @@ class Match(Base):
     user1_revealed = Column(Boolean, default=True, nullable=False)
     user2_revealed = Column(Boolean, default=True, nullable=False)
 
+    # Archive: set when match has no activity for 7 days
+    archived_at = Column(DateTime, nullable=True)
+
     user1 = relationship("User", foreign_keys=[user1_id])
     user2 = relationship("User", foreign_keys=[user2_id])
     messages = relationship("Message", back_populates="match", cascade="all, delete-orphan")
@@ -169,6 +177,8 @@ class Message(Base):
     created_at = Column(DateTime, default=_utcnow)
     is_read = Column(Boolean, default=False)
     is_voice = Column(Boolean, default=False, nullable=False)
+    is_image = Column(Boolean, default=False, nullable=False)
+    edited_at = Column(DateTime, nullable=True)
 
     match = relationship("Match", back_populates="messages")
     sender = relationship("User", foreign_keys=[sender_id], back_populates="messages_sent")
