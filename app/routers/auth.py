@@ -40,27 +40,20 @@ async def debug_check_email(email: str, secret: str, db: AsyncSession = Depends(
     row = result.first()
     if not row:
         return {"found": False, "email": email}
-    import json as _json, urllib.request as _ur, urllib.error as _uerr, os as _os, ssl as _ssl
+    import os as _os, json as _json
     key = _os.getenv("RESEND_API_KEY", "")
-    info = {"found": True, "id": row[0], "key_prefix": key[:12], "key_len": len(key)}
-    payload = _json.dumps({"from": "Spark <onboarding@resend.dev>", "to": [email], "subject": "Spark reset test", "html": "<p>test</p>"}).encode()
-    req = _ur.Request("https://api.resend.com/emails", data=payload,
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"}, method="POST")
+    print(f"[DEBUG] RESEND key={key[:12]}... len={len(key)} to={email}", flush=True)
     try:
-        ctx = _ssl.create_default_context()
-        with _ur.build_opener(_ur.HTTPSHandler(context=ctx)).open(req, timeout=10) as r:
-            info["email_sent"] = True
-            info["resend_resp"] = r.read().decode()
-    except _uerr.HTTPError as e:
-        info["email_sent"] = False
-        info["http_code"] = e.code
-        try: info["body"] = e.read().decode()
-        except: info["body"] = ""
+        import requests as _req
+        resp = _req.post("https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={"from": "Spark <onboarding@resend.dev>", "to": [email], "subject": "Spark reset test", "html": "<p>test</p>"},
+            timeout=10)
+        print(f"[DEBUG] Resend status={resp.status_code} body={resp.text[:200]}", flush=True)
+        return {"found": True, "id": row[0], "key_prefix": key[:12], "status": resp.status_code, "body": resp.text}
     except Exception as e:
-        info["email_sent"] = False
-        info["error"] = str(e)
-        info["error_type"] = type(e).__name__
-    return info
+        print(f"[DEBUG] Resend error: {e}", flush=True)
+        return {"found": True, "id": row[0], "key_prefix": key[:12], "error": str(e)}
 _SECURE_COOKIES = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("SECURE_COOKIES"))
 
 from app.utils.time import utcnow as _utcnow
