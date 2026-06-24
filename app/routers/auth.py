@@ -81,9 +81,6 @@ async def login(
             "resent": "",
         }, status_code=400)
 
-    if not user.email_verified:
-        return RedirectResponse("/login?not_verified=1", status_code=302)
-
     token = create_access_token(user.id, token_version=user.token_version or 0)
     lang = user.language or "en"
     redirect = RedirectResponse("/swipe", status_code=302)
@@ -147,9 +144,6 @@ async def register(
             "error": t.get("register_password_digit", "Password must contain at least one digit"),
         }, status_code=400)
 
-    smtp_active = is_smtp_configured()
-    verify_token = secrets.token_urlsafe(32) if smtp_active else None
-
     ref_code = ref.strip().upper() if ref else ""
     referrer = None
     if ref_code:
@@ -161,9 +155,7 @@ async def register(
         email=email,
         hashed_password=hash_password(password),
         language=language,
-        email_verified=not smtp_active,
-        email_verify_token=verify_token,
-        email_verify_created_at=_utcnow() if smtp_active else None,
+        email_verified=True,
         referred_by_id=referrer.id if referrer else None,
         referral_code=await _generate_referral_code(db),
     )
@@ -182,10 +174,6 @@ async def register(
     if referrer:
         from app.routers.referral import apply_referral_bonus
         await apply_referral_bonus(referrer, db)
-
-    if smtp_active:
-        background_tasks.add_task(send_verification_email, email, verify_token, lang=language)
-        return RedirectResponse("/register/check-email", status_code=302)
 
     token = create_access_token(user.id)
     redirect = RedirectResponse("/welcome", status_code=302)
