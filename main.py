@@ -44,7 +44,7 @@ from app.database import Base, engine
 from app.i18n import get_lang, get_translations, is_rtl
 from app.routers import auth, profile, swipe, matches
 from app.utils.time import utcnow as _utcnow
-from app.routers import features, premium, social, stories, referral, push as push_router, admin as admin_router
+from app.routers import features, premium, social, stories, referral, push as push_router, admin as admin_router, billing as billing_router
 from app.templates import templates
 
 logging.info("startup: all app modules imported")
@@ -478,6 +478,7 @@ app.include_router(stories.router)
 app.include_router(referral.router)
 app.include_router(push_router.router)
 app.include_router(admin_router.router)
+app.include_router(billing_router.router)
 
 
 @app.exception_handler(HTTPException)

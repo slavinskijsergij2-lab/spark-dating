@@ -55,6 +55,10 @@ class User(Base):
     # Token version — increment on password change to invalidate old JWTs
     token_version = Column(Integer, default=0, nullable=False)
 
+    # Stripe billing
+    stripe_customer_id = Column(String(100), nullable=True, index=True)
+    stripe_subscription_id = Column(String(100), nullable=True, index=True)
+
     @property
     def is_premium_active(self) -> bool:
         """True if user has permanent premium OR active timed referral bonus."""

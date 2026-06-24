@@ -1,6 +1,8 @@
 import os
 from datetime import timedelta
 
+_stripe_enabled = bool(os.getenv("STRIPE_SECRET_KEY") and (os.getenv("STRIPE_PRICE_MONTHLY") or os.getenv("STRIPE_PRICE_LIFETIME")))
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import desc, func, select
@@ -39,6 +41,9 @@ async def premium_page(request: Request, user: User = Depends(get_current_user),
         "boost_active": boost_active,
         "boost_remaining": boost_remaining,
         "requires_code": bool(_PREMIUM_CODES),
+        "stripe_enabled": _stripe_enabled,
+        "stripe_price_monthly": os.getenv("STRIPE_PRICE_MONTHLY", ""),
+        "stripe_price_lifetime": os.getenv("STRIPE_PRICE_LIFETIME", ""),
     })
 
 
