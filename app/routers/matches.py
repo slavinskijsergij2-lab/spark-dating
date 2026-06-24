@@ -180,6 +180,21 @@ async def matches_page(
 
     compat_map = await compute_compatibility_batch(user.id, all_partner_ids, db)
 
+    # Last message per match for preview
+    last_message_by_match: dict = {}
+    if match_ids:
+        last_id_subq = (
+            select(func.max(Message.id).label("max_id"))
+            .where(Message.match_id.in_(match_ids))
+            .group_by(Message.match_id)
+            .subquery()
+        )
+        result = await db.execute(
+            select(Message).where(Message.id.in_(select(last_id_subq.c.max_id)))
+        )
+        for msg in result.scalars().all():
+            last_message_by_match[msg.match_id] = msg
+
     partners = []
     for m in matches:
         pid = partner_id_by_match[m.id]
@@ -239,6 +254,7 @@ async def matches_page(
         "liked_me_users": liked_me_users,
         "liked_me_total": liked_me_total,
         "partner_names": partner_names,
+        "last_message_by_match": last_message_by_match,
         "page": page,
         "total_pages": total_pages,
         "total_matches": total_matches,

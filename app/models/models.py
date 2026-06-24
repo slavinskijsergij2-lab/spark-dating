@@ -55,6 +55,10 @@ class User(Base):
     # Token version — increment on password change to invalidate old JWTs
     token_version = Column(Integer, default=0, nullable=False)
 
+    # Password reset
+    password_reset_token = Column(String(100), nullable=True, index=True)
+    password_reset_expires = Column(DateTime, nullable=True)
+
     # Stripe billing
     stripe_customer_id = Column(String(100), nullable=True, index=True)
     stripe_subscription_id = Column(String(100), nullable=True, index=True)

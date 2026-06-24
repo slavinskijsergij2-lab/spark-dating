@@ -135,6 +135,71 @@ def send_match_email(to_email: str, partner_name: str, matches_url: str = "", la
         return False
 
 
+def send_password_reset_email(to_email: str, token: str, lang: str = "en") -> bool:
+    if not RESEND_API_KEY:
+        return False
+
+    reset_url = f"{APP_URL}/reset-password/{token}"
+    subjects = {
+        "ru": "Сброс пароля — Spark",
+        "uk": "Скидання пароля — Spark",
+        "en": "Password reset — Spark",
+    }
+    subject = subjects.get(lang, subjects["en"])
+
+    html = f"""<!DOCTYPE html>
+<html>
+<body style="font-family:Arial,sans-serif;background:#fff5f7;margin:0;padding:40px 20px;">
+  <div style="max-width:480px;margin:0 auto;background:white;border-radius:20px;
+              padding:40px;box-shadow:0 4px 24px rgba(0,0,0,.08);">
+    <div style="text-align:center;margin-bottom:28px;">
+      <div style="font-size:48px;">🔑</div>
+      <div style="font-size:28px;font-weight:bold;color:#ec4899;">Spark</div>
+    </div>
+    <h2 style="color:#1f2937;margin-bottom:12px;font-size:20px;">{"Сброс пароля" if lang == "ru" else "Скидання пароля" if lang == "uk" else "Password Reset"}</h2>
+    <p style="color:#6b7280;line-height:1.6;margin-bottom:32px;">
+      {"Нажми кнопку ниже, чтобы задать новый пароль. Ссылка действительна 1 час." if lang == "ru" else
+       "Натисни кнопку нижче, щоб задати новий пароль. Посилання дійсне 1 годину." if lang == "uk" else
+       "Click the button to set a new password. The link is valid for 1 hour."}
+    </p>
+    <div style="text-align:center;margin-bottom:28px;">
+      <a href="{reset_url}"
+         style="display:inline-block;background:linear-gradient(135deg,#ec4899,#f43f5e);
+                color:white;padding:14px 36px;border-radius:50px;font-weight:bold;
+                font-size:16px;text-decoration:none;">
+        {"Задать новый пароль" if lang == "ru" else "Задати новий пароль" if lang == "uk" else "Set new password"}
+      </a>
+    </div>
+    <p style="color:#9ca3af;font-size:12px;text-align:center;">
+      {"Если это были не вы — просто проигнорируйте письмо." if lang == "ru" else
+       "Якщо це були не ви — просто проігноруйте лист." if lang == "uk" else
+       "If you didn't request this, just ignore this email."}
+    </p>
+  </div>
+</body>
+</html>"""
+
+    payload = json.dumps({"from": RESEND_FROM, "to": [to_email], "subject": subject, "html": html}).encode()
+    req = urllib.request.Request(
+        "https://api.resend.com/emails", data=payload,
+        headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        import ssl
+        try:
+            import certifi
+            ctx = ssl.create_default_context(cafile=certifi.where())
+        except ImportError:
+            ctx = ssl.create_default_context()
+        opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
+        with opener.open(req, timeout=10):
+            return True
+    except Exception:
+        logger.exception("Failed to send reset email to %s", to_email)
+        return False
+
+
 def send_verification_email(to_email: str, token: str, lang: str = "en") -> bool:
     if not RESEND_API_KEY:
         logger.warning("RESEND_API_KEY not set — skipping verification email for %s", to_email)

@@ -373,9 +373,16 @@ document.addEventListener('DOMContentLoaded', function() { loadStories(); });
       </div>
 
       <!-- Bottom info -->
+      {% set last_msg = last_message_by_match.get(match.id) %}
       <div class="match-card-body">
         <div class="match-card-name">{{ partner.profile.name }}, {{ partner.profile.age }}</div>
-        {% if os and not os.is_online and os.label %}
+        {% if last_msg %}
+          {% if last_msg.is_voice %}
+          <div class="match-card-sub">{% if last_msg.sender_id == user.id %}{{ t.get('you_prefix','Ты:') }} {% endif %}🎤 {{ t.get('voice_msg','Голосовое') }}</div>
+          {% else %}
+          <div class="match-card-sub">{% if last_msg.sender_id == user.id %}{{ t.get('you_prefix','Ты:') }} {% endif %}{{ last_msg.content[:35] }}{% if last_msg.content|length > 35 %}…{% endif %}</div>
+          {% endif %}
+        {% elif os and not os.is_online and os.label %}
         <div class="match-card-sub">{{ os.label }}</div>
         {% elif partner.profile.city %}
         <div class="match-card-sub">📍 {{ partner.profile.city }}</div>

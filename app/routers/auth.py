@@ -19,7 +19,7 @@ from app.auth import (
 )
 from app.csrf import validate_csrf_form
 from app.database import get_db
-from app.email_utils import is_smtp_configured, send_verification_email
+from app.email_utils import is_smtp_configured, send_verification_email, send_password_reset_email
 from app.i18n import get_lang, get_translations, is_rtl
 from app.models.models import User
 from app.rate_limit import rate_limit
@@ -257,4 +257,95 @@ def logout():
     # Must match the same attributes used in _set_auth_cookie, otherwise browsers ignore deletion
     redirect.delete_cookie("access_token", httponly=True, samesite="lax", secure=_SECURE_COOKIES)
     redirect.delete_cookie("lang", samesite="lax")
+    return redirect
+
+
+# ─── Password reset ───────────────────────────────────────────────────────────
+
+@router.get("/forgot-password", response_class=HTMLResponse)
+async def forgot_password_page(request: Request, user=Depends(get_optional_user)):
+    if user:
+        return RedirectResponse("/swipe", status_code=302)
+    lang = get_lang(request)
+    return templates.TemplateResponse(request, "forgot_password.html", {
+        "t": get_translations(lang),
+        "rtl": is_rtl(lang),
+    })
+
+
+@router.post("/forgot-password", dependencies=[Depends(rate_limit(3, 300)), Depends(validate_csrf_form)])
+async def forgot_password(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    email: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    email = email.lower().strip()
+    lang = get_lang(request)
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    if user:
+        token = secrets.token_urlsafe(32)
+        from datetime import timedelta
+        user.password_reset_token = token
+        user.password_reset_expires = _utcnow() + timedelta(hours=1)
+        await db.commit()
+        background_tasks.add_task(send_password_reset_email, email, token, lang=user.language or lang)
+
+    # Always redirect to prevent email enumeration
+    return RedirectResponse("/forgot-password?sent=1", status_code=302)
+
+
+@router.get("/reset-password/{token}", response_class=HTMLResponse, dependencies=[Depends(rate_limit(10, 60))])
+async def reset_password_page(token: str, request: Request, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.password_reset_token == token))
+    user = result.scalar_one_or_none()
+    lang = (user.language if user else None) or get_lang(request)
+    t = get_translations(lang)
+
+    if not user or not user.password_reset_expires or _utcnow() > user.password_reset_expires:
+        return templates.TemplateResponse(request, "reset_password.html", {
+            "t": t, "rtl": is_rtl(lang), "token": token, "invalid": True,
+        }, status_code=400)
+
+    return templates.TemplateResponse(request, "reset_password.html", {
+        "t": t, "rtl": is_rtl(lang), "token": token, "invalid": False,
+    })
+
+
+@router.post("/reset-password/{token}", dependencies=[Depends(rate_limit(5, 60)), Depends(validate_csrf_form)])
+async def reset_password(
+    token: str,
+    request: Request,
+    response: Response,
+    password: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.password_reset_token == token))
+    user = result.scalar_one_or_none()
+    lang = (user.language if user else None) or get_lang(request)
+    t = get_translations(lang)
+
+    if not user or not user.password_reset_expires or _utcnow() > user.password_reset_expires:
+        return templates.TemplateResponse(request, "reset_password.html", {
+            "t": t, "rtl": is_rtl(lang), "token": token, "invalid": True,
+        }, status_code=400)
+
+    if len(password) < 8 or not any(c.isdigit() for c in password):
+        return templates.TemplateResponse(request, "reset_password.html", {
+            "t": t, "rtl": is_rtl(lang), "token": token, "invalid": False,
+            "error": t.get("register_password_short", "Минимум 8 символов, включая цифру"),
+        }, status_code=400)
+
+    user.hashed_password = hash_password(password)
+    user.password_reset_token = None
+    user.password_reset_expires = None
+    user.token_version = (user.token_version or 0) + 1
+    await db.commit()
+
+    access_token = create_access_token(user.id, token_version=user.token_version)
+    redirect = RedirectResponse("/swipe", status_code=302)
+    _set_auth_cookie(redirect, access_token)
+    redirect.set_cookie("lang", user.language or "en", max_age=60 * 60 * 24 * 365, samesite="lax")
     return redirect
