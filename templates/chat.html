@@ -90,10 +90,33 @@
         </p>
       </div>
     </a>
-    <button onclick="confirmUnmatch()"
-            class="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-red-50 hover:text-red-400 flex-shrink-0">
-      🚫
-    </button>
+    <!-- Chat menu button -->
+    <div class="relative flex-shrink-0">
+      <button id="chat-menu-btn" onclick="toggleChatMenu()"
+              class="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 transition">
+        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+          <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+        </svg>
+      </button>
+      <!-- Dropdown -->
+      <div id="chat-menu" style="display:none"
+           class="absolute right-0 top-10 w-44 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden">
+        <button onclick="closeChatMenu(); confirmUnmatch()"
+                class="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 transition">
+          <span class="text-base">💔</span> {{ t.get('unmatch','Разматч') }}
+        </button>
+        <div class="mx-3 border-t border-gray-100"></div>
+        <button onclick="closeChatMenu(); doBlock()"
+                class="w-full flex items-center gap-3 px-4 py-3 text-sm text-orange-600 hover:bg-orange-50 transition">
+          <span class="text-base">🚫</span> {{ t.get('block_user','Заблокировать') }}
+        </button>
+        <div class="mx-3 border-t border-gray-100"></div>
+        <button onclick="closeChatMenu(); openReport()"
+                class="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition">
+          <span class="text-base">⚠️</span> {{ t.get('report_user','Пожаловаться') }}
+        </button>
+      </div>
+    </div>
   </div>
 
   <!-- UNMATCH MODAL -->
@@ -110,6 +133,60 @@
         <button onclick="doUnmatch(this)"
                 class="flex-1 bg-red-500 text-white py-2.5 rounded-full text-sm font-semibold">
           {{ t.get('unmatch_yes','Удалить') }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BLOCK MODAL -->
+  <div id="block-modal" style="display:none;"
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+    <div class="bg-white rounded-2xl p-6 max-w-xs w-full text-center shadow-2xl">
+      <div class="text-4xl mb-3">🚫</div>
+      <p class="font-bold text-gray-800 mb-2">{{ t.get('block_confirm_title','Заблокировать?') }}</p>
+      <p class="text-gray-500 text-sm mb-5">{{ t.get('block_confirm_desc','Этот пользователь больше не увидит вас и не сможет вам написать.') }}</p>
+      <div class="flex gap-3">
+        <button onclick="document.getElementById('block-modal').style.display='none'"
+                class="flex-1 border border-gray-200 text-gray-600 py-2.5 rounded-full text-sm font-semibold">
+          {{ t.get('cancel','Отмена') }}
+        </button>
+        <button onclick="confirmBlock(this)"
+                class="flex-1 bg-orange-500 text-white py-2.5 rounded-full text-sm font-semibold">
+          {{ t.get('block_btn','Заблокировать') }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- REPORT MODAL -->
+  <div id="report-modal" style="display:none;"
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+    <div class="bg-white rounded-2xl p-6 max-w-xs w-full shadow-2xl">
+      <div class="text-4xl mb-3 text-center">⚠️</div>
+      <p class="font-bold text-gray-800 mb-1 text-center">{{ t.get('report_title','Пожаловаться') }}</p>
+      <p class="text-gray-500 text-sm mb-4 text-center">{{ t.get('report_desc','Выбери причину') }}</p>
+      <div class="space-y-2 mb-5">
+        {% for reason_val, reason_label in [
+          ('spam', t.get('report_spam','Спам или мошенничество')),
+          ('fake', t.get('report_fake','Фейковый профиль')),
+          ('inappropriate', t.get('report_inappropriate','Неприемлемый контент')),
+          ('harassment', t.get('report_harassment','Оскорбления или угрозы')),
+          ('other', t.get('report_other','Другое'))
+        ] %}
+        <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-100 cursor-pointer hover:bg-red-50 hover:border-red-200 transition">
+          <input type="radio" name="report-reason" value="{{ reason_val }}" class="accent-red-500 flex-shrink-0">
+          <span class="text-sm text-gray-700">{{ reason_label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <div class="flex gap-3">
+        <button onclick="document.getElementById('report-modal').style.display='none'"
+                class="flex-1 border border-gray-200 text-gray-600 py-2.5 rounded-full text-sm font-semibold">
+          {{ t.get('cancel','Отмена') }}
+        </button>
+        <button onclick="confirmReport(this)"
+                class="flex-1 bg-red-500 text-white py-2.5 rounded-full text-sm font-semibold">
+          {{ t.get('report_btn','Отправить') }}
         </button>
       </div>
     </div>
@@ -377,6 +454,61 @@
   };
 
   // ── unmatch ───────────────────────────────────────────────────
+  // ── Chat menu ────────────────────────────────────────────────────
+  var _menuOpen = false;
+  window.toggleChatMenu = function() {
+    _menuOpen ? closeChatMenu() : openChatMenu();
+  };
+  function openChatMenu() {
+    document.getElementById('chat-menu').style.display = 'block';
+    _menuOpen = true;
+    setTimeout(function() {
+      document.addEventListener('click', _menuOutside, {once: true});
+    }, 0);
+  }
+  window.closeChatMenu = function() {
+    document.getElementById('chat-menu').style.display = 'none';
+    _menuOpen = false;
+  };
+  function _menuOutside(e) {
+    if (!document.getElementById('chat-menu-btn').contains(e.target)) {
+      closeChatMenu();
+    }
+  }
+
+  // ── Block ─────────────────────────────────────────────────────────
+  window.doBlock = function() {
+    document.getElementById('block-modal').style.display = 'flex';
+  };
+  window.confirmBlock = function(btn) {
+    btn.disabled = true;
+    btn.textContent = '...';
+    fetch('/user/{{ partner.id }}/block', {
+      method: 'POST',
+      headers: {'x-csrf-token': getCsrf()},
+    })
+    .then(function() { window.location.href = '/matches'; })
+    .catch(function() { btn.disabled = false; btn.textContent = '{{ t.get("block_btn","Заблокировать") }}'; });
+  };
+
+  // ── Report ────────────────────────────────────────────────────────
+  window.openReport = function() {
+    document.getElementById('report-modal').style.display = 'flex';
+  };
+  window.confirmReport = function(btn) {
+    var reason = document.querySelector('input[name="report-reason"]:checked');
+    if (!reason) return;
+    btn.disabled = true;
+    btn.textContent = '...';
+    fetch('/user/{{ partner.id }}/report', {
+      method: 'POST',
+      headers: {'x-csrf-token': getCsrf(), 'Content-Type': 'application/json'},
+      body: JSON.stringify({reason: reason.value}),
+    })
+    .then(function() { window.location.href = '/matches'; })
+    .catch(function() { btn.disabled = false; btn.textContent = '{{ t.get("report_btn","Отправить") }}'; });
+  };
+
   window.confirmUnmatch = function() {
     document.getElementById('unmatch-modal').style.display = 'flex';
   };

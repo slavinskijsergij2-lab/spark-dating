@@ -295,14 +295,36 @@ document.addEventListener('DOMContentLoaded', function() { loadStories(); });
 
 <!-- ══ MATCHES ══ -->
 {% if not partners %}
-<div class="flex flex-col items-center justify-center min-h-[40vh] text-center py-10">
-  <div class="w-24 h-24 rounded-full bg-pink-50 flex items-center justify-center text-5xl mb-5 shadow-inner">💔</div>
-  <h2 class="text-xl font-black text-gray-700 mb-2">{{ t.no_matches }}</h2>
+<div class="flex flex-col items-center justify-center min-h-[50vh] text-center py-10 px-6">
+  <!-- Illustration -->
+  <div class="relative w-32 h-32 mb-6">
+    <div class="absolute inset-0 rounded-full bg-gradient-to-br from-pink-100 to-rose-100"></div>
+    <div class="absolute inset-0 flex items-center justify-center text-6xl"
+         style="animation:float 3s ease-in-out infinite">💌</div>
+  </div>
+  <h2 class="text-2xl font-extrabold text-gray-800 mb-2">{{ t.no_matches }}</h2>
   <p class="text-gray-400 text-sm mb-7 max-w-xs leading-relaxed">{{ t.no_matches_desc }}</p>
-  <a href="/swipe" class="gradient-pink text-white px-8 py-3.5 rounded-full font-bold shadow-lg hover:opacity-90 active:scale-95 transition">
-    ✨ {{ t.start_swiping }}
+
+  <!-- Tips -->
+  <div class="w-full max-w-xs space-y-2 mb-7 text-left">
+    <div class="flex items-start gap-3 bg-pink-50 rounded-2xl px-4 py-3">
+      <span class="text-lg mt-0.5">💚</span>
+      <span class="text-sm text-gray-600">{{ t.get('match_tip_swipe','Лайкни больше людей — матчи появятся, когда они ответят взаимностью') }}</span>
+    </div>
+    <div class="flex items-start gap-3 bg-purple-50 rounded-2xl px-4 py-3">
+      <span class="text-lg mt-0.5">⭐</span>
+      <span class="text-sm text-gray-600">{{ t.get('match_tip_super','Суперлайк увеличивает шанс матча — он виден в первую очередь') }}</span>
+    </div>
+  </div>
+
+  <a href="/swipe"
+     class="w-full max-w-xs gradient-pink text-white py-4 rounded-full font-bold shadow-lg hover:opacity-90 active:scale-95 transition flex items-center justify-center gap-2">
+    <span>✨</span> {{ t.start_swiping }}
   </a>
 </div>
+<style>
+  @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+</style>
 
 {% else %}
 

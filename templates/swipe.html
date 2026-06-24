@@ -93,15 +93,48 @@
 {% endif %}
 
 {% if not candidate %}
-<!-- ══ НЕТ БОЛЬШЕ ЛЮДЕЙ ══ -->
-<div class="flex flex-col items-center justify-center text-center py-16 px-6">
-  <div class="text-6xl mb-5">😔</div>
-  <h2 class="text-xl font-black text-gray-700 mb-2">{{ t.get('no_more_title','Никого не нашлось') }}</h2>
-  <p class="text-gray-400 text-sm mb-8 max-w-xs leading-relaxed">{{ t.get('no_more_desc','Попробуйте расширить фильтры или зайдите позже') }}</p>
-  <a href="/swipe" class="gradient-pink text-white px-8 py-3 rounded-full font-bold shadow-lg hover:opacity-90 transition">
-    🔄 {{ t.get('filter_reset','Сбросить фильтры') }}
-  </a>
+<!-- ══ ПУСТОЙ СВАЙП ══ -->
+<div class="flex flex-col items-center justify-center text-center py-10 px-6">
+  <!-- Анимированная иллюстрация -->
+  <div class="relative w-36 h-36 mb-6">
+    <div class="absolute inset-0 rounded-full bg-gradient-to-br from-pink-100 to-purple-100 animate-pulse"></div>
+    <div class="absolute inset-0 flex items-center justify-center">
+      <span style="font-size:72px;filter:drop-shadow(0 4px 12px rgba(236,72,153,.3));animation:heartbeat 2.4s ease-in-out infinite">💘</span>
+    </div>
+  </div>
+  <h2 class="text-2xl font-extrabold text-gray-800 mb-2">{{ t.get('no_more_title','Все просмотрены!') }}</h2>
+  <p class="text-gray-400 text-sm mb-7 max-w-xs leading-relaxed">{{ t.get('no_more_desc','Новые люди появятся позже. Пока можно улучшить профиль — хорошее фото увеличивает шансы в 3 раза.') }}</p>
+
+  <!-- Советы -->
+  <div class="w-full max-w-xs space-y-2 mb-7 text-left">
+    <div class="flex items-center gap-3 bg-pink-50 rounded-2xl px-4 py-3">
+      <span class="text-xl flex-shrink-0">📸</span>
+      <span class="text-sm text-gray-600">{{ t.get('tip_photo','Добавь больше фото в профиль') }}</span>
+      <a href="/profile/edit" class="ml-auto text-xs text-pink-500 font-semibold flex-shrink-0">→</a>
+    </div>
+    <div class="flex items-center gap-3 bg-purple-50 rounded-2xl px-4 py-3">
+      <span class="text-xl flex-shrink-0">✍️</span>
+      <span class="text-sm text-gray-600">{{ t.get('tip_bio','Заполни «О себе» — пустой профиль лайкают реже') }}</span>
+      <a href="/profile/edit" class="ml-auto text-xs text-purple-500 font-semibold flex-shrink-0">→</a>
+    </div>
+    <div class="flex items-center gap-3 bg-amber-50 rounded-2xl px-4 py-3">
+      <span class="text-xl flex-shrink-0">🕐</span>
+      <span class="text-sm text-gray-600">{{ t.get('tip_later','Зайди позже — новые люди регистрируются каждый день') }}</span>
+    </div>
+  </div>
+
+  <div class="flex flex-col gap-3 w-full max-w-xs">
+    <a href="/swipe" class="gradient-pink text-white py-3 rounded-full font-bold shadow-lg hover:opacity-90 transition text-sm">
+      🔄 {{ t.get('filter_reset','Сбросить фильтры') }}
+    </a>
+    <a href="/profile/edit" class="border-2 border-pink-200 text-pink-500 py-3 rounded-full font-semibold text-sm hover:bg-pink-50 transition">
+      ✏️ {{ t.get('edit_profile','Улучшить профиль') }}
+    </a>
+  </div>
 </div>
+<style>
+  @keyframes heartbeat { 0%,100%{transform:scale(1)} 14%{transform:scale(1.15)} 28%{transform:scale(1)} 42%{transform:scale(1.1)} 70%{transform:scale(1)} }
+</style>
 
 {% else %}
 <!-- ══ КАРТОЧКА ══ -->
