@@ -15,6 +15,7 @@ from app.i18n import get_lang, get_translations, is_rtl
 from app.models.models import Block, Like, Match, Profile, ProfilePhoto, User, GenderEnum
 from app.push import send_push_to_user
 from app.templates import templates
+from sqlalchemy.orm import joinedload
 
 
 router = APIRouter()
@@ -89,7 +90,20 @@ async def _super_likes_today(user_id: int, db: AsyncSession) -> int:
     return result.scalar() or 0
 
 
+async def _likes_today(user_id: int, db: AsyncSession) -> int:
+    today_start = _utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    result = await db.execute(
+        select(func.count(Like.id)).where(
+            Like.liker_id == user_id,
+            Like.is_like == True,
+            Like.created_at >= today_start,
+        )
+    )
+    return result.scalar() or 0
+
+
 DISLIKE_RESHOW_DAYS = 7
+FREE_DAILY_LIKES = 20
 
 
 async def find_next_candidate(
@@ -181,6 +195,9 @@ async def swipe_page(
     )
     lang = get_lang(request, user)
     super_likes_left = max(0, (999 if user.is_premium_active else 5) - await _super_likes_today(user.id, db))
+    likes_used_today = await _likes_today(user.id, db)
+    daily_limit = FREE_DAILY_LIKES
+    likes_left = None if user.is_premium_active else max(0, daily_limit - likes_used_today)
 
     result = await db.execute(
         select(Like).where(Like.liker_id == user.id).order_by(Like.id.desc()).limit(1)
@@ -218,6 +235,8 @@ async def swipe_page(
         "filters_active": age_min != 18 or age_max != 100 or bool(city_filter) or online_only,
         "super_likes_left": super_likes_left,
         "can_undo": last_like is not None and user.is_premium_active,
+        "likes_left": likes_left,
+        "daily_limit": daily_limit,
     })
 
 
@@ -280,6 +299,14 @@ async def do_swipe(
     existing = result.scalar_one_or_none()
     if not existing:
         is_super_like = (is_super == "1" and action == "like")
+        if not user.is_premium_active and action == "like":
+            used = await _likes_today(user.id, db)
+            if used >= FREE_DAILY_LIKES:
+                return JSONResponse({
+                    "error": "daily_limit",
+                    "limit": FREE_DAILY_LIKES,
+                    "message": f"Бесплатный лимит {FREE_DAILY_LIKES} лайков/день исчерпан. Получи Premium для безлимита!",
+                }, status_code=429)
         if is_super_like and not user.is_premium_active:
             _cached_daily_super = await _super_likes_today(user.id, db)
         else:
@@ -358,9 +385,10 @@ async def do_swipe(
         city=_city, online_only=_online_only,
     )
     next_data = await _candidate_to_json(next_cand, db, lang) if next_cand else None
-    # Reuse cached count if already fetched; otherwise query once
     _daily = _cached_daily_super if _cached_daily_super is not None else await _super_likes_today(user.id, db)
     super_likes_left = max(0, (999 if user.is_premium_active else 5) - _daily)
+    likes_used = await _likes_today(user.id, db)
+    likes_left = None if user.is_premium_active else max(0, FREE_DAILY_LIKES - likes_used)
 
     result = await db.execute(
         select(Like).where(Like.liker_id == user.id).order_by(Like.id.desc()).limit(1)
@@ -372,4 +400,50 @@ async def do_swipe(
         "next": next_data,
         "super_likes_left": super_likes_left,
         "can_undo": last_like is not None and user.is_premium_active,
+        "likes_left": likes_left,
+    })
+
+
+@router.get("/likes/received", response_class=HTMLResponse, dependencies=[Depends(rate_limit(30, 60))])
+async def likes_received_page(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    lang = get_lang(request, user)
+
+    # Users who liked me but I haven't swiped on them yet
+    my_swipes = select(Like.liked_id).where(Like.liker_id == user.id).scalar_subquery()
+    result = await db.execute(
+        select(Like)
+        .options(joinedload(Like.liker).joinedload(User.profile))
+        .where(
+            Like.liked_id == user.id,
+            Like.is_like == True,
+            Like.liker_id.not_in(my_swipes),
+        )
+        .order_by(Like.created_at.desc())
+        .limit(50)
+    )
+    likes = result.unique().scalars().all()
+
+    # For non-premium: count only, profiles are blurred
+    likers = []
+    for like in likes:
+        if like.liker and like.liker.profile:
+            likers.append({
+                "user": like.liker,
+                "profile": like.liker.profile,
+                "created_at": like.created_at,
+                "is_super": like.is_super,
+            })
+
+    return templates.TemplateResponse(request, "likes_received.html", {
+        "user": user,
+        "t": get_translations(lang),
+        "rtl": is_rtl(lang),
+        "lang": lang,
+        "likers": likers,
+        "count": len(likers),
+        "is_premium": user.is_premium_active,
     })

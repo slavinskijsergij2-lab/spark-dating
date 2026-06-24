@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Кто лайкнул меня — Spark{% endblock %}
+{% block content %}
+
+<div class="flex items-center gap-3 mb-5">
+  <a href="/premium" class="text-gray-400 hover:text-pink-500 transition">
+    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+    </svg>
+  </a>
+  <h1 class="text-xl font-bold text-gray-800">💘 {{ t.get('liked_you_title', 'Кто лайкнул меня') }}</h1>
+</div>
+
+{% if count == 0 %}
+<div class="flex flex-col items-center justify-center py-16 text-center">
+  <div class="text-6xl mb-4">🌱</div>
+  <p class="text-gray-500 text-sm">{{ t.get('liked_you_empty', 'Пока никто не лайкнул. Начни свайпать — и они появятся!') }}</p>
+  <a href="/swipe" class="mt-5 gradient-pink text-white px-6 py-2.5 rounded-full font-bold text-sm shadow hover:opacity-90 transition">
+    {{ t.get('go_swipe', '💚 Начать свайпать') }}
+  </a>
+</div>
+
+{% elif not is_premium %}
+<!-- Free user: blurred cards + upsell -->
+<div class="bg-gradient-to-r from-pink-50 to-purple-50 border border-pink-200 rounded-2xl p-5 mb-5 text-center">
+  <p class="text-3xl font-black text-gray-800 mb-1">{{ count }}</p>
+  <p class="text-sm text-gray-600 mb-4">{{ t.get('people_liked_you', 'человек уже лайкнул(а) тебя') }}</p>
+  <a href="/premium" class="gradient-pink text-white px-6 py-2.5 rounded-full font-bold text-sm shadow hover:opacity-90 transition inline-block">
+    ⭐ {{ t.get('unlock_likes', 'Открыть Premium и увидеть всех') }}
+  </a>
+</div>
+
+<div class="relative">
+  <!-- Blurred preview cards -->
+  <div class="grid grid-cols-3 gap-2">
+    {% for item in likers[:6] %}
+    <div class="relative rounded-xl overflow-hidden aspect-square bg-gray-100">
+      <div class="w-full h-full bg-gradient-to-br from-pink-200 to-purple-200 flex items-center justify-center text-4xl">
+        {% if item.profile.photo %}
+        <img src="{{ item.profile.photo }}" class="w-full h-full object-cover blur-md scale-110" alt="">
+        {% else %}
+        <span class="blur-sm">👤</span>
+        {% endif %}
+      </div>
+      <div class="absolute inset-0 flex items-center justify-center">
+        <span class="text-2xl">🔒</span>
+      </div>
+      {% if item.is_super %}
+      <div class="absolute top-1 right-1 bg-yellow-400 text-white text-xs rounded-full px-1.5 py-0.5 font-bold">⭐</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Gradient overlay -->
+  {% if count > 6 %}
+  <div class="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-white to-transparent pointer-events-none"></div>
+  {% endif %}
+</div>
+
+{% else %}
+<!-- Premium user: full profiles -->
+<p class="text-sm text-gray-400 mb-4">
+  {{ count }} {{ t.get('people_liked_you', 'человек лайкнул(а) тебя') }} —
+  {{ t.get('swipe_back', 'свайпни вправо чтобы познакомиться') }}
+</p>
+
+<div class="flex flex-col gap-3">
+  {% for item in likers %}
+  {% set p = item.profile %}
+  {% set u = item.user %}
+  <div class="bg-white rounded-2xl card-shadow p-4 flex items-center gap-4">
+    <!-- Photo -->
+    <a href="/profile/{{ u.id }}" class="flex-shrink-0">
+      {% if p.photo %}
+      <img src="{{ p.photo }}" class="w-16 h-16 rounded-full object-cover" alt="{{ p.name }}">
+      {% else %}
+      <div class="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center text-3xl">👤</div>
+      {% endif %}
+    </a>
+    <!-- Info -->
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-2">
+        <a href="/profile/{{ u.id }}" class="font-bold text-gray-800 hover:text-pink-500 transition truncate">
+          {{ p.name }}, {{ p.age }}
+        </a>
+        {% if item.is_super %}<span class="text-yellow-500 text-sm" title="Суперлайк">⭐</span>{% endif %}
+        {% if u.is_verified %}<span class="text-blue-500 text-sm" title="Верифицирован">✓</span>{% endif %}
+      </div>
+      {% if p.city %}<p class="text-xs text-gray-400">📍 {{ p.city }}</p>{% endif %}
+      {% if p.bio %}<p class="text-xs text-gray-500 truncate mt-0.5">{{ p.bio[:60] }}</p>{% endif %}
+    </div>
+    <!-- Action: like back -->
+    <div class="flex flex-col gap-2 flex-shrink-0">
+      <form method="post" action="/swipe/{{ u.id }}?action=like">
+        <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+        <button type="submit"
+                class="w-10 h-10 rounded-full gradient-pink text-white flex items-center justify-center text-lg shadow hover:opacity-90 transition"
+                title="{{ t.get('like_back', 'Лайкнуть в ответ') }}">
+          💚
+        </button>
+      </form>
+      <form method="post" action="/swipe/{{ u.id }}?action=dislike">
+        <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+        <button type="submit"
+                class="w-10 h-10 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center text-lg hover:bg-red-50 hover:text-red-400 transition"
+                title="{{ t.get('pass', 'Пропустить') }}">
+          ✖️
+        </button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% endblock %}

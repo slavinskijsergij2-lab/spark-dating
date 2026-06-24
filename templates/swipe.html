@@ -196,8 +196,21 @@
   <div id="swipe-err" style="display:none;"
        class="text-center text-sm text-red-500 bg-red-50 rounded-xl py-2 px-4 mt-4"></div>
 
+  <!-- Лимит лайков (только для бесплатных) -->
+  {% if likes_left is not none %}
+  <div id="likes-left-bar" class="flex items-center justify-center gap-2 mt-3 {% if likes_left == 0 %}text-red-400{% elif likes_left <= 5 %}text-orange-400{% else %}text-gray-400{% endif %} text-xs">
+    <span>💚 {{ likes_left }}/{{ daily_limit }} {{ t.get('likes_today','лайков сегодня') }}</span>
+    {% if likes_left == 0 %}
+    <a href="/premium" class="ml-1 bg-pink-500 text-white text-xs px-2 py-0.5 rounded-full font-bold hover:opacity-90">Premium →</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
   <!-- Кнопки -->
-  <div class="flex items-center justify-center gap-6 mt-6">
+  <div class="flex items-center justify-center gap-4 mt-4">
+    {% if can_undo %}
+    <button onclick="doUndo(this)" id="btn-undo" class="w-10 h-10 rounded-full bg-white shadow border border-gray-200 text-lg flex items-center justify-center hover:border-yellow-300 hover:shadow-md transition" title="{{ t.get('undo_swipe','Отменить свайп') }}">↩️</button>
+    {% endif %}
     <button onclick="doSwipe('dislike')" id="btn-no"  class="btn-no"  title="{{ t.get('swipe_hint_left','Нет') }}">✖️</button>
     <button onclick="doSuperLike()"      id="btn-star" class="btn-super" title="⭐ {{ super_likes_left }}">⭐</button>
     <button onclick="doSwipe('like')"    id="btn-yes" class="btn-yes" title="{{ t.get('swipe_hint_right','Да') }}">💚</button>
@@ -225,6 +238,8 @@
 (function() {
   var cardId    = {{ candidate.id }};
   var superLeft = {{ super_likes_left }};
+  var likesLeft = {{ likes_left if likes_left is not none else 'null' }};
+  var canUndo   = {{ 'true' if can_undo else 'false' }};
   var swiping   = false;
 
   function getCsrf() {
@@ -242,11 +257,34 @@
 
   function setBusy(val) {
     swiping = val;
-    ['btn-no','btn-yes','btn-star'].forEach(function(id){
+    ['btn-no','btn-yes','btn-star','btn-undo'].forEach(function(id){
       var b = document.getElementById(id);
       if (b) b.disabled = val;
     });
   }
+
+  function updateLikesBar(left) {
+    likesLeft = left;
+    var bar = document.getElementById('likes-left-bar');
+    if (!bar || left === null) return;
+    var limit = {{ daily_limit }};
+    var cls = left === 0 ? 'text-red-400' : left <= 5 ? 'text-orange-400' : 'text-gray-400';
+    bar.className = 'flex items-center justify-center gap-2 mt-3 text-xs ' + cls;
+    var premLink = left === 0 ? ' <a href="/premium" class="ml-1 bg-pink-500 text-white text-xs px-2 py-0.5 rounded-full font-bold">Premium →</a>' : '';
+    bar.innerHTML = '<span>💚 ' + left + '/' + limit + ' {{ t.get("likes_today","лайков сегодня") }}</span>' + premLink;
+  }
+
+  window.doUndo = function(btn) {
+    if (swiping) return;
+    setBusy(true);
+    fetch('/swipe/undo', {method:'POST', headers:{'x-csrf-token': getCsrf()}})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d.success) { window.location.reload(); }
+        else { showErr(d.error || 'Нельзя отменить'); setBusy(false); }
+      })
+      .catch(function(){ showErr('Ошибка'); setBusy(false); });
+  };
 
   function updateCard(n) {
     cardId = n.id;
@@ -305,12 +343,19 @@
       })
       .then(function(data){
         if (!data) return;
+        if (data.error === 'daily_limit') {
+          showErr(data.message || '{{ t.get("daily_limit_err","Лимит лайков исчерпан. Купи Premium!") }}');
+          setBusy(false);
+          updateLikesBar(0);
+          return;
+        }
         if (data.matched) { window.location.href = '/matches'; return; }
         if (data.super_likes_left !== undefined) {
           superLeft = data.super_likes_left;
           var badge = document.getElementById('super-left-badge');
           if (badge) { badge.textContent = '⭐ ' + superLeft; badge.style.display = superLeft > 0 ? '' : 'none'; }
         }
+        if (data.likes_left !== undefined && data.likes_left !== null) { updateLikesBar(data.likes_left); }
         if (data.next) { updateCard(data.next); }
         else { hideCard(); return; }
         setBusy(false);
