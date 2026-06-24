@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -16,14 +15,10 @@ router = APIRouter(prefix="/admin")
 _ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 
 
-def _check_admin(request: Request):
+def _check_admin(request: Request) -> None:
     key = request.cookies.get("admin_key") or request.query_params.get("key", "")
     if not _ADMIN_KEY or key != _ADMIN_KEY:
         raise HTTPException(403, "Forbidden")
-
-
-def _photo_dir() -> Path:
-    return Path(os.getenv("PHOTO_DIR", "static/photos"))
 
 
 @router.get("/login", response_class=HTMLResponse, include_in_schema=False)
@@ -89,7 +84,8 @@ async def admin_delete_gallery_photo(
     result = await db.execute(select(ProfilePhoto).where(ProfilePhoto.id == photo_id))
     photo = result.scalar_one_or_none()
     if photo:
-        _try_delete_file(photo.url)
+        from app.utils.photos import remove_photo_file
+        remove_photo_file(photo.url)
         await db.delete(photo)
         await db.commit()
     return RedirectResponse("/admin", status_code=302)
@@ -105,7 +101,8 @@ async def admin_clear_main_photo(
     result = await db.execute(select(Profile).where(Profile.user_id == user_id))
     profile = result.scalar_one_or_none()
     if profile and profile.photo:
-        _try_delete_file(profile.photo)
+        from app.utils.photos import remove_photo_file
+        remove_photo_file(profile.photo)
         profile.photo = None
         await db.commit()
     return RedirectResponse("/admin", status_code=302)
@@ -141,11 +138,3 @@ async def admin_unban_user(
     return RedirectResponse("/admin", status_code=302)
 
 
-def _try_delete_file(url: str | None) -> None:
-    if not url or not url.startswith("/photos/"):
-        return
-    try:
-        fname = url.split("/")[-1]
-        (_photo_dir() / fname).unlink(missing_ok=True)
-    except Exception:
-        pass

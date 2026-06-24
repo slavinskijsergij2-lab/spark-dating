@@ -308,3 +308,16 @@ class PushSubscription(Base):
     p256dh = Column(Text, nullable=False)
     auth = Column(Text, nullable=False)
     created_at = Column(DateTime, default=_utcnow)
+
+
+class ErrorLog(Base):
+    __tablename__ = "error_logs"
+
+    id = Column(Integer, primary_key=True)
+    ts = Column(DateTime, nullable=False, default=_utcnow, index=True)
+    method = Column(String(10), nullable=True)
+    path = Column(String(500), nullable=True)
+    exc_type = Column(String(200), nullable=True)
+    exc_msg = Column(Text, nullable=True)
+    traceback = Column(Text, nullable=True)
+    user_agent = Column(String(500), nullable=True)

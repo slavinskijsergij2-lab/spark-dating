@@ -581,8 +581,7 @@ async def send_photo(
     await db.refresh(msg)
 
     sender_name = user.profile.name if hasattr(user, "profile") and user.profile else "Spark"
-    import asyncio as _asyncio
-    _asyncio.ensure_future(send_push_to_user(partner_id, f"📷 {sender_name}", "Фото", f"/chat/{match_id}", "message"))
+    asyncio.create_task(send_push_to_user(partner_id, f"📷 {sender_name}", "Фото", f"/chat/{match_id}", "message"))
 
     return JSONResponse({
         "id": msg.id,

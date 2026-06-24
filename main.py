@@ -1,6 +1,5 @@
 import asyncio
 import html as _html
-import json
 import logging
 import os
 import secrets
@@ -8,7 +7,6 @@ import time
 import traceback
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
-from datetime import timedelta
 from pathlib import Path
 from threading import Lock
 
@@ -44,6 +42,8 @@ from app.database import Base, engine
 from app.i18n import get_lang, get_translations, is_rtl
 from app.routers import auth, profile, swipe, matches
 from app.utils.time import utcnow as _utcnow
+from app.utils.maintenance import fix_broken_photo_urls, do_cleanup
+from app.utils.template_filters import tojson_filter, online_status as _online_status
 from app.routers import features, premium, social, stories, referral, push as push_router, admin as admin_router, billing as billing_router
 from app.templates import templates
 
@@ -106,7 +106,7 @@ async def _run_startup_tasks() -> None:
     except Exception as _e:
         logging.error("startup: MIGRATION FAILED (app continues) — %s", _e, exc_info=True)
     try:
-        await loop.run_in_executor(None, _fix_broken_photo_urls)
+        await loop.run_in_executor(None, fix_broken_photo_urls)
     except Exception as _e:
         logging.error("startup: fix_broken_photo_urls failed: %s", _e, exc_info=True)
     _startup_done = True
@@ -147,6 +147,28 @@ def _record_error(method: str, path: str, exc: Exception, tb: str) -> None:
             "exc": f"{type(exc).__name__}: {exc}",
             "tb": tb[-2000:],
         })
+
+
+async def _save_error_to_db(
+    method: str, path: str, exc: Exception, tb: str, ua: str = ""
+) -> None:
+    """Persist an unhandled exception to the error_logs table (best-effort)."""
+    try:
+        from app.database import AsyncSessionLocal
+        from app.models.models import ErrorLog
+        async with AsyncSessionLocal() as session:
+            session.add(ErrorLog(
+                ts=_utcnow(),
+                method=method,
+                path=path[:500],
+                exc_type=type(exc).__name__[:200],
+                exc_msg=str(exc)[:1000],
+                traceback=tb[-4000:],
+                user_agent=ua[:500] if ua else None,
+            ))
+            await session.commit()
+    except Exception as _e:
+        logging.warning("_save_error_to_db: failed: %s", _e)
 
 
 async def _send_error_email(method: str, path: str, exc: Exception, tb: str) -> None:
@@ -248,107 +270,6 @@ Path(_PHOTO_DIR).mkdir(parents=True, exist_ok=True)
 app.mount("/photos", StaticFiles(directory=_PHOTO_DIR), name="photos")
 
 
-def _fix_broken_photo_urls() -> None:
-    """
-    Startup check: photos are stored as base64 data URLs in the DB.
-    Any leftover /photos/xxx.jpg URLs where the file no longer exists
-    on disk (e.g. after a Railway redeploy without a Volume) are cleared
-    to NULL so the UI shows the 👤 placeholder instead of a broken image.
-    """
-    from sqlalchemy import text as _t
-
-    photo_dir = Path(_PHOTO_DIR)
-
-    def _is_broken(url: str | None) -> bool:
-        if not url:
-            return False
-        if url.startswith("data:image/"):
-            return False  # base64 data URLs are always valid
-        if url.startswith("/photos/"):
-            fname = url.split("/")[-1]
-            return not (photo_dir / fname).exists()
-        return False  # external URLs or unknown — leave as-is
-
-    try:
-        with engine.begin() as conn:
-            # Only load file-path URLs (NOT data: URLs) to avoid reading megabytes of
-            # base64 photo data into memory — base64 URLs are never broken anyway.
-            rows = conn.execute(_t(
-                "SELECT id, photo FROM profiles "
-                "WHERE photo IS NOT NULL AND photo NOT LIKE 'data:%'"
-            )).fetchall()
-            fixed = 0
-            for row_id, photo in rows:
-                if _is_broken(photo):
-                    conn.execute(_t("UPDATE profiles SET photo=NULL WHERE id=:id"), {"id": row_id})
-                    fixed += 1
-            if fixed:
-                logging.info("fix_photos: cleared %d broken profile photo URLs", fixed)
-
-            rows2 = conn.execute(_t(
-                "SELECT id, url FROM profile_photos "
-                "WHERE url IS NOT NULL AND url NOT LIKE 'data:%'"
-            )).fetchall()
-            fixed2 = 0
-            for row_id, url in rows2:
-                if _is_broken(url):
-                    conn.execute(_t("DELETE FROM profile_photos WHERE id=:id"), {"id": row_id})
-                    fixed2 += 1
-            if fixed2:
-                logging.info("fix_photos: removed %d broken gallery photo rows", fixed2)
-
-            # Stories with file-based images are broken after redeploy — delete them
-            # (they expire in 24h anyway; new stories use base64)
-            try:
-                res3 = conn.execute(_t(
-                    "DELETE FROM stories WHERE media_type='image' AND content LIKE '/photos/%'"
-                ))
-                if res3.rowcount:
-                    logging.info("fix_photos: removed %d broken story image rows", res3.rowcount)
-            except Exception:
-                pass
-    except Exception as _e:
-        logging.warning("fix_broken_photo_urls: %s", _e)
-
-
-
-def _do_cleanup() -> None:
-    """Periodic DB housekeeping: expired boosts, old views, unverified accounts, expired stories."""
-    from sqlalchemy import text as _t
-    now = _utcnow()
-    try:
-        with engine.begin() as conn:
-            r = conn.execute(_t(
-                "UPDATE users SET boost_until = NULL WHERE boost_until IS NOT NULL AND boost_until < :now"
-            ), {"now": now})
-            if r.rowcount:
-                logging.info("cleanup: cleared %d expired boosts", r.rowcount)
-
-            cutoff_views = now - timedelta(days=30)
-            r = conn.execute(_t(
-                "DELETE FROM profile_views WHERE created_at < :cutoff"
-            ), {"cutoff": cutoff_views})
-            if r.rowcount:
-                logging.info("cleanup: deleted %d old profile views", r.rowcount)
-
-            cutoff_unverified = now - timedelta(days=7)
-            r = conn.execute(_t(
-                "DELETE FROM users WHERE is_active = FALSE AND created_at < :cutoff"
-            ), {"cutoff": cutoff_unverified})
-            if r.rowcount:
-                logging.info("cleanup: deleted %d stale unverified accounts", r.rowcount)
-
-            try:
-                cutoff_stories = now - timedelta(hours=24)
-                r = conn.execute(_t(
-                    "DELETE FROM stories WHERE created_at < :cutoff"
-                ), {"cutoff": cutoff_stories})
-                if r.rowcount:
-                    logging.info("cleanup: deleted %d expired stories", r.rowcount)
-            except Exception:
-                pass
-    except Exception as _e:
-        logging.warning("_do_cleanup: %s", _e)
 
 
 async def _periodic_cleanup() -> None:
@@ -357,7 +278,7 @@ async def _periodic_cleanup() -> None:
     while True:
         try:
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, _do_cleanup)
+            await loop.run_in_executor(None, do_cleanup)
         except Exception as _e:
             logging.error("periodic_cleanup: unexpected error: %s", _e, exc_info=True)
         await asyncio.sleep(3600)
@@ -426,44 +347,7 @@ async def security_middleware(request: Request, call_next):
     return response
 
 
-def _tojson(value, indent=None):
-    from datetime import datetime as _dt
-    def default(o):
-        if isinstance(o, _dt):
-            return o.isoformat()
-        raise TypeError(f"Object of type {type(o)} is not JSON serializable")
-    result = json.dumps(value, default=default, indent=indent, ensure_ascii=False)
-    # Escape </script> and HTML comment sequences so injected content can't break
-    # a <script> block. Return plain str so Jinja2 autoescape encodes " → &quot;
-    # in HTML attributes (x-data, x-init). Use | safe in <script> contexts.
-    return result.replace("</", "<\\/").replace("<!--", "<\\!--")
-
-
-_ONLINE_LABELS = {
-    "ru": ("Онлайн", "{n} мин назад", "{n} ч назад"),
-    "uk": ("Онлайн", "{n} хв тому", "{n} год тому"),
-    "en": ("Online", "{n}m ago", "{n}h ago"),
-    "de": ("Online", "vor {n}m", "vor {n}h"),
-    "tr": ("Çevrimiçi", "{n}d önce", "{n}s önce"),
-    "ar": ("متصل", "منذ {n}د", "منذ {n}س"),
-}
-
-
-def _online_status(last_seen, lang="en"):
-    if not last_seen:
-        return None
-    diff = (_utcnow() - last_seen).total_seconds()
-    online_lbl, mins_lbl, hrs_lbl = _ONLINE_LABELS.get(lang, _ONLINE_LABELS["en"])
-    if diff < 300:
-        return {"is_online": True, "label": online_lbl}
-    if diff < 3600:
-        return {"is_online": False, "label": mins_lbl.replace("{n}", str(int(diff / 60)))}
-    if diff < 86400:
-        return {"is_online": False, "label": hrs_lbl.replace("{n}", str(int(diff / 3600)))}
-    return None
-
-
-templates.env.filters["tojson"] = _tojson
+templates.env.filters["tojson"] = tojson_filter
 templates.env.globals["online_status"] = _online_status
 templates.env.globals["now"] = _utcnow
 
@@ -516,7 +400,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def global_exception_handler(request: Request, exc: Exception):
     tb = traceback.format_exc()
     logging.error("Unhandled exception on %s %s:\n%s", request.method, request.url.path, tb)
+    ua = request.headers.get("user-agent", "")
     _record_error(request.method, request.url.path, exc, tb)
+    asyncio.create_task(_save_error_to_db(request.method, request.url.path, exc, tb, ua))
     asyncio.create_task(_send_error_email(request.method, request.url.path, exc, tb))
     # FIX H8: return HTML error page to browser users, not raw JSON
     accept = request.headers.get("accept", "")
@@ -589,12 +475,39 @@ def app_metrics(token: str = Query(default="")):
 
 
 @app.get("/errors")
-def app_errors(token: str = Query(default="")):
+async def app_errors(token: str = Query(default="")):
     required = os.getenv("METRICS_TOKEN", "")
     if not required or token != required:
         raise HTTPException(403, "Forbidden")
-    with _m_lock:
-        return JSONResponse({"errors": list(_error_log)})
+    try:
+        from app.database import AsyncSessionLocal
+        from app.models.models import ErrorLog
+        from sqlalchemy import select, desc
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(ErrorLog).order_by(desc(ErrorLog.ts)).limit(100)
+            )
+            logs = result.scalars().all()
+            return JSONResponse({
+                "source": "db",
+                "count": len(logs),
+                "errors": [
+                    {
+                        "id": log.id,
+                        "ts": log.ts.isoformat() if log.ts else None,
+                        "method": log.method,
+                        "path": log.path,
+                        "exc": f"{log.exc_type}: {log.exc_msg}",
+                        "tb": log.traceback,
+                        "ua": log.user_agent,
+                    }
+                    for log in logs
+                ],
+            })
+    except Exception as _e:
+        logging.warning("app_errors: DB read failed, falling back to memory: %s", _e)
+        with _m_lock:
+            return JSONResponse({"source": "memory", "errors": list(_error_log)})
 
 
 @app.get("/sentry-debug/")

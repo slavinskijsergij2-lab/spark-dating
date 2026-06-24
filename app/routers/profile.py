@@ -1,6 +1,5 @@
 import os
 from datetime import datetime
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -251,12 +250,13 @@ async def delete_account(
     result = await db.execute(select(Profile).where(Profile.user_id == user.id))
     profile = result.scalar_one_or_none()
     if profile:
-        _try_remove_photo(profile.photo)
+        from app.utils.photos import remove_photo_file
+        remove_photo_file(profile.photo)
         result2 = await db.execute(
             select(ProfilePhoto).where(ProfilePhoto.profile_id == profile.id)
         )
         for ph in result2.scalars().all():
-            _try_remove_photo(ph.url)
+            remove_photo_file(ph.url)
 
     await db.delete(user)
     await db.commit()
@@ -265,19 +265,6 @@ async def delete_account(
     resp.delete_cookie("access_token")
     return resp
 
-
-def _try_remove_photo(url: str | None) -> None:
-    if not url or not url.startswith("/photos/"):
-        return
-    photo_dir_env = os.getenv("PHOTO_DIR")
-    if not photo_dir_env:
-        return
-    try:
-        fname = url.split("/")[-1]
-        p = Path(photo_dir_env) / fname
-        p.unlink(missing_ok=True)
-    except Exception:
-        pass
 
 
 @router.get("/settings/notifications", response_class=HTMLResponse, dependencies=[Depends(rate_limit(30, 60))])

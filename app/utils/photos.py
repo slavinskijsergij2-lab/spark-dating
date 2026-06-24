@@ -25,6 +25,19 @@ def _photo_dir_path() -> Path | None:
     return p
 
 
+def remove_photo_file(url: str | None) -> None:
+    """Delete a ``/photos/<name>`` file from the filesystem (best-effort)."""
+    if not url or not url.startswith("/photos/"):
+        return
+    photo_dir = _photo_dir_path()
+    if not photo_dir:
+        return
+    try:
+        (photo_dir / url.split("/")[-1]).unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 def save_image_bytes(raw: bytes, prefix: str = "") -> str:
     """Compress raw image bytes and persist.
 
