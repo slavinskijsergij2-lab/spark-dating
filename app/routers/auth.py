@@ -40,27 +40,27 @@ async def debug_check_email(email: str, secret: str, db: AsyncSession = Depends(
     row = result.first()
     if not row:
         return {"found": False, "email": email}
-    import json as _json, urllib.request as _ur, os as _os
+    import json as _json, urllib.request as _ur, urllib.error as _uerr, os as _os, ssl as _ssl
     key = _os.getenv("RESEND_API_KEY", "")
+    info = {"found": True, "id": row[0], "key_prefix": key[:12], "key_len": len(key)}
     payload = _json.dumps({"from": "Spark <onboarding@resend.dev>", "to": [email], "subject": "Spark reset test", "html": "<p>test</p>"}).encode()
     req = _ur.Request("https://api.resend.com/emails", data=payload,
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"}, method="POST")
     try:
-        import ssl
-        try:
-            import certifi; ctx = ssl.create_default_context(cafile=certifi.where())
-        except ImportError:
-            ctx = ssl.create_default_context()
+        ctx = _ssl.create_default_context()
         with _ur.build_opener(_ur.HTTPSHandler(context=ctx)).open(req, timeout=10) as r:
-            resp_body = r.read().decode()
-        return {"found": True, "id": row[0], "email_sent": True, "resend_resp": resp_body}
+            info["email_sent"] = True
+            info["resend_resp"] = r.read().decode()
+    except _uerr.HTTPError as e:
+        info["email_sent"] = False
+        info["http_code"] = e.code
+        try: info["body"] = e.read().decode()
+        except: info["body"] = ""
     except Exception as e:
-        body = ""
-        try:
-            body = e.read().decode()
-        except Exception:
-            pass
-        return {"found": True, "id": row[0], "email_sent": False, "error": str(e), "body": body, "key_used": key[:10] + "...", "error_type": type(e).__name__}
+        info["email_sent"] = False
+        info["error"] = str(e)
+        info["error_type"] = type(e).__name__
+    return info
 _SECURE_COOKIES = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("SECURE_COOKIES"))
 
 from app.utils.time import utcnow as _utcnow
