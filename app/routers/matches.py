@@ -280,6 +280,14 @@ async def chat_page(match_id: int, request: Request, user: User = Depends(get_cu
     messages_raw = list(reversed(result.scalars().all()))
 
     partner = match.user2 if match.user1_id == user.id else match.user1
+    partner_id = partner.id
+
+    # Check if I blocked them (so chat menu can show Unblock instead of Block)
+    block_result = await db.execute(
+        select(Block).where(Block.blocker_id == user.id, Block.blocked_id == partner_id)
+    )
+    i_blocked_them = block_result.scalar_one_or_none() is not None
+
     msg_ids = [m.id for m in messages_raw]
     reactions_by_msg: dict = {}
     if msg_ids:
@@ -317,6 +325,7 @@ async def chat_page(match_id: int, request: Request, user: User = Depends(get_cu
         "streak": match.streak_days or 0,
         "i_revealed": i_revealed,
         "partner_revealed": partner_revealed,
+        "i_blocked_them": i_blocked_them,
     })
 
 

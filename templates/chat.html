@@ -106,10 +106,17 @@
           <span class="text-base">💔</span> {{ t.get('unmatch','Разматч') }}
         </button>
         <div class="mx-3 border-t border-gray-100"></div>
+        {% if i_blocked_them %}
+        <button onclick="closeChatMenu(); doUnblock()"
+                class="w-full flex items-center gap-3 px-4 py-3 text-sm text-green-600 hover:bg-green-50 transition">
+          <span class="text-base">✅</span> {{ t.get('unblock_btn','Разблокировать') }}
+        </button>
+        {% else %}
         <button onclick="closeChatMenu(); doBlock()"
                 class="w-full flex items-center gap-3 px-4 py-3 text-sm text-orange-600 hover:bg-orange-50 transition">
           <span class="text-base">🚫</span> {{ t.get('block_user','Заблокировать') }}
         </button>
+        {% endif %}
         <div class="mx-3 border-t border-gray-100"></div>
         <button onclick="closeChatMenu(); openReport()"
                 class="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition">
@@ -489,6 +496,15 @@
     })
     .then(function() { window.location.href = '/matches'; })
     .catch(function() { btn.disabled = false; btn.textContent = '{{ t.get("block_btn","Заблокировать") }}'; });
+  };
+
+  window.doUnblock = function() {
+    fetch('/user/{{ partner.id }}/unblock', {
+      method: 'POST',
+      headers: {'x-csrf-token': getCsrf()},
+    })
+    .then(function() { window.location.reload(); })
+    .catch(function() {});
   };
 
   // ── Report ────────────────────────────────────────────────────────
