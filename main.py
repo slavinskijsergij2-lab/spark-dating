@@ -44,7 +44,7 @@ from app.database import Base, engine
 from app.i18n import get_lang, get_translations, is_rtl
 from app.routers import auth, profile, swipe, matches
 from app.utils.time import utcnow as _utcnow
-from app.routers import features, premium, social, stories, referral, push as push_router
+from app.routers import features, premium, social, stories, referral, push as push_router, admin as admin_router
 from app.templates import templates
 
 logging.info("startup: all app modules imported")
@@ -477,6 +477,7 @@ app.include_router(social.router)
 app.include_router(stories.router)
 app.include_router(referral.router)
 app.include_router(push_router.router)
+app.include_router(admin_router.router)
 
 
 @app.exception_handler(HTTPException)
@@ -599,6 +600,11 @@ def app_errors(token: str = Query(default="")):
 @app.get("/sentry-debug")
 async def sentry_debug():
     raise RuntimeError("Sentry debug: error tracking is working!")
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+def privacy(request: Request):
+    return templates.TemplateResponse(request, "privacy.html", {})
 
 
 @app.get("/", response_class=HTMLResponse)

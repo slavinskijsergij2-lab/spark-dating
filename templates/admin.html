@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spark Admin</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  .photo-card { transition: opacity .2s; }
+  .photo-card:hover { opacity: .9; }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<header class="bg-white shadow-sm sticky top-0 z-10 px-6 py-4 flex items-center gap-4">
+  <h1 class="text-xl font-bold text-pink-600">Spark Admin</h1>
+  <span class="text-gray-400 text-sm">Модерация фото и пользователей</span>
+  <span class="ml-auto text-sm text-gray-400">Активных: {{ users|length }} / Заблокированных: {{ banned|length }}</span>
+</header>
+
+<div class="max-w-6xl mx-auto px-4 py-6 space-y-8">
+
+  <!-- Active users -->
+  <section>
+    <h2 class="text-lg font-semibold text-gray-700 mb-4">Активные пользователи</h2>
+    {% if not users %}
+    <p class="text-gray-400">Нет пользователей.</p>
+    {% endif %}
+    <div class="grid gap-4">
+    {% for u in users %}
+    <div class="bg-white rounded-2xl shadow p-4">
+      <div class="flex items-start gap-4 flex-wrap">
+        <!-- Main photo -->
+        <div class="flex flex-col items-center gap-2">
+          {% if u.profile and u.profile.photo %}
+            {% if u.profile.photo.startswith('data:') %}
+              <img src="{{ u.profile.photo }}" class="w-24 h-24 rounded-xl object-cover border border-gray-200">
+            {% else %}
+              <img src="{{ u.profile.photo }}" class="w-24 h-24 rounded-xl object-cover border border-gray-200">
+            {% endif %}
+            <form method="POST" action="/admin/photo/clear/{{ u.id }}" onsubmit="return confirm('Удалить главное фото?')">
+              <button class="text-xs text-red-500 hover:text-red-700 font-medium px-2 py-1 rounded border border-red-200 hover:border-red-400">
+                Удалить фото
+              </button>
+            </form>
+          {% else %}
+            <div class="w-24 h-24 rounded-xl bg-gray-100 flex items-center justify-center text-3xl text-gray-300">👤</div>
+            <span class="text-xs text-gray-400">Нет фото</span>
+          {% endif %}
+        </div>
+
+        <!-- User info -->
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap mb-1">
+            <span class="font-semibold text-gray-800">#{{ u.id }}</span>
+            <span class="text-gray-600">{{ u.email }}</span>
+            {% if u.profile %}
+            <span class="text-pink-600 font-medium">{{ u.profile.name }}, {{ u.profile.age }}</span>
+            {% endif %}
+            {% if u.is_premium %}
+            <span class="bg-yellow-100 text-yellow-700 text-xs px-2 py-0.5 rounded-full">Premium</span>
+            {% endif %}
+          </div>
+          {% if u.profile and u.profile.bio %}
+          <p class="text-sm text-gray-500 truncate mb-2">{{ u.profile.bio[:200] }}</p>
+          {% endif %}
+          <div class="text-xs text-gray-400">
+            Зарегистрирован: {{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '—' }}
+            {% if u.last_seen %}· Последний визит: {{ u.last_seen.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex flex-col gap-2 flex-shrink-0">
+          <a href="/profile/{{ u.id }}" target="_blank"
+             class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-center">
+            Профиль
+          </a>
+          <form method="POST" action="/admin/ban/{{ u.id }}" onsubmit="return confirm('Заблокировать пользователя?')">
+            <button class="text-xs bg-red-50 hover:bg-red-100 text-red-600 px-3 py-1.5 rounded-lg w-full">
+              Заблокировать
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Gallery photos -->
+      {% if u.profile and u.profile.photos %}
+      <div class="mt-3 pt-3 border-t border-gray-100">
+        <p class="text-xs text-gray-400 mb-2">Галерея ({{ u.profile.photos|length }}):</p>
+        <div class="flex gap-2 flex-wrap">
+          {% for ph in u.profile.photos %}
+          <div class="relative group">
+            <img src="{{ ph.url }}" class="w-16 h-16 rounded-lg object-cover border border-gray-200">
+            <form method="POST" action="/admin/photo/delete/{{ ph.id }}"
+                  onsubmit="return confirm('Удалить это фото?')"
+                  class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/40 rounded-lg transition">
+              <button class="text-white text-xs font-bold">✕</button>
+            </form>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+    </div>
+  </section>
+
+  <!-- Banned users -->
+  {% if banned %}
+  <section>
+    <h2 class="text-lg font-semibold text-gray-700 mb-4">Заблокированные</h2>
+    <div class="grid gap-3">
+    {% for u in banned %}
+    <div class="bg-red-50 rounded-2xl shadow p-4 flex items-center gap-4 flex-wrap">
+      <div class="flex-1">
+        <span class="font-semibold text-gray-700">#{{ u.id }}</span>
+        <span class="text-gray-500 ml-2">{{ u.email }}</span>
+        {% if u.profile %}
+        <span class="text-pink-500 ml-2">{{ u.profile.name }}</span>
+        {% endif %}
+      </div>
+      <form method="POST" action="/admin/unban/{{ u.id }}">
+        <button class="text-xs bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1.5 rounded-lg">
+          Разблокировать
+        </button>
+      </form>
+    </div>
+    {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+</div>
+</body>
+</html>

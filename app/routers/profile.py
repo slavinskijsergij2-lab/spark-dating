@@ -264,6 +264,46 @@ async def delete_photo(
     return RedirectResponse("/profile/edit", status_code=302)
 
 
+@router.post("/account/delete", dependencies=[Depends(validate_csrf_form), Depends(rate_limit(5, 60))])
+async def delete_account(
+    request: Request,
+    confirm: str = Form(""),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if confirm.strip().upper() != "DELETE":
+        return RedirectResponse("/profile/edit?error=type_delete_to_confirm", status_code=302)
+
+    # Delete profile photos from filesystem
+    result = await db.execute(select(Profile).where(Profile.user_id == user.id))
+    profile = result.scalar_one_or_none()
+    if profile:
+        _try_remove_photo(profile.photo)
+        result2 = await db.execute(
+            select(ProfilePhoto).where(ProfilePhoto.profile_id == profile.id)
+        )
+        for ph in result2.scalars().all():
+            _try_remove_photo(ph.url)
+
+    await db.delete(user)
+    await db.commit()
+
+    resp = RedirectResponse("/", status_code=302)
+    resp.delete_cookie("access_token")
+    return resp
+
+
+def _try_remove_photo(url: str | None) -> None:
+    if not url or not url.startswith("/photos/"):
+        return
+    try:
+        fname = url.split("/")[-1]
+        p = _photo_dir() / fname
+        p.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 @router.get("/profile/{user_id}", response_class=HTMLResponse, dependencies=[Depends(rate_limit(60, 60))])
 async def view_profile(user_id: int, request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     from sqlalchemy.orm import selectinload

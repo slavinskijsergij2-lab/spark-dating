@@ -313,6 +313,43 @@ function fixAndPreviewPhoto(input, previewId, placeholderId, autoSubmit) {
       {{ t.save_button }}
     </button>
   </form>
+
+  <!-- Delete account -->
+  <div class="mt-8 pt-6 border-t border-gray-100 text-center">
+    <button onclick="document.getElementById('delete-modal').style.display='flex'"
+            class="text-sm text-gray-400 hover:text-red-500 transition">
+      Удалить аккаунт
+    </button>
+  </div>
+</div>
+
+<!-- Delete account modal -->
+<div id="delete-modal" style="display:none"
+     class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
+    <h3 class="text-lg font-bold text-gray-900 mb-2">Удалить аккаунт?</h3>
+    <p class="text-sm text-gray-500 mb-4">
+      Все ваши данные, матчи, переписка и фотографии будут удалены безвозвратно.
+      Введите <strong>DELETE</strong> для подтверждения.
+    </p>
+    <form method="POST" action="/account/delete">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <input type="text" name="confirm" placeholder="DELETE"
+             class="w-full border border-gray-200 rounded-xl px-4 py-2.5 mb-4 text-sm focus:outline-none focus:border-red-400"
+             autocomplete="off">
+      <div class="flex gap-3">
+        <button type="button"
+                onclick="document.getElementById('delete-modal').style.display='none'"
+                class="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50">
+          Отмена
+        </button>
+        <button type="submit"
+                class="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold hover:bg-red-600">
+          Удалить
+        </button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <script>
