@@ -40,20 +40,31 @@ async def debug_check_email(email: str, secret: str, db: AsyncSession = Depends(
     row = result.first()
     if not row:
         return {"found": False, "email": email}
-    import os as _os, json as _json
-    key = _os.getenv("RESEND_API_KEY", "")
-    print(f"[DEBUG] RESEND key={key[:12]}... len={len(key)} to={email}", flush=True)
+    import os as _os, socket as _sock
+    # Test basic connectivity to api.resend.com
+    results = {"found": True, "id": row[0]}
     try:
-        import requests as _req
-        resp = _req.post("https://api.resend.com/emails",
-            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-            json={"from": "Spark <onboarding@resend.dev>", "to": [email], "subject": "Spark reset test", "html": "<p>test</p>"},
-            timeout=10)
-        print(f"[DEBUG] Resend status={resp.status_code} body={resp.text[:200]}", flush=True)
-        return {"found": True, "id": row[0], "key_prefix": key[:12], "status": resp.status_code, "body": resp.text}
+        ip = _sock.gethostbyname("api.resend.com")
+        results["dns_ok"] = True
+        results["resend_ip"] = ip
     except Exception as e:
-        print(f"[DEBUG] Resend error: {e}", flush=True)
-        return {"found": True, "id": row[0], "key_prefix": key[:12], "error": str(e)}
+        results["dns_ok"] = False
+        results["dns_error"] = str(e)
+    # Try sending via smtp (Gmail)
+    import smtplib, ssl as _ssl
+    smtp_host = _os.getenv("SMTP_HOST", "")
+    smtp_user = _os.getenv("SMTP_USER", "")
+    smtp_pass = _os.getenv("SMTP_PASS", "")
+    results["smtp_configured"] = bool(smtp_host and smtp_user and smtp_pass)
+    if smtp_host:
+        try:
+            ctx = _ssl.create_default_context()
+            with smtplib.SMTP_SSL(smtp_host, 465, context=ctx, timeout=10) as s:
+                s.login(smtp_user, smtp_pass)
+                results["smtp_login"] = True
+        except Exception as e:
+            results["smtp_error"] = str(e)
+    return results
 _SECURE_COOKIES = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("SECURE_COOKIES"))
 
 from app.utils.time import utcnow as _utcnow
