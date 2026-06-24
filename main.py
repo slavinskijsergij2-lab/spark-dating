@@ -607,6 +607,14 @@ def privacy(request: Request):
     return templates.TemplateResponse(request, "privacy.html", {})
 
 
+@app.get("/welcome", response_class=HTMLResponse)
+async def welcome(request: Request):
+    from app.auth import get_optional_user
+    from app.database import get_db
+    # redirect already-profiled users straight to swipe
+    return templates.TemplateResponse(request, "welcome.html", {})
+
+
 @app.get("/", response_class=HTMLResponse)
 @app.head("/")
 def index(request: Request):

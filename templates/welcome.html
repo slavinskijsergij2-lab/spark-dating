@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Добро пожаловать — Spark</title>
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#ec4899">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background: linear-gradient(145deg,#fdf2f8 0%,#faf5ff 50%,#fff1f2 100%); min-height: 100vh; }
+  .gradient-pink { background: linear-gradient(135deg,#f472b6 0%,#ec4899 50%,#db2777 100%); }
+  .blob { position:fixed; border-radius:50%; filter:blur(60px); opacity:.35; pointer-events:none; z-index:-1; }
+  .blob-1 { width:400px; height:400px; background:#f9a8d4; top:-100px; left:-100px; }
+  .blob-2 { width:300px; height:300px; background:#c4b5fd; bottom:-80px; right:-80px; }
+
+  @keyframes heartbeat { 0%,100%{transform:scale(1)} 14%{transform:scale(1.15)} 28%{transform:scale(1)} 42%{transform:scale(1.1)} 70%{transform:scale(1)} }
+  .heart { animation: heartbeat 2.4s ease-in-out infinite; display:inline-block; }
+
+  @keyframes fadeUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+  .step-card { animation: fadeUp .4s ease both; }
+  .step-card:nth-child(2) { animation-delay:.1s; }
+  .step-card:nth-child(3) { animation-delay:.2s; }
+</style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen px-4 py-10">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+
+  <div class="w-full max-w-sm mx-auto text-center space-y-8">
+
+    <!-- Logo + welcome -->
+    <div class="space-y-3">
+      <div class="text-6xl heart">💘</div>
+      <h1 class="text-3xl font-extrabold text-gray-900">Добро пожаловать<br>в <span class="text-transparent bg-clip-text" style="background:linear-gradient(135deg,#f472b6,#a855f7)">Spark</span>!</h1>
+      <p class="text-gray-500 text-base">Всего 3 шага — и ты готов знакомиться</p>
+    </div>
+
+    <!-- Steps -->
+    <div class="space-y-3 text-left">
+
+      <div class="step-card bg-white rounded-2xl shadow-sm border border-pink-100 p-4 flex items-center gap-4">
+        <div class="flex-shrink-0 w-12 h-12 rounded-xl gradient-pink flex items-center justify-center text-white text-xl font-bold shadow">1</div>
+        <div>
+          <div class="font-semibold text-gray-800">Заполни профиль</div>
+          <div class="text-sm text-gray-500">Имя, возраст, фото и немного о себе</div>
+        </div>
+        <span class="ml-auto text-gray-300 text-xl">→</span>
+      </div>
+
+      <div class="step-card bg-white rounded-2xl shadow-sm border border-purple-100 p-4 flex items-center gap-4">
+        <div class="flex-shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-purple-400 to-violet-600 flex items-center justify-center text-white text-xl font-bold shadow">2</div>
+        <div>
+          <div class="font-semibold text-gray-800">Начни свайпать</div>
+          <div class="text-sm text-gray-500">Лайкай тех, кто нравится</div>
+        </div>
+        <span class="ml-auto text-gray-300 text-xl">→</span>
+      </div>
+
+      <div class="step-card bg-white rounded-2xl shadow-sm border border-pink-100 p-4 flex items-center gap-4">
+        <div class="flex-shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-rose-400 to-pink-600 flex items-center justify-center text-white text-xl font-bold shadow">3</div>
+        <div>
+          <div class="font-semibold text-gray-800">Общайся с матчами</div>
+          <div class="text-sm text-gray-500">Если лайкнули взаимно — пишите!</div>
+        </div>
+        <span class="ml-auto text-gray-300 text-xl">→</span>
+      </div>
+    </div>
+
+    <!-- CTA -->
+    <a href="/profile/edit"
+       class="block w-full gradient-pink text-white py-4 rounded-full font-bold text-lg shadow-lg hover:opacity-90 transition">
+      Создать профиль →
+    </a>
+
+    <p class="text-xs text-gray-400">
+      Уже есть профиль?
+      <a href="/swipe" class="text-pink-400 hover:underline">Сразу к свайпам</a>
+    </p>
+
+  </div>
+</body>
+</html>
