@@ -196,16 +196,6 @@
   <div id="swipe-err" style="display:none;"
        class="text-center text-sm text-red-500 bg-red-50 rounded-xl py-2 px-4 mt-4"></div>
 
-  <!-- Лимит лайков (только для бесплатных) -->
-  {% if likes_left is not none %}
-  <div id="likes-left-bar" class="flex items-center justify-center gap-2 mt-3 {% if likes_left == 0 %}text-red-400{% elif likes_left <= 5 %}text-orange-400{% else %}text-gray-400{% endif %} text-xs">
-    <span>💚 {{ likes_left }}/{{ daily_limit }} {{ t.get('likes_today','лайков сегодня') }}</span>
-    {% if likes_left == 0 %}
-    <a href="/premium" class="ml-1 bg-pink-500 text-white text-xs px-2 py-0.5 rounded-full font-bold hover:opacity-90">Premium →</a>
-    {% endif %}
-  </div>
-  {% endif %}
-
   <!-- Кнопки -->
   <div class="flex items-center justify-center gap-4 mt-4">
     {% if can_undo %}
@@ -217,11 +207,17 @@
   </div>
 
   <!-- Подсказка -->
-  <div class="flex justify-between text-xs text-gray-300 mt-3 px-10">
+  <div class="flex justify-between items-center text-xs text-gray-300 mt-3 px-10">
     <span>← {{ t.get('swipe_hint_left','нет') }}</span>
     <span id="super-left-badge" class="text-yellow-400 font-semibold"
           {% if super_likes_left <= 0 %}style="display:none;"{% endif %}>⭐ {{ super_likes_left }}</span>
+    {% if likes_left is not none %}
+    <span id="likes-left-badge" class="{% if likes_left <= 5 %}text-orange-400{% else %}text-gray-300{% endif %} font-medium">
+      💚 {{ likes_left }}
+    </span>
+    {% else %}
     <span>{{ t.get('swipe_hint_right','да') }} →</span>
+    {% endif %}
   </div>
 
   <!-- Посмотреть профиль -->
@@ -265,13 +261,11 @@
 
   function updateLikesBar(left) {
     likesLeft = left;
-    var bar = document.getElementById('likes-left-bar');
-    if (!bar || left === null) return;
-    var limit = {{ daily_limit }};
-    var cls = left === 0 ? 'text-red-400' : left <= 5 ? 'text-orange-400' : 'text-gray-400';
-    bar.className = 'flex items-center justify-center gap-2 mt-3 text-xs ' + cls;
-    var premLink = left === 0 ? ' <a href="/premium" class="ml-1 bg-pink-500 text-white text-xs px-2 py-0.5 rounded-full font-bold">Premium →</a>' : '';
-    bar.innerHTML = '<span>💚 ' + left + '/' + limit + ' {{ t.get("likes_today","лайков сегодня") }}</span>' + premLink;
+    var badge = document.getElementById('likes-left-badge');
+    if (!badge || left === null) return;
+    badge.textContent = '💚 ' + left;
+    badge.className = left <= 5 ? 'text-orange-400 font-medium' : 'text-gray-300 font-medium';
+    if (left === 0) { showLimitModal(); }
   }
 
   window.doUndo = function(btn) {
@@ -344,9 +338,9 @@
       .then(function(data){
         if (!data) return;
         if (data.error === 'daily_limit') {
-          showErr(data.message || '{{ t.get("daily_limit_err","Лимит лайков исчерпан. Купи Premium!") }}');
           setBusy(false);
           updateLikesBar(0);
+          showLimitModal();
           return;
         }
         if (data.matched) { window.location.href = '/matches'; return; }
@@ -408,5 +402,72 @@
   window.addEventListener('pageshow', function(e){ if (e.persisted) window.location.reload(); });
 })();
 </script>
+
+<!-- ══ МОДАЛКА: лимит лайков ══ -->
+<div id="limit-modal"
+     style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);backdrop-filter:blur(4px);"
+     onclick="if(event.target===this)closeLimitModal()">
+  <div style="position:absolute;bottom:0;left:0;right:0;background:white;border-radius:28px 28px 0 0;padding:32px 24px 40px;text-align:center;transform:translateY(100%);transition:transform .35s cubic-bezier(.34,1.26,.64,1);"
+       id="limit-modal-sheet">
+
+    <!-- Иконка -->
+    <div style="width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,#fce7f3,#ede9fe);margin:0 auto 16px;display:flex;align-items:center;justify-content:center;font-size:40px;">
+      💚
+    </div>
+
+    <h2 style="font-size:22px;font-weight:900;color:#111827;margin:0 0 8px;">
+      {{ t.get('limit_modal_title', 'Лимит лайков исчерпан') }}
+    </h2>
+    <p style="font-size:14px;color:#6b7280;margin:0 0 24px;line-height:1.5;">
+      {{ t.get('limit_modal_desc', 'Бесплатный план — 20 лайков в день.<br>Premium даёт безлимитные лайки и ещё 7 возможностей.') | safe }}
+    </p>
+
+    <!-- Список преимуществ -->
+    <div style="background:#fdf2f8;border-radius:16px;padding:16px;margin-bottom:24px;text-align:left;">
+      {% for item in ['💚 Безлимитные лайки', '💘 Кто лайкнул тебя', '↩️ Отмена свайпа', '⚡ Буст 3 часа'] %}
+      <div style="display:flex;align-items:center;gap:10px;{% if not loop.last %}margin-bottom:10px;{% endif %}">
+        <span style="font-size:16px;">{{ item.split(' ')[0] }}</span>
+        <span style="font-size:13px;color:#374151;">{{ item[item.index(' ')+1:] }}</span>
+        <span style="margin-left:auto;color:#10b981;font-size:12px;font-weight:700;">✓</span>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- CTA -->
+    <a href="/premium"
+       style="display:block;background:linear-gradient(135deg,#f472b6,#ec4899);color:white;padding:16px;border-radius:999px;font-size:16px;font-weight:800;text-decoration:none;margin-bottom:12px;box-shadow:0 6px 24px rgba(236,72,153,.4);">
+      ⭐ {{ t.get('get_premium_cta', 'Получить Premium') }}
+    </a>
+    <button onclick="closeLimitModal()"
+            style="background:none;border:none;color:#9ca3af;font-size:14px;cursor:pointer;padding:8px 16px;">
+      {{ t.get('limit_modal_later', 'Зайти завтра') }}
+    </button>
+  </div>
+</div>
+
+<script>
+function showLimitModal() {
+  var modal = document.getElementById('limit-modal');
+  var sheet = document.getElementById('limit-modal-sheet');
+  modal.style.display = 'block';
+  document.body.style.overflow = 'hidden';
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){
+      sheet.style.transform = 'translateY(0)';
+    });
+  });
+}
+function closeLimitModal() {
+  var modal = document.getElementById('limit-modal');
+  var sheet = document.getElementById('limit-modal-sheet');
+  sheet.style.transform = 'translateY(100%)';
+  document.body.style.overflow = '';
+  setTimeout(function(){ modal.style.display = 'none'; }, 350);
+}
+{% if likes_left is not none and likes_left == 0 %}
+window.addEventListener('DOMContentLoaded', showLimitModal);
+{% endif %}
+</script>
+
 {% endif %}
 {% endblock %}
