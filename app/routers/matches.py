@@ -373,6 +373,26 @@ async def send_message(
     })
 
 
+@router.post("/chat/{match_id}/typing", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(60, 60))])
+async def typing_indicator(
+    match_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Match).where(Match.id == match_id))
+    match = result.scalar_one_or_none()
+    if not match or (match.user1_id != user.id and match.user2_id != user.id):
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
+    try:
+        from app.rate_limit import _get_redis
+        redis = await _get_redis()
+        if redis:
+            await redis.set(f"typing:{match_id}:{user.id}", "1", ex=5)
+    except Exception:
+        pass
+    return JSONResponse({"ok": True})
+
+
 @router.post("/chat/{match_id}/voice", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(5, 60))])
 async def send_voice(
     match_id: int,
@@ -575,7 +595,8 @@ async def get_messages(
 
 
 async def _fetch_new_messages(match_id: int, last_id: int, user_id: int) -> tuple:
-    """Native async DB fetch — no thread pool needed."""
+    """Returns (msgs_list, new_last_id, partner_read_up_to).
+    msgs_list is [] when no new messages; partner_read_up_to is always current."""
     async with AsyncSessionLocal() as session:
         result = await session.execute(
             select(Message)
@@ -584,30 +605,41 @@ async def _fetch_new_messages(match_id: int, last_id: int, user_id: int) -> tupl
             .limit(POLL_PAGE_SIZE)
         )
         msgs = result.scalars().all()
-        if not msgs:
-            return None, last_id
+        new_last_id = msgs[-1].id if msgs else last_id
 
-        await session.execute(
-            update(Message)
-            .where(
-                Message.match_id == match_id,
-                Message.sender_id != user_id,
-                Message.is_read == False,
+        if msgs:
+            await session.execute(
+                update(Message)
+                .where(
+                    Message.match_id == match_id,
+                    Message.sender_id != user_id,
+                    Message.is_read == False,
+                )
+                .values(is_read=True)
             )
-            .values(is_read=True)
-        )
-        await session.commit()
+            await session.commit()
 
         msg_ids = [m.id for m in msgs]
         reactions_by_msg: dict = {}
-        result = await session.execute(
-            select(MessageReaction).where(MessageReaction.message_id.in_(msg_ids))
-        )
-        for r in result.scalars().all():
-            reactions_by_msg.setdefault(r.message_id, {})[r.emoji] = \
-                reactions_by_msg.get(r.message_id, {}).get(r.emoji, 0) + 1
+        if msg_ids:
+            rr = await session.execute(
+                select(MessageReaction).where(MessageReaction.message_id.in_(msg_ids))
+            )
+            for r in rr.scalars().all():
+                reactions_by_msg.setdefault(r.message_id, {})[r.emoji] = \
+                    reactions_by_msg.get(r.message_id, {}).get(r.emoji, 0) + 1
 
-        payload = _json.dumps([{
+        # Max ID of current user's own messages that partner has already read
+        rr2 = await session.execute(
+            select(func.max(Message.id)).where(
+                Message.match_id == match_id,
+                Message.sender_id == user_id,
+                Message.is_read == True,
+            )
+        )
+        partner_read_up_to = rr2.scalar() or 0
+
+        msgs_data = [{
             "id": m.id,
             "content": m.content,
             "sender_id": m.sender_id,
@@ -615,8 +647,21 @@ async def _fetch_new_messages(match_id: int, last_id: int, user_id: int) -> tupl
             "is_read": m.is_read,
             "is_voice": m.is_voice,
             "reactions": reactions_by_msg.get(m.id, {}),
-        } for m in msgs])
-        return payload, msgs[-1].id
+        } for m in msgs]
+
+        return msgs_data, new_last_id, partner_read_up_to
+
+
+async def _check_partner_typing(match_id: int, partner_id: int) -> bool:
+    """Returns True if partner sent a typing ping within the last 5 seconds."""
+    try:
+        from app.rate_limit import _get_redis
+        redis = await _get_redis()
+        if redis:
+            return bool(await redis.exists(f"typing:{match_id}:{partner_id}"))
+    except Exception:
+        pass
+    return False
 
 
 _SSE_MAX_SECONDS = 300  # 5 min; EventSource auto-reconnects after this
@@ -637,11 +682,16 @@ async def chat_stream(
             raise HTTPException(403, "Forbidden")
 
     user_id = user.id
+    match_obj = match  # captured from auth check above
+    partner_id = match_obj.user2_id if match_obj.user1_id == user_id else match_obj.user1_id
 
     async def generator():
         import logging as _log
         last_id = after_id
         deadline = _utcnow().timestamp() + _SSE_MAX_SECONDS
+        last_read_up_to = -1   # -1 = not yet sent to client
+        last_typing = None     # None = not yet sent
+
         while True:
             if _utcnow().timestamp() > deadline:
                 yield "event: reconnect\ndata: {}\n\n"
@@ -654,12 +704,30 @@ async def chat_stream(
                 break
 
             try:
-                payload, last_id = await _fetch_new_messages(match_id, last_id, user_id)
+                msgs_data, last_id, partner_read_up_to = await _fetch_new_messages(
+                    match_id, last_id, user_id
+                )
+                is_typing = await _check_partner_typing(match_id, partner_id)
             except Exception as exc:
                 _log.error("SSE stream error match=%s: %s", match_id, exc)
                 break
 
-            yield f"data: {payload}\n\n" if payload else ": heartbeat\n\n"
+            has_msgs    = bool(msgs_data)
+            read_change = partner_read_up_to != last_read_up_to
+            type_change = is_typing != last_typing
+
+            if has_msgs or read_change or type_change:
+                last_read_up_to = partner_read_up_to
+                last_typing = is_typing
+                payload = _json.dumps({
+                    "messages": msgs_data,
+                    "partner_read_up_to": partner_read_up_to,
+                    "typing": is_typing,
+                })
+                yield f"data: {payload}\n\n"
+            else:
+                yield ": heartbeat\n\n"
+
             await asyncio.sleep(2)
 
     return StreamingResponse(

@@ -34,6 +34,19 @@
   .date-divider { display:flex; align-items:center; gap:8px; margin: 10px 0; }
   .date-divider span { font-size: 10px; color: #9ca3af; white-space:nowrap; }
   .date-divider::before, .date-divider::after { content:''; flex:1; height:1px; background:#fce7f3; }
+  /* Read ticks */
+  .read-tick { font-size: 10px; margin-left: 3px; }
+  .read-tick.sent   { color: #d1d5db; }
+  .read-tick.read   { color: #ec4899; }
+  /* Typing dots */
+  .typing-dot { display:inline-block; width:7px; height:7px; background:#d1d5db; border-radius:50%;
+                animation: typing-bounce 1.3s infinite; }
+  .typing-dot:nth-child(2) { animation-delay:.2s; }
+  .typing-dot:nth-child(3) { animation-delay:.4s; }
+  @keyframes typing-bounce {
+    0%,60%,100% { transform:translateY(0); background:#d1d5db; }
+    30%          { transform:translateY(-5px); background:#ec4899; }
+  }
   {% if partner.profile and partner.profile.photo %}
   .partner-avatar {
     background-image: url('{{ partner.profile.photo }}');
@@ -124,7 +137,12 @@
     <div class="msg-row-own" data-msg-id="{{ m.id }}">
       <div class="flex flex-col items-end">
         <div class="bubble-own">{{ m.content | e }}</div>
-        <div class="msg-meta msg-meta-own">{{ m_time }}</div>
+        <div class="msg-meta msg-meta-own">
+          {{ m_time }}
+          <span class="read-tick {% if m.is_read %}read{% else %}sent{% endif %}">
+            {% if m.is_read %}✓✓{% else %}✓{% endif %}
+          </span>
+        </div>
       </div>
     </div>
     {% else %}
@@ -141,6 +159,19 @@
     {% endif %}
     {% endfor %}
 
+  </div>
+
+  <!-- TYPING INDICATOR -->
+  <div id="typing-indicator" style="display:none;" class="msg-row-partner px-3 pb-1">
+    <div class="w-6 h-6 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center
+                {% if partner.profile and partner.profile.photo %}partner-avatar{% endif %}">
+      {% if not (partner.profile and partner.profile.photo) %}<span class="text-xs">👤</span>{% endif %}
+    </div>
+    <div class="bubble-partner flex gap-1 items-center px-4 py-3">
+      <span class="typing-dot"></span>
+      <span class="typing-dot"></span>
+      <span class="typing-dot"></span>
+    </div>
   </div>
 
   <!-- ERROR -->
@@ -223,7 +254,9 @@
       row.innerHTML =
         '<div class="flex flex-col items-end">' +
           '<div class="bubble-own">' + escHtml(content) + '</div>' +
-          '<div class="msg-meta msg-meta-own">' + time + '</div>' +
+          '<div class="msg-meta msg-meta-own">' + time +
+            ' <span class="read-tick sent">✓</span>' +
+          '</div>' +
         '</div>';
     } else {
       var avatarClass = '{% if partner.profile and partner.profile.photo %}partner-avatar{% endif %}';
@@ -239,8 +272,29 @@
         '</div>';
     }
     row.dataset.msgId = id;
-    container.appendChild(row);
+    container.insertBefore(row, document.getElementById('typing-indicator'));
     scrollBottom();
+  }
+
+  function updateReadTicks(upToId) {
+    container.querySelectorAll('.msg-row-own').forEach(function(row) {
+      var msgId = parseInt(row.dataset.msgId, 10);
+      if (msgId && msgId <= upToId) {
+        var tick = row.querySelector('.read-tick');
+        if (tick && !tick.classList.contains('read')) {
+          tick.classList.remove('sent');
+          tick.classList.add('read');
+          tick.textContent = '✓✓';
+        }
+      }
+    });
+  }
+
+  function setTyping(active) {
+    var el = document.getElementById('typing-indicator');
+    if (!el) return;
+    el.style.display = active ? 'flex' : 'none';
+    if (active) scrollBottom();
   }
 
   function escHtml(s) {
@@ -251,11 +305,25 @@
       .replace(/"/g, '&quot;');
   }
 
+  // ── typing emit (debounced, max 1 req / 3s) ─────────────────
+  var _typingTimer = null;
+  function emitTyping() {
+    if (_typingTimer) return;
+    var fd = new FormData();
+    fetch('/chat/' + MATCH + '/typing', {
+      method: 'POST',
+      body: fd,
+      headers: { 'x-csrf-token': getCsrf() },
+    }).catch(function(){});
+    _typingTimer = setTimeout(function(){ _typingTimer = null; }, 3000);
+  }
+
   // ── send button enable/disable ────────────────────────────────
   window.toggleSendBtn = function() {
     var input = document.getElementById('msg-input');
     var btn   = document.getElementById('send-btn');
     if (btn) btn.disabled = !input.value.trim() || sending;
+    if (input.value.trim()) emitTyping();
   };
 
   // ── send message ──────────────────────────────────────────────
@@ -328,14 +396,19 @@
     sse = new EventSource('/chat/' + MATCH + '/stream?after_id=' + lastId);
     sse.onmessage = function(e) {
       try {
-        var msgs = JSON.parse(e.data);
-        if (!Array.isArray(msgs) || !msgs.length) return;
+        var d = JSON.parse(e.data);
+        // New messages
+        var msgs = d.messages || [];
         msgs.forEach(function(m) {
           if (!container.querySelector('[data-msg-id="' + m.id + '"]')) {
             appendMessage(m.id, m.content, m.sender_id, fmtTime(m.created_at));
-            lastId = m.id;
+            if (m.id > lastId) lastId = m.id;
           }
         });
+        // Read receipts
+        if (d.partner_read_up_to) updateReadTicks(d.partner_read_up_to);
+        // Typing
+        if (typeof d.typing === 'boolean') setTyping(d.typing);
       } catch(_) {}
     };
     sse.addEventListener('reconnect', function() {
