@@ -276,14 +276,16 @@ async def forgot_password_page(request: Request, user=Depends(get_optional_user)
 @router.post("/forgot-password", dependencies=[Depends(rate_limit(3, 300)), Depends(validate_csrf_form)])
 async def forgot_password(
     request: Request,
-    background_tasks: BackgroundTasks,
     email: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
+    import logging as _log
     email = email.lower().strip()
     lang = get_lang(request)
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
+
+    _log.getLogger(__name__).info("forgot_password: email=%s user_found=%s", email, bool(user))
 
     if user:
         token = secrets.token_urlsafe(32)
@@ -291,9 +293,13 @@ async def forgot_password(
         user.password_reset_token = token
         user.password_reset_expires = _utcnow() + timedelta(hours=1)
         await db.commit()
-        background_tasks.add_task(send_password_reset_email, email, token, lang=user.language or lang)
+        import asyncio as _asyncio
+        loop = _asyncio.get_event_loop()
+        ok = await loop.run_in_executor(
+            None, lambda: send_password_reset_email(email, token, lang=user.language or lang)
+        )
+        _log.getLogger(__name__).info("forgot_password: email_sent=%s to=%s", ok, email)
 
-    # Always redirect to prevent email enumeration
     return RedirectResponse("/forgot-password?sent=1", status_code=302)
 
 
