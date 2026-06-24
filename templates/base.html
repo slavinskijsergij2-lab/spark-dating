@@ -7,10 +7,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}Spark — Dating{% endblock %}</title>
   <link rel="manifest" href="/static/manifest.json" />
-  <link rel="apple-touch-icon" href="/static/icon-192.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/icon-180.png" />
+  <link rel="apple-touch-icon" sizes="192x192" href="/static/icon-192.png" />
   <meta name="theme-color" content="#ec4899" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Spark" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     [x-cloak] { display: none !important; }
@@ -119,6 +121,20 @@
   {% if show_nav %}
   <!-- Nav i18n data -->
   <script id="nav-i18n" type="application/json">{{ (t | tojson | safe) if t is defined else '{}' }}</script>
+
+  <!-- ── iOS "Add to Home Screen" banner ── -->
+  <div id="ios-install-banner" style="display:none"
+       class="fixed top-0 left-0 right-0 z-[60] bg-gradient-to-r from-pink-500 to-purple-500 text-white px-4 py-3 shadow-lg">
+    <div class="max-w-lg mx-auto flex items-center gap-3">
+      <span class="text-2xl flex-shrink-0">📲</span>
+      <div class="flex-1 text-sm">
+        <div class="font-semibold">Додай Spark на головний екран</div>
+        <div class="opacity-90 text-xs">Safari → <span class="font-bold">📤</span> → «На головний екран» — щоб отримувати push-нотифікації</div>
+      </div>
+      <button onclick="document.getElementById('ios-install-banner').style.display='none'"
+              class="flex-shrink-0 text-white/80 text-xl font-bold leading-none px-2">✕</button>
+    </div>
+  </div>
 
   <!-- ── More menu backdrop ── -->
   <div id="more-backdrop" onclick="closeMoreMenu()"
@@ -348,25 +364,39 @@ function _swPush(title, body, url) {
   }
 }
 
+var _isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+var _isStandalone = (window.navigator.standalone === true) || window.matchMedia('(display-mode: standalone)').matches;
+
 async function _initSW() {
   if (!('serviceWorker' in navigator)) return;
+
+  // iOS: push only works in standalone PWA (added to Home Screen)
+  if (_isIOS && !_isStandalone) {
+    var banner = document.getElementById('ios-install-banner');
+    if (banner && !sessionStorage.getItem('ios-banner-ok')) {
+      banner.style.display = 'block';
+      banner.querySelector('button').onclick = function() {
+        sessionStorage.setItem('ios-banner-ok', '1');
+        banner.style.display = 'none';
+      };
+    }
+    return;
+  }
+
   try {
     _swReg = await navigator.serviceWorker.register('/sw.js', {scope: '/'});
-    // Load VAPID key
     var kr = await fetch('/api/vapid-public-key');
     var kd = await kr.json();
     _vapidKey = kd.key || '';
-    if (!kd.enabled) return; // server-side push not configured
+    if (!kd.enabled) return;
 
-    // Show push button if push API available
     if ('PushManager' in window) {
       var btn = document.getElementById('push-btn');
       var div = document.getElementById('push-divider');
-      if (btn) { btn.style.display = 'flex'; }
-      if (div) { div.style.display = 'block'; }
+      if (btn) btn.style.display = 'flex';
+      if (div) div.style.display = 'block';
     }
 
-    // Auto-resubscribe if already subscribed
     var existing = await _swReg.pushManager.getSubscription();
     _updatePushIcon(!!existing);
   } catch(e) { console.warn('SW init:', e); }
