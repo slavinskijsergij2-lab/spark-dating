@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import io
 import json as _json
 from datetime import timedelta
@@ -25,13 +24,12 @@ from app.templates import templates
 router = APIRouter()
 
 MAX_MESSAGE_LENGTH = 2000
-CHAT_PAGE_SIZE = 100
+CHAT_PAGE_SIZE = 50
 MAX_VOICE_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 POLL_PAGE_SIZE = 50
 MATCHES_PAGE_SIZE = 20
 LIKED_ME_PREVIEW = 12
-ALLOWED_AUDIO_MIMES = {"audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav"}
 ALLOWED_IMAGE_MIMES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 ARCHIVE_AFTER_DAYS = 7
 
@@ -399,11 +397,15 @@ async def chat_page(match_id: int, request: Request, user: User = Depends(get_cu
     is_user1 = match.user1_id == user.id
     i_revealed = match.user1_revealed if is_user1 else match.user2_revealed
     partner_revealed = match.user2_revealed if is_user1 else match.user1_revealed
+    oldest_id = messages_data[0]["id"] if messages_data else 0
+    has_more = len(messages_data) == CHAT_PAGE_SIZE
     return templates.TemplateResponse(request, "chat.html", {
         "user": user,
         "match": match,
         "partner": partner,
         "messages": messages_data,
+        "oldest_id": oldest_id,
+        "has_more": has_more,
         "t": get_translations(lang),
         "rtl": is_rtl(lang),
         "lang": lang,
@@ -515,11 +517,9 @@ async def send_voice(
     if len(raw) > MAX_VOICE_BYTES:
         return JSONResponse({"error": "Audio too large (max 5 MB)"}, status_code=400)
 
+    from app.utils.audio import save_audio_bytes
     mime = audio.content_type or "audio/webm"
-    if mime not in ALLOWED_AUDIO_MIMES:
-        mime = "audio/webm"
-    b64 = base64.b64encode(raw).decode()
-    content = f"data:{mime};base64,{b64}"
+    content = save_audio_bytes(raw, mime)
 
     msg = Message(match_id=match_id, sender_id=user.id, content=content, is_voice=True)
     db.add(msg)
@@ -798,6 +798,54 @@ async def get_messages(
         "edited_at": m.edited_at.isoformat() if m.edited_at else None,
         "reactions": reactions_by_msg.get(m.id, {}),
     } for m in messages])
+
+
+@router.get("/chat/{match_id}/history", dependencies=[Depends(rate_limit(60, 60))])
+async def get_message_history(
+    match_id: int,
+    before_id: int = 0,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return up to 50 messages older than *before_id* (cursor-based pagination)."""
+    result = await db.execute(select(Match).where(Match.id == match_id))
+    match = result.scalar_one_or_none()
+    if not match or (match.user1_id != user.id and match.user2_id != user.id):
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
+
+    query = select(Message).where(Message.match_id == match_id)
+    if before_id:
+        query = query.where(Message.id < before_id)
+    query = query.order_by(Message.id.desc()).limit(CHAT_PAGE_SIZE)
+
+    result = await db.execute(query)
+    messages = list(reversed(result.scalars().all()))
+
+    msg_ids = [m.id for m in messages]
+    reactions_by_msg: dict = {}
+    if msg_ids:
+        result = await db.execute(
+            select(MessageReaction).where(MessageReaction.message_id.in_(msg_ids))
+        )
+        for r in result.scalars().all():
+            reactions_by_msg.setdefault(r.message_id, {})[r.emoji] = \
+                reactions_by_msg.get(r.message_id, {}).get(r.emoji, 0) + 1
+
+    has_more = len(messages) == CHAT_PAGE_SIZE
+    return JSONResponse({
+        "messages": [{
+            "id": m.id,
+            "content": m.content,
+            "sender_id": m.sender_id,
+            "created_at": m.created_at.isoformat(),
+            "is_read": m.is_read,
+            "is_voice": m.is_voice,
+            "is_image": m.is_image,
+            "edited_at": m.edited_at.isoformat() if m.edited_at else None,
+            "reactions": reactions_by_msg.get(m.id, {}),
+        } for m in messages],
+        "has_more": has_more,
+    })
 
 
 async def _fetch_new_messages(match_id: int, last_id: int, user_id: int) -> tuple:

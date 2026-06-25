@@ -210,6 +210,14 @@
   <!-- MESSAGES -->
   <div id="messages-container" class="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-0.5">
 
+    <!-- Load more button -->
+    <div id="load-more-wrap" class="flex justify-center py-2 {% if not has_more %}hidden{% endif %}">
+      <button id="load-more-btn" onclick="loadMoreMessages()"
+              class="text-xs text-pink-400 bg-pink-50 hover:bg-pink-100 px-4 py-1.5 rounded-full transition font-medium">
+        Загрузить ещё
+      </button>
+    </div>
+
     {% if not messages %}
     <div id="empty-hint" class="flex flex-col items-center justify-center h-full text-center">
       <div class="text-5xl mb-3 opacity-60">💬</div>
@@ -337,7 +345,9 @@
   var USER    = parseInt(ROOT.dataset.userId, 10);
   var TODAY   = '{{ t.get("today","Сегодня") }}';
   var container = document.getElementById('messages-container');
-  var lastId  = {{ messages[-1].id if messages else 0 }};
+  var lastId    = {{ messages[-1].id if messages else 0 }};
+  var oldestId  = {{ oldest_id }};
+  var hasMore   = {{ 'true' if has_more else 'false' }};
   var sending = false;
   var sseRetries = 0;
   var sse;
@@ -357,6 +367,76 @@
 
   function scrollBottom() {
     if (container) container.scrollTop = container.scrollHeight;
+  }
+
+  // ── Load older messages (pagination) ─────────────────────────────
+  window.loadMoreMessages = function() {
+    if (!hasMore) return;
+    var btn = document.getElementById('load-more-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
+    fetch('/chat/' + MATCH + '/history?before_id=' + oldestId, {
+      headers: { 'x-csrf-token': getCsrf() },
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data.messages) return;
+      hasMore = data.has_more;
+      var wrap = document.getElementById('load-more-wrap');
+      if (!hasMore && wrap) wrap.classList.add('hidden');
+      if (btn) { btn.disabled = false; btn.textContent = 'Загрузить ещё'; }
+
+      var scrollBottom = container.scrollHeight - container.scrollTop;
+      var anchor = container.firstElementChild; // load-more-wrap div
+
+      data.messages.forEach(function(m) {
+        var row = buildMessageRow(m);
+        if (row) container.insertBefore(row, anchor ? anchor.nextSibling : container.firstChild);
+      });
+
+      if (data.messages.length) {
+        oldestId = data.messages[0].id;
+        // restore scroll position
+        container.scrollTop = container.scrollHeight - scrollBottom;
+      }
+    })
+    .catch(function() {
+      if (btn) { btn.disabled = false; btn.textContent = 'Загрузить ещё'; }
+    });
+  };
+
+  function buildMessageRow(m) {
+    var isOwn = m.sender_id === USER;
+    var time = fmtTime(m.created_at);
+    var rowEl = document.createElement('div');
+
+    var bubbleHtml;
+    if (m.is_image) {
+      bubbleHtml = '<div class="bubble-img"><img src="' + escHtml(m.content) + '" alt="фото" loading="lazy"/></div>';
+    } else if (m.is_voice) {
+      var cls = isOwn ? 'bubble-own' : 'bubble-partner';
+      bubbleHtml = '<div class="' + cls + '"><audio controls src="' + escHtml(m.content) + '" style="max-width:200px;height:36px;"></audio></div>';
+    } else {
+      var cls2 = isOwn ? 'bubble-own' : 'bubble-partner';
+      bubbleHtml = '<div class="' + cls2 + '">' + escHtml(m.content) + '</div>';
+    }
+
+    var metaCls = isOwn ? 'msg-meta msg-meta-own' : 'msg-meta';
+    var meta = '<div class="' + metaCls + '">' + escHtml(time) + '</div>';
+
+    if (isOwn) {
+      rowEl.className = 'msg-row-own';
+      rowEl.setAttribute('data-msg-id', m.id);
+      rowEl.innerHTML = '<div class="flex flex-col items-end">' + bubbleHtml + meta + '</div>';
+    } else {
+      rowEl.className = 'msg-row-partner';
+      rowEl.setAttribute('data-msg-id', m.id);
+      var avatarClass = '{% if partner.profile and partner.profile.photo %}partner-avatar{% endif %}';
+      var avatarInner = '{% if not (partner.profile and partner.profile.photo) %}<span class="text-xs">👤</span>{% endif %}';
+      var avatar = '<div class="w-7 h-7 rounded-full bg-pink-100 flex items-center justify-center flex-shrink-0 bg-cover bg-center ' + avatarClass + '">' + avatarInner + '</div>';
+      rowEl.innerHTML = avatar + '<div class="flex flex-col">' + bubbleHtml + meta + '</div>';
+    }
+    return rowEl;
   }
 
   function fmtTime(iso) {

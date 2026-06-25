@@ -156,7 +156,8 @@ def test_send_voice_success(db):
     assert body.get("created_at") is not None
 
 
-def test_send_voice_returns_base64_content(db):
+def test_send_voice_returns_url_or_base64(db):
+    """Voice content is either a /photos/ file path (Volume) or base64 data URL."""
     client_a, csrf_a, _, _, mid = _setup_match(db)
     fake_audio = io.BytesIO(b"\x00\x01\x02\x03")
 
@@ -167,8 +168,9 @@ def test_send_voice_returns_base64_content(db):
     )
     assert r.status_code == 200
     content = r.json().get("content", "")
-    assert content.startswith("data:audio/")
-    assert ";base64," in content
+    assert content.startswith("/photos/") or (
+        content.startswith("data:audio/") and ";base64," in content
+    )
 
 
 def test_send_voice_invalid_mime_is_normalized(db):
