@@ -198,13 +198,37 @@ function fixAndPreviewPhoto(input, previewId, placeholderId, autoSubmit) {
       </select>
     </div>
 
-    <!-- City -->
+    <!-- City (autocomplete for Germany / fallback free text) -->
     <div class="mb-4">
       <label class="block text-sm font-medium text-gray-700 mb-1">{{ t.city_label }}</label>
-      <input type="text" name="city" maxlength="100"
-             value="{{ profile.city if profile and profile.city else '' }}"
-             placeholder="{{ t.city_placeholder }}"
-             class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-pink-300 transition" />
+      <div style="position:relative;">
+        <input
+          type="text"
+          id="pe-city-input"
+          name="city"
+          maxlength="100"
+          autocomplete="off"
+          value="{{ profile.city if profile and profile.city else '' }}"
+          placeholder="{{ t.city_placeholder }}"
+          class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-pink-300 transition"
+        />
+        <!-- Hidden fields filled by autocomplete -->
+        <input type="hidden" name="location_id" id="pe-location-id"
+               value="{{ profile.location_id if profile and profile.location_id else '' }}" />
+        <input type="hidden" name="geo_lat" id="pe-geo-lat"
+               value="{{ profile.lat if profile and profile.lat else '' }}" />
+        <input type="hidden" name="geo_lon" id="pe-geo-lon"
+               value="{{ profile.lon if profile and profile.lon else '' }}" />
+        <!-- Autocomplete dropdown -->
+        <div id="pe-city-dropdown"
+             style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;
+                    background:white;border:1px solid #fce7f3;border-radius:16px;
+                    box-shadow:0 8px 24px rgba(0,0,0,.1);z-index:50;overflow:hidden;">
+        </div>
+        {% if profile and profile.location_id %}
+        <p class="text-xs text-pink-400 mt-1">📍 Геолокация привязана</p>
+        {% endif %}
+      </div>
     </div>
 
     <!-- Bio -->
@@ -436,6 +460,67 @@ function fixAndPreviewPhoto(input, previewId, placeholderId, autoSubmit) {
       })
       .catch(function() { show('default'); btn.disabled = false; });
   };
+})();
+</script>
+
+<!-- City autocomplete for profile edit -->
+<script>
+(function() {
+  var input    = document.getElementById('pe-city-input');
+  var dropdown = document.getElementById('pe-city-dropdown');
+  var hidId    = document.getElementById('pe-location-id');
+  var hidLat   = document.getElementById('pe-geo-lat');
+  var hidLon   = document.getElementById('pe-geo-lon');
+  if (!input || !dropdown) return;
+
+  var _timer = null;
+
+  input.addEventListener('input', function() {
+    // User typed manually → clear geo binding (will save as plain text)
+    hidId.value = ''; hidLat.value = ''; hidLon.value = '';
+    clearTimeout(_timer);
+    var q = input.value.trim();
+    if (q.length < 2) { close_(); return; }
+    _timer = setTimeout(function() { fetch_('/geo/autocomplete?q=' + encodeURIComponent(q)); }, 220);
+  });
+
+  function fetch_(url) {
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(render_)
+      .catch(function() {});
+  }
+
+  function render_(items) {
+    if (!items || !items.length) { close_(); return; }
+    dropdown.innerHTML = '';
+    items.forEach(function(loc) {
+      var el = document.createElement('div');
+      el.style.cssText = 'padding:10px 14px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;border-bottom:1px solid #fdf2f8;';
+      el.innerHTML =
+        '<span>' + esc_(loc.name) + '</span>' +
+        '<span style="font-size:11px;color:#9ca3af;">' + esc_(loc.bundesland) + '</span>';
+      el.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        input.value  = loc.name;
+        hidId.value  = loc.id;
+        hidLat.value = loc.lat;
+        hidLon.value = loc.lon;
+        close_();
+      });
+      el.addEventListener('mouseover', function() { el.style.background = '#fdf2f8'; });
+      el.addEventListener('mouseout',  function() { el.style.background = ''; });
+      dropdown.appendChild(el);
+    });
+    dropdown.style.display = 'block';
+  }
+
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('[id^="pe-city"]')) close_();
+  });
+
+  function close_() { dropdown.style.display = 'none'; }
+  function esc_(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 })();
 </script>
 {% endblock %}

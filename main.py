@@ -41,6 +41,7 @@ logging.info("startup: fastapi+sqlalchemy imported")
 from app.database import Base, engine
 from app.i18n import get_lang, get_translations, is_rtl
 from app.routers import auth, profile, swipe, matches
+from app.routers import geo as geo_router
 from app.utils.time import utcnow as _utcnow
 from app.utils.maintenance import fix_broken_photo_urls, do_cleanup
 from app.utils.template_filters import tojson_filter, online_status as _online_status
@@ -374,6 +375,7 @@ app.include_router(referral.router)
 app.include_router(push_router.router)
 app.include_router(admin_router.router)
 app.include_router(billing_router.router)
+app.include_router(geo_router.router)
 
 
 @app.exception_handler(HTTPException)

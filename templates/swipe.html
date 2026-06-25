@@ -82,6 +82,33 @@
   .filter-pill:hover { border-color: #f9a8d4; color: #db2777; }
   .filter-pill.active { background: #fce7f3; border-color: #ec4899; color: #db2777; font-weight: 700; }
 
+  /* City autocomplete */
+  .city-wrap { position: relative; }
+  .city-input {
+    width: 100%; padding: 8px 36px 8px 32px;
+    border: 2px solid #e5e7eb; border-radius: 999px;
+    font-size: 13px; outline: none; background: white;
+    transition: border-color .15s;
+  }
+  .city-input:focus { border-color: #ec4899; }
+  .city-input-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: #9ca3af; font-size: 14px; pointer-events: none; }
+  .city-clear { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: #9ca3af; font-size: 14px; padding: 2px; display: none; }
+  .city-dropdown {
+    position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+    background: white; border: 1px solid #fce7f3; border-radius: 16px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.1); z-index: 50;
+    overflow: hidden; display: none;
+  }
+  .city-dropdown.open { display: block; }
+  .city-option {
+    padding: 10px 14px; cursor: pointer; font-size: 13px;
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid #fdf2f8;
+  }
+  .city-option:last-child { border-bottom: none; }
+  .city-option:hover { background: #fdf2f8; }
+  .city-option-land { font-size: 11px; color: #9ca3af; }
+
   [x-cloak] { display: none !important; }
 </style>
 {% endblock %}
@@ -157,6 +184,25 @@
     </a>
     {% endfor %}
   </div>
+
+  <!-- Фильтр по городу (Германия) -->
+  <div class="city-wrap mb-3" id="city-filter-wrap">
+    <span class="city-input-icon">📍</span>
+    <input
+      type="text"
+      id="city-autocomplete"
+      class="city-input"
+      placeholder="{{ t.get('city_filter_placeholder','Город / Gemeinde...') }}"
+      autocomplete="off"
+      value="{{ current_city or '' }}"
+    />
+    <button class="city-clear" id="city-clear-btn" title="Сбросить">✕</button>
+    <div class="city-dropdown" id="city-dropdown"></div>
+  </div>
+  {% if location_id %}
+  <!-- Подсказка о расширении поиска (показывает fallback) -->
+  <div id="geo-hint" class="text-xs text-center text-pink-400 mb-2" style="display:none;"></div>
+  {% endif %}
 
   <!-- Карточка — рендерится сервером, Alpine обновляет динамически -->
   <div class="swipe-card" id="card-el">
@@ -237,6 +283,12 @@
   var likesLeft = {{ likes_left if likes_left is not none else 'null' }};
   var canUndo   = {{ 'true' if can_undo else 'false' }};
   var swiping   = false;
+  // Geo filter: read location_id from current URL so it survives swipe POST calls
+  var _geoParam = (function() {
+    var p = new URLSearchParams(window.location.search);
+    var id = p.get('location_id');
+    return id ? '&location_id=' + encodeURIComponent(id) : '';
+  })();
 
   function getCsrf() {
     var c = document.cookie.split('; ').find(function(r){ return r.startsWith('csrftoken='); });
@@ -324,7 +376,7 @@
     flyCard(action === 'like' ? 'fly-right' : 'fly-left', function() {
       var ac = new AbortController();
       var tid = setTimeout(function(){ ac.abort(); }, 10000);
-      fetch('/swipe/' + cardId + '?action=' + action, {
+      fetch('/swipe/' + cardId + '?action=' + action + _geoParam, {
         method: 'POST',
         headers: { 'x-csrf-token': getCsrf() },
         signal: ac.signal
@@ -368,7 +420,7 @@
     flyCard('fly-right', function() {
       var ac = new AbortController();
       var tid = setTimeout(function(){ ac.abort(); }, 10000);
-      fetch('/swipe/' + cardId + '?action=like&is_super=1', {
+      fetch('/swipe/' + cardId + '?action=like&is_super=1' + _geoParam, {
         method: 'POST',
         headers: { 'x-csrf-token': getCsrf() },
         signal: ac.signal
@@ -467,6 +519,91 @@ function closeLimitModal() {
 {% if likes_left is not none and likes_left == 0 %}
 window.addEventListener('DOMContentLoaded', showLimitModal);
 {% endif %}
+</script>
+
+<!-- ── City autocomplete widget ─────────────────────────────────────── -->
+<script>
+(function() {
+  var input    = document.getElementById('city-autocomplete');
+  var dropdown = document.getElementById('city-dropdown');
+  var clearBtn = document.getElementById('city-clear-btn');
+  if (!input) return;
+
+  var _timer = null;
+  var _currentId = {{ location_id or 0 }};
+
+  // Show clear button when value exists
+  function updateClear() {
+    clearBtn.style.display = input.value.trim() ? 'block' : 'none';
+  }
+  updateClear();
+
+  input.addEventListener('input', function() {
+    updateClear();
+    clearTimeout(_timer);
+    var q = input.value.trim();
+    if (q.length < 2) { closeDropdown(); return; }
+    _timer = setTimeout(function() { fetchSuggestions(q); }, 200);
+  });
+
+  function fetchSuggestions(q) {
+    fetch('/geo/autocomplete?q=' + encodeURIComponent(q))
+      .then(function(r) { return r.json(); })
+      .then(function(items) { renderDropdown(items); })
+      .catch(function() {});
+  }
+
+  function renderDropdown(items) {
+    if (!items || !items.length) { closeDropdown(); return; }
+    dropdown.innerHTML = '';
+    items.forEach(function(loc) {
+      var el = document.createElement('div');
+      el.className = 'city-option';
+      el.innerHTML =
+        '<span>' + escH(loc.name) + '</span>' +
+        '<span class="city-option-land">' + escH(loc.bundesland) + '</span>';
+      el.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        selectLocation(loc);
+      });
+      dropdown.appendChild(el);
+    });
+    dropdown.classList.add('open');
+  }
+
+  function selectLocation(loc) {
+    input.value = loc.name;
+    _currentId = loc.id;
+    updateClear();
+    closeDropdown();
+    // Navigate to swipe with location_id in URL (keeps other filters)
+    var url = new URL(window.location.href);
+    url.searchParams.set('location_id', loc.id);
+    url.searchParams.delete('city');
+    window.location.href = url.toString();
+  }
+
+  clearBtn.addEventListener('click', function() {
+    input.value = '';
+    _currentId = 0;
+    updateClear();
+    closeDropdown();
+    var url = new URL(window.location.href);
+    url.searchParams.delete('location_id');
+    url.searchParams.delete('city');
+    window.location.href = url.toString();
+  });
+
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('#city-filter-wrap')) closeDropdown();
+  });
+
+  function closeDropdown() { dropdown.classList.remove('open'); }
+
+  function escH(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+})();
 </script>
 
 {% endif %}

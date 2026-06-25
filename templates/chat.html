@@ -46,6 +46,24 @@
   /* Edit button */
   .edit-btn { font-size: 13px; color: #d1d5db; cursor: pointer; margin-left: 4px; }
   .edit-btn:hover { color: #ec4899; }
+  /* Reactions */
+  .reactions-row { display:flex; flex-wrap:wrap; gap:3px; margin-top:3px; }
+  .reaction-badge { font-size:12px; background:#fff; border:1px solid #fce7f3; border-radius:999px;
+                    padding:1px 6px; cursor:pointer; transition:all .15s; line-height:1.5; }
+  .reaction-badge:hover { background:#fdf2f8; border-color:#ec4899; }
+  .reaction-badge.mine { background:#fdf2f8; border-color:#ec4899; }
+  /* Quick-react picker */
+  .react-picker { position:absolute; bottom:100%; background:#fff; border:1px solid #fce7f3;
+                  border-radius:20px; padding:4px 8px; display:flex; gap:4px; z-index:20;
+                  box-shadow:0 4px 12px rgba(236,72,153,.15); }
+  .react-picker button { font-size:18px; background:none; border:none; cursor:pointer;
+                          padding:2px 4px; border-radius:8px; transition:transform .1s; }
+  .react-picker button:hover { transform:scale(1.3); background:#fdf2f8; }
+  .msg-wrap { position:relative; }
+  /* Lightbox */
+  #lightbox { position:fixed; inset:0; background:rgba(0,0,0,.9); z-index:9999;
+              display:none; align-items:center; justify-content:center; padding:16px; cursor:zoom-out; }
+  #lightbox img { max-width:100%; max-height:100%; object-fit:contain; border-radius:12px; }
   /* Typing dots */
   .typing-dot { display:inline-block; width:7px; height:7px; background:#d1d5db; border-radius:50%;
                 animation: typing-bounce 1.3s infinite; }
@@ -236,12 +254,32 @@
     {% if m.sender_id == user.id %}
     <div class="msg-row-own" data-msg-id="{{ m.id }}">
       <div class="flex flex-col items-end">
-        {% if m.is_image %}
-        <div class="bubble-img"><img src="{{ m.content }}" alt="фото" loading="lazy" /></div>
-        {% elif m.is_voice %}
-        <div class="bubble-own"><audio controls src="{{ m.content }}" style="max-width:200px;height:36px;"></audio></div>
+        <div class="msg-wrap">
+          {% if m.is_image %}
+          <div class="bubble-img"><img src="{{ m.content }}" alt="фото" loading="lazy"
+               class="cursor-zoom-in" onclick="openLightbox('{{ m.content }}')" /></div>
+          {% elif m.is_voice %}
+          <div class="bubble-own"><audio controls src="{{ m.content }}" style="max-width:200px;height:36px;"></audio></div>
+          {% else %}
+          <div class="bubble-own" id="msg-text-{{ m.id }}"
+               ondblclick="toggleReactPicker({{ m.id }})">{{ m.content | e }}</div>
+          {% endif %}
+          <!-- Reaction picker (hidden) -->
+          <div class="react-picker" id="rpick-{{ m.id }}" style="display:none; right:0;">
+            {% for emoji in ['❤️','😂','😮','😢','👍','🔥'] %}
+            <button onclick="sendReaction({{ m.id }},'{{ emoji }}'); hideReactPicker({{ m.id }})">{{ emoji }}</button>
+            {% endfor %}
+          </div>
+        </div>
+        <!-- Reactions -->
+        {% if m.reactions %}
+        <div class="reactions-row justify-end" id="reactions-{{ m.id }}">
+          {% for emoji, cnt in m.reactions.items() %}
+          <span class="reaction-badge" onclick="sendReaction({{ m.id }},'{{ emoji }}')">{{ emoji }}{% if cnt > 1 %} {{ cnt }}{% endif %}</span>
+          {% endfor %}
+        </div>
         {% else %}
-        <div class="bubble-own" id="msg-text-{{ m.id }}">{{ m.content | e }}</div>
+        <div class="reactions-row justify-end" id="reactions-{{ m.id }}"></div>
         {% endif %}
         <div class="msg-meta msg-meta-own">
           {{ m_time }}
@@ -253,7 +291,6 @@
             {% if m.is_read %}✓✓{% else %}✓{% endif %}
           </span>
         </div>
-        <!-- Inline edit form (hidden by default) -->
         {% if not m.is_image and not m.is_voice %}
         <div id="edit-form-{{ m.id }}" style="display:none;" class="mt-1 flex gap-1.5 items-center">
           <input id="edit-input-{{ m.id }}" type="text" value="{{ m.content | e }}"
@@ -273,12 +310,30 @@
         {% if not (partner.profile and partner.profile.photo) %}<span class="text-xs">👤</span>{% endif %}
       </div>
       <div class="flex flex-col">
-        {% if m.is_image %}
-        <div class="bubble-img"><img src="{{ m.content }}" alt="фото" loading="lazy" /></div>
-        {% elif m.is_voice %}
-        <div class="bubble-partner"><audio controls src="{{ m.content }}" style="max-width:200px;height:36px;"></audio></div>
+        <div class="msg-wrap">
+          {% if m.is_image %}
+          <div class="bubble-img"><img src="{{ m.content }}" alt="фото" loading="lazy"
+               class="cursor-zoom-in" onclick="openLightbox('{{ m.content }}')" /></div>
+          {% elif m.is_voice %}
+          <div class="bubble-partner"><audio controls src="{{ m.content }}" style="max-width:200px;height:36px;"></audio></div>
+          {% else %}
+          <div class="bubble-partner"
+               ondblclick="toggleReactPicker({{ m.id }})">{{ m.content | e }}</div>
+          {% endif %}
+          <div class="react-picker" id="rpick-{{ m.id }}" style="display:none; left:0;">
+            {% for emoji in ['❤️','😂','😮','😢','👍','🔥'] %}
+            <button onclick="sendReaction({{ m.id }},'{{ emoji }}'); hideReactPicker({{ m.id }})">{{ emoji }}</button>
+            {% endfor %}
+          </div>
+        </div>
+        {% if m.reactions %}
+        <div class="reactions-row" id="reactions-{{ m.id }}">
+          {% for emoji, cnt in m.reactions.items() %}
+          <span class="reaction-badge" onclick="sendReaction({{ m.id }},'{{ emoji }}')">{{ emoji }}{% if cnt > 1 %} {{ cnt }}{% endif %}</span>
+          {% endfor %}
+        </div>
         {% else %}
-        <div class="bubble-partner">{{ m.content | e }}</div>
+        <div class="reactions-row" id="reactions-{{ m.id }}"></div>
         {% endif %}
         <div class="msg-meta">{{ m_time }}{% if m.edited_at %}<span class="edited-label">{{ t.get('edited','изм.') }}</span>{% endif %}</div>
       </div>
@@ -336,6 +391,11 @@
     </button>
   </div>
 
+</div>
+
+<!-- Image lightbox -->
+<div id="lightbox" onclick="closeLightbox()">
+  <img id="lightbox-img" src="" alt="" />
 </div>
 
 <script>
@@ -797,6 +857,70 @@
     .catch(function() { showErr('Ошибка редактирования'); })
     .finally(function() { inp.disabled = false; });
   };
+
+  // ── Lightbox ─────────────────────────────────────────────────────
+  window.openLightbox = function(src) {
+    var lb = document.getElementById('lightbox');
+    var img = document.getElementById('lightbox-img');
+    if (!lb || !img) return;
+    img.src = src;
+    lb.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  };
+  window.closeLightbox = function() {
+    var lb = document.getElementById('lightbox');
+    if (lb) lb.style.display = 'none';
+    document.body.style.overflow = '';
+  };
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeLightbox();
+  });
+
+  // ── Reactions ─────────────────────────────────────────────────────
+  window.toggleReactPicker = function(msgId) {
+    var el = document.getElementById('rpick-' + msgId);
+    if (!el) return;
+    var isVisible = el.style.display !== 'none';
+    // close all open pickers first
+    document.querySelectorAll('.react-picker').forEach(function(p) { p.style.display = 'none'; });
+    if (!isVisible) el.style.display = 'flex';
+  };
+  window.hideReactPicker = function(msgId) {
+    var el = document.getElementById('rpick-' + msgId);
+    if (el) el.style.display = 'none';
+  };
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.react-picker') && !e.target.closest('.bubble-own') && !e.target.closest('.bubble-partner')) {
+      document.querySelectorAll('.react-picker').forEach(function(p) { p.style.display = 'none'; });
+    }
+  });
+
+  window.sendReaction = function(msgId, emoji) {
+    fetch('/chat/' + MATCH + '/message/' + msgId + '/react', {
+      method: 'POST',
+      headers: {'x-csrf-token': getCsrf(), 'Content-Type': 'application/json'},
+      body: JSON.stringify({emoji: emoji}),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.reactions) updateReactions(msgId, d.reactions);
+    })
+    .catch(function(){});
+  };
+
+  function updateReactions(msgId, reactions) {
+    var row = document.getElementById('reactions-' + msgId);
+    if (!row) return;
+    row.innerHTML = '';
+    Object.keys(reactions).forEach(function(emoji) {
+      var cnt = reactions[emoji];
+      var btn = document.createElement('span');
+      btn.className = 'reaction-badge';
+      btn.textContent = emoji + (cnt > 1 ? ' ' + cnt : '');
+      btn.onclick = function() { sendReaction(msgId, emoji); };
+      row.appendChild(btn);
+    });
+  }
 
   connectSSE();
   scrollBottom();

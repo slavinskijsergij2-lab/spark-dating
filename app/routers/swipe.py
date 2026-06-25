@@ -110,6 +110,7 @@ async def find_next_candidate(
     user: User, db: AsyncSession,
     intention: str = None, age_min: int = 18, age_max: int = 100,
     city: str = None, online_only: bool = False,
+    location_id: int = None,  # Germany geo: if set, overrides city text filter
 ):
     from datetime import timedelta
 
@@ -163,10 +164,59 @@ async def find_next_candidate(
         q = q.where(User.last_seen >= online_threshold)
 
     is_boosted = case((User.boost_until > now, 1), else_=0)
-    q = q.order_by(is_boosted.desc(), User.politeness_score.desc(), User.id).limit(1)
 
+    # Geo search replaces the city text filter when location_id is provided
+    if location_id:
+        return await _geo_find_candidate(db, q, is_boosted, location_id)
+
+    q = q.order_by(is_boosted.desc(), User.politeness_score.desc(), User.id).limit(1)
     result = await db.execute(q)
     return result.scalar_one_or_none()
+
+
+async def _geo_find_candidate(db: AsyncSession, base_q, is_boosted, location_id: int):
+    """Find the best candidate using progressive radius expansion (no PostGIS required)."""
+    from sqlalchemy import select as _select
+    from app.models.geo import GermanLocation
+    from app.utils.geo import haversine_km, bounding_box
+
+    loc = (
+        await db.execute(_select(GermanLocation).where(GermanLocation.id == location_id))
+    ).scalar_one_or_none()
+    if not loc:
+        # Unknown location — fall back to unfiltered first result
+        q = base_q.order_by(is_boosted.desc(), User.politeness_score.desc(), User.id).limit(1)
+        return (await db.execute(q)).scalar_one_or_none()
+
+    center_lat, center_lon = loc.lat, loc.lon
+
+    # Step 0 — exact city match (same location_id, no radius)
+    q0 = base_q.where(Profile.location_id == location_id)
+    q0 = q0.order_by(is_boosted.desc(), User.politeness_score.desc(), User.id).limit(1)
+    candidate = (await db.execute(q0)).scalar_one_or_none()
+    if candidate:
+        return candidate
+
+    # Steps 1-3 — bounding box expansion, sorted by Haversine distance
+    for radius_km in [15, 50, 150]:
+        lat_min, lat_max, lon_min, lon_max = bounding_box(center_lat, center_lon, radius_km)
+        qr = base_q.where(
+            Profile.lat.between(lat_min, lat_max),
+            Profile.lon.between(lon_min, lon_max),
+        )
+        qr = qr.order_by(is_boosted.desc(), User.politeness_score.desc(), User.id).limit(60)
+        candidates = (await db.execute(qr)).scalars().all()
+        if candidates:
+            return min(
+                candidates,
+                key=lambda u: haversine_km(
+                    center_lat, center_lon,
+                    u.profile.lat or center_lat,
+                    u.profile.lon or center_lon,
+                ),
+            )
+
+    return None
 
 
 @router.get("/swipe", response_class=HTMLResponse, dependencies=[Depends(rate_limit(60, 60))])
@@ -176,6 +226,7 @@ async def swipe_page(
     age_min: int = Query(18, ge=18, le=99),
     age_max: int = Query(100, ge=19, le=100),
     city: str = Query(None),
+    location_id: int = Query(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -189,9 +240,20 @@ async def swipe_page(
 
     city_filter = city.strip() if city and city.strip() else None
     online_only = request.query_params.get("online_only") == "1"
+
+    # When filtering by location_id, resolve the city display name
+    if location_id and not city_filter:
+        from app.models.geo import GermanLocation
+        _loc = (await db.execute(
+            select(GermanLocation).where(GermanLocation.id == location_id)
+        )).scalar_one_or_none()
+        if _loc:
+            city_filter = _loc.name
+
     candidate = await find_next_candidate(
         user, db, intention=intention, age_min=age_min, age_max=age_max,
-        city=city_filter, online_only=online_only,
+        city=city_filter if not location_id else None,
+        online_only=online_only, location_id=location_id,
     )
     lang = get_lang(request, user)
     super_likes_left = max(0, (999 if user.is_premium_active else 5) - await _super_likes_today(user.id, db))
@@ -232,11 +294,12 @@ async def swipe_page(
         "online_only": online_only,
         "age_min": age_min,
         "age_max": age_max,
-        "filters_active": age_min != 18 or age_max != 100 or bool(city_filter) or online_only,
+        "filters_active": age_min != 18 or age_max != 100 or bool(city_filter) or online_only or bool(location_id),
         "super_likes_left": super_likes_left,
         "can_undo": last_like is not None and user.is_premium_active,
         "likes_left": likes_left,
         "daily_limit": daily_limit,
+        "location_id": location_id or 0,
     })
 
 
@@ -275,6 +338,7 @@ async def do_swipe(
     age_min: int = Query(18, ge=18, le=99),
     age_max: int = Query(100, ge=19, le=100),
     city: str = Query(None),
+    location_id: int = Query(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -382,7 +446,7 @@ async def do_swipe(
     lang = get_lang(request, user)
     next_cand = await find_next_candidate(
         user, db, intention=_intention, age_min=age_min, age_max=age_max,
-        city=_city, online_only=_online_only,
+        city=_city, online_only=_online_only, location_id=location_id,
     )
     next_data = await _candidate_to_json(next_cand, db, lang) if next_cand else None
     _daily = _cached_daily_super if _cached_daily_super is not None else await _super_likes_today(user.id, db)

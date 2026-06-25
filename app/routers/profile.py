@@ -89,6 +89,10 @@ async def edit_profile(
     interests: str = Form(None),
     birth_date: str = Form(None),
     is_anonymous: str = Form(None),
+    # Germany geo fields (optional; sent by city autocomplete widget)
+    location_id: str = Form(None),
+    geo_lat: str = Form(None),
+    geo_lon: str = Form(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -153,6 +157,23 @@ async def edit_profile(
     profile.looking_for = GenderEnum(looking_for) if looking_for and looking_for in valid_genders else None
     profile.city = city_val or None
     profile.bio = bio_val or None
+
+    # Save Germany geo data when autocomplete was used
+    try:
+        _loc_id = int(location_id) if location_id and location_id.strip() else None
+        _lat = float(geo_lat) if geo_lat and geo_lat.strip() else None
+        _lon = float(geo_lon) if geo_lon and geo_lon.strip() else None
+    except (ValueError, TypeError):
+        _loc_id = _lat = _lon = None
+    if _loc_id is not None:
+        profile.location_id = _loc_id
+        profile.lat = _lat
+        profile.lon = _lon
+    elif city_val is None:
+        # User cleared the city field — clear geo too
+        profile.location_id = None
+        profile.lat = None
+        profile.lon = None
 
     if intention and intention in VALID_INTENTIONS:
         profile.intention = intention

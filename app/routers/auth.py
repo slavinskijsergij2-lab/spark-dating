@@ -56,6 +56,10 @@ async def login_page(request: Request, user=Depends(get_optional_user)):
     })
 
 
+_MAX_FAILED_LOGINS = 5
+_LOCKOUT_MINUTES = 15
+
+
 @router.post("/login", dependencies=[Depends(rate_limit(10, 60)), Depends(validate_csrf_form)])
 async def login(
     request: Request,
@@ -64,22 +68,42 @@ async def login(
     password: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
+    from datetime import timedelta
+
     result = await db.execute(select(User).where(User.email == email.lower().strip()))
     user = result.scalar_one_or_none()
+
+    lang = (user.language if user and user.language else None) or get_lang(request)
+    t = get_translations(lang)
+
+    # Check account lockout
+    if user and user.locked_until and user.locked_until > _utcnow():
+        remaining = int((user.locked_until - _utcnow()).total_seconds() // 60) + 1
+        error_msg = t.get("account_locked", f"Аккаунт заблокирован. Попробуйте через {remaining} мин.")
+        return templates.TemplateResponse(request, "login.html", {
+            "t": t, "rtl": is_rtl(lang), "lang": lang,
+            "error": error_msg, "not_verified": "", "resent": "",
+        }, status_code=429)
 
     password_ok = verify_password(password, user.hashed_password if user else DUMMY_HASH)
 
     if not user or not password_ok:
-        lang = (user.language if user and user.language else None) or get_lang(request)
-        t = get_translations(lang)
+        if user:
+            user.failed_logins = (user.failed_logins or 0) + 1
+            if user.failed_logins >= _MAX_FAILED_LOGINS:
+                user.locked_until = _utcnow() + timedelta(minutes=_LOCKOUT_MINUTES)
+            await db.commit()
         return templates.TemplateResponse(request, "login.html", {
-            "t": t,
-            "rtl": is_rtl(lang),
-            "lang": lang,
+            "t": t, "rtl": is_rtl(lang), "lang": lang,
             "error": t.get("login_wrong", "Incorrect email or password"),
-            "not_verified": "",
-            "resent": "",
+            "not_verified": "", "resent": "",
         }, status_code=400)
+
+    # Success — reset lockout counters
+    if user.failed_logins or user.locked_until:
+        user.failed_logins = 0
+        user.locked_until = None
+        await db.commit()
 
     token = create_access_token(user.id, token_version=user.token_version or 0)
     lang = user.language or "en"

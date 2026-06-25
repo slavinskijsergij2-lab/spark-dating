@@ -64,6 +64,10 @@ class User(Base):
     notif_messages = Column(Boolean, default=True, nullable=False)
     notif_likes = Column(Boolean, default=True, nullable=False)
 
+    # Account lockout (brute-force protection)
+    failed_logins = Column(Integer, default=0, nullable=False)
+    locked_until = Column(DateTime, nullable=True)
+
     # Stripe billing
     stripe_customer_id = Column(String(100), nullable=True, index=True)
     stripe_subscription_id = Column(String(100), nullable=True, index=True)
@@ -103,6 +107,12 @@ class Profile(Base):
     # Interests & anonymous mode
     interests = Column(String(500), nullable=True)   # comma-separated tags
     is_anonymous = Column(Boolean, default=False, nullable=False)
+
+    # Germany geo: set when user picks from /geo/autocomplete
+    # All nullable so existing users (without geo) are unaffected
+    location_id = Column(Integer, ForeignKey("german_locations.id", ondelete="SET NULL"), nullable=True)
+    lat = Column(Float, nullable=True)
+    lon = Column(Float, nullable=True)
 
     user = relationship("User", back_populates="profile")
     photos = relationship("ProfilePhoto", back_populates="profile", cascade="all, delete-orphan", order_by="ProfilePhoto.position")
