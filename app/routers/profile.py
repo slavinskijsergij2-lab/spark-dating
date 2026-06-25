@@ -1,8 +1,9 @@
+import json
 import os
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import and_, func as _func, or_, select, update as _update
 from sqlalchemy.exc import IntegrityError as _IE
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,12 +15,15 @@ try:
 except Exception:
     pass
 
-from app.auth import get_current_user
+from app.auth import get_current_user, hash_password, verify_password
 from app.csrf import validate_csrf_form
 from app.database import get_db
 from app.rate_limit import rate_limit
 from app.i18n import get_lang, get_translations, is_rtl, VALID_LANGS
-from app.models.models import Match, Profile, ProfilePhoto, ProfileView, User, GenderEnum
+from app.models.models import (
+    Block, Match, Message, Profile, ProfilePhoto, ProfileView,
+    QuizAnswer, Story, User, GenderEnum,
+)
 from app.templates import templates
 from app.utils.time import utcnow as _utcnow
 
@@ -286,6 +290,158 @@ async def delete_account(
     resp.delete_cookie("access_token")
     return resp
 
+
+# ── Change password ───────────────────────────────────────────────────────────
+
+@router.get("/settings/password", response_class=HTMLResponse, dependencies=[Depends(rate_limit(20, 60))])
+async def change_password_page(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    lang = get_lang(request, user)
+    t = get_translations(lang)
+    return templates.TemplateResponse(request, "settings_password.html", {
+        "request": request,
+        "user": user,
+        "t": t,
+        "lang": lang,
+        "rtl": is_rtl(lang),
+        "error": request.query_params.get("error"),
+        "saved": request.query_params.get("saved") == "1",
+    })
+
+
+@router.post("/settings/password", dependencies=[Depends(validate_csrf_form), Depends(rate_limit(5, 300))])
+async def change_password(
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not verify_password(current_password, user.hashed_password):
+        return RedirectResponse("/settings/password?error=wrong_current", status_code=302)
+    if len(new_password) < 8:
+        return RedirectResponse("/settings/password?error=too_short", status_code=302)
+    if not any(c.isdigit() for c in new_password):
+        return RedirectResponse("/settings/password?error=no_digit", status_code=302)
+    if new_password != confirm_password:
+        return RedirectResponse("/settings/password?error=no_match", status_code=302)
+    if current_password == new_password:
+        return RedirectResponse("/settings/password?error=same_password", status_code=302)
+
+    new_version = (user.token_version or 0) + 1
+    await db.execute(
+        _update(User)
+        .where(User.id == user.id)
+        .values(
+            hashed_password=hash_password(new_password),
+            token_version=new_version,
+        )
+    )
+    await db.commit()
+
+    # Re-issue JWT so the current session stays valid with the new token_version
+    from app.auth import create_access_token
+    _secure = bool(os.getenv("RAILWAY_ENVIRONMENT"))
+    resp = RedirectResponse("/settings/password?saved=1", status_code=302)
+    resp.set_cookie(
+        "access_token",
+        create_access_token(user.id, new_version),
+        httponly=True,
+        samesite="lax",
+        secure=_secure,
+        max_age=60 * 60 * 24 * 7,
+    )
+    return resp
+
+
+# ── GDPR data export ──────────────────────────────────────────────────────────
+
+@router.get("/account/export", dependencies=[Depends(rate_limit(3, 3600))])
+async def export_account_data(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Profile).where(Profile.user_id == user.id))
+    profile = result.scalar_one_or_none()
+
+    profile_data = None
+    gallery: list = []
+    if profile:
+        profile_data = {
+            "name": profile.name,
+            "age": profile.age,
+            "gender": profile.gender.value if profile.gender else None,
+            "looking_for": profile.looking_for,
+            "bio": profile.bio,
+            "city": profile.city,
+            "intention": profile.intention,
+        }
+        r2 = await db.execute(
+            select(ProfilePhoto).where(ProfilePhoto.profile_id == profile.id)
+        )
+        gallery = [{"url": ph.url, "position": ph.position} for ph in r2.scalars()]
+
+    r_quiz = await db.execute(select(QuizAnswer).where(QuizAnswer.user_id == user.id))
+    quiz = [{"question_id": qa.question_id, "answer_index": qa.answer_index}
+            for qa in r_quiz.scalars()]
+
+    r_msg = await db.execute(
+        select(Message)
+        .where(Message.sender_id == user.id)
+        .order_by(Message.created_at)
+    )
+    messages = [
+        {"id": m.id, "match_id": m.match_id, "content": m.content,
+         "created_at": m.created_at.isoformat()}
+        for m in r_msg.scalars()
+    ]
+
+    r_match = await db.execute(
+        select(Match).where(or_(Match.user1_id == user.id, Match.user2_id == user.id))
+    )
+    matches = [
+        {"id": m.id,
+         "partner_id": m.user2_id if m.user1_id == user.id else m.user1_id,
+         "created_at": m.created_at.isoformat()}
+        for m in r_match.scalars()
+    ]
+
+    r_block = await db.execute(select(Block).where(Block.blocker_id == user.id))
+    blocks = [{"blocked_user_id": b.blocked_id} for b in r_block.scalars()]
+
+    r_story = await db.execute(select(Story).where(Story.user_id == user.id))
+    stories = [{"content": s.content, "created_at": s.created_at.isoformat()}
+               for s in r_story.scalars()]
+
+    payload = {
+        "exported_at": _utcnow().isoformat() + "Z",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+            "email_verified": user.email_verified,
+            "is_premium": user.is_premium,
+            "language": user.language,
+        },
+        "profile": profile_data,
+        "gallery": gallery,
+        "quiz_answers": quiz,
+        "messages_sent": messages,
+        "matches": matches,
+        "blocks": blocks,
+        "stories": stories,
+    }
+
+    return Response(
+        content=json.dumps(payload, ensure_ascii=False, indent=2),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": 'attachment; filename="spark-data-export.json"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.get("/settings/notifications", response_class=HTMLResponse, dependencies=[Depends(rate_limit(30, 60))])

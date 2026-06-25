@@ -85,7 +85,9 @@ if os.getenv("TESTING") and os.getenv("RAILWAY_ENVIRONMENT"):
 
 def rate_limit(max_calls: int, window_seconds: int = 60) -> Callable:
     """Returns a FastAPI async dependency that enforces a rate limit per IP + path."""
-    async def dependency(request: Request) -> None:
+    from fastapi import Response
+
+    async def dependency(request: Request, response: Response) -> None:
         if os.getenv("TESTING"):
             return
 
@@ -115,11 +117,17 @@ def rate_limit(max_calls: int, window_seconds: int = 60) -> Callable:
         async with _lock:
             cutoff = now - window_seconds
             calls = [t for t in _store[key] if t > cutoff]
+            remaining = max(0, max_calls - len(calls) - 1)
             if len(calls) >= max_calls:
                 raise HTTPException(
                     status_code=429,
                     detail="Too many requests. Please try again later.",
-                    headers={"Retry-After": str(window_seconds)},
+                    headers={
+                        "Retry-After": str(window_seconds),
+                        "X-RateLimit-Limit": str(max_calls),
+                        "X-RateLimit-Remaining": "0",
+                        "X-RateLimit-Reset": str(int(now + window_seconds)),
+                    },
                 )
             calls.append(now)
             _store[key] = calls
@@ -128,5 +136,9 @@ def rate_limit(max_calls: int, window_seconds: int = 60) -> Callable:
                 to_del = [k for k, v in _store.items() if not v or max(v) <= evict_before]
                 for k in to_del:
                     del _store[k]
+
+        response.headers["X-RateLimit-Limit"] = str(max_calls)
+        response.headers["X-RateLimit-Remaining"] = str(remaining)
+        response.headers["X-RateLimit-Reset"] = str(int(now + window_seconds))
 
     return dependency

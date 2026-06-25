@@ -349,16 +349,21 @@ def test_rate_limit_logic_unit():
         limiter = rate_limit(3, 60)
         ip = f"unit_test_{secrets.token_hex(8)}"
 
+        from fastapi import Response
+
         req = MagicMock()
         req.url.path = f"/test/{ip}"
         req.client.host = ip
         req.headers.get.return_value = None  # no X-Forwarded-For
 
+        resp = MagicMock(spec=Response)
+        resp.headers = {}
+
         async def _run():
             for _ in range(3):
-                await limiter(req)
+                await limiter(req, resp)
             with pytest.raises(HTTPException) as exc_info:
-                await limiter(req)
+                await limiter(req, resp)
             assert exc_info.value.status_code == 429
 
         asyncio.run(_run())
