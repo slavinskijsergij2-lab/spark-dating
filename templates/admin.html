@@ -12,16 +12,24 @@
 </head>
 <body class="bg-gray-50 min-h-screen">
 
-<header class="bg-white shadow-sm sticky top-0 z-10 px-6 py-4 flex items-center gap-4">
+<header class="bg-white shadow-sm sticky top-0 z-10 px-6 py-4 flex items-center gap-4 flex-wrap">
   <h1 class="text-xl font-bold text-pink-600">Spark Admin</h1>
-  <span class="text-gray-400 text-sm">Модерация фото и пользователей</span>
-  <span class="ml-auto text-sm text-gray-400">Активных: {{ users|length }} / Заблокированных: {{ banned|length }}</span>
+  <div class="flex gap-3 flex-wrap ml-4 text-sm">
+    <span class="bg-pink-50 text-pink-700 px-3 py-1 rounded-full">👥 Активных: <b>{{ users|length }}</b></span>
+    <span class="bg-red-50 text-red-600 px-3 py-1 rounded-full">🚫 Заблок: <b>{{ banned|length }}</b></span>
+    <span class="bg-purple-50 text-purple-700 px-3 py-1 rounded-full">💞 Матчей: <b>{{ total_matches }}</b></span>
+    <span class="bg-blue-50 text-blue-700 px-3 py-1 rounded-full">💬 Сообщений: <b>{{ total_messages }}</b></span>
+  </div>
+  <nav class="ml-auto flex gap-2">
+    <a href="#users" class="text-sm text-gray-500 hover:text-pink-600">Пользователи</a>
+    <a href="#errors" class="text-sm text-gray-500 hover:text-red-500">Ошибки</a>
+  </nav>
 </header>
 
 <div class="max-w-6xl mx-auto px-4 py-6 space-y-8">
 
   <!-- Active users -->
-  <section>
+  <section id="users">
     <h2 class="text-lg font-semibold text-gray-700 mb-4">Активные пользователи</h2>
     {% if not users %}
     <p class="text-gray-400">Нет пользователей.</p>
@@ -131,6 +139,30 @@
     </div>
   </section>
   {% endif %}
+
+  <!-- Error logs -->
+  <section id="errors">
+    <h2 class="text-lg font-semibold text-gray-700 mb-4">Последние ошибки (500)</h2>
+    {% if not error_logs %}
+    <p class="text-gray-400 text-sm">Ошибок не найдено. 🎉</p>
+    {% else %}
+    <div class="space-y-3">
+    {% for e in error_logs %}
+    <details class="bg-white rounded-xl shadow p-4 cursor-pointer">
+      <summary class="flex items-center gap-3 flex-wrap">
+        <span class="text-xs font-mono text-gray-400">{{ e.ts.strftime('%Y-%m-%d %H:%M:%S') if e.ts else '—' }}</span>
+        <span class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded font-mono">{{ e.method }} {{ e.path }}</span>
+        <span class="text-sm font-semibold text-red-600">{{ e.exc_type }}: {{ (e.exc_msg or '')[:100] }}</span>
+      </summary>
+      <pre class="mt-3 text-xs text-gray-600 bg-gray-50 rounded p-3 overflow-auto whitespace-pre-wrap">{{ e.traceback or 'no traceback' }}</pre>
+      {% if e.user_agent %}
+      <p class="text-xs text-gray-400 mt-1">UA: {{ e.user_agent[:120] }}</p>
+      {% endif %}
+    </details>
+    {% endfor %}
+    </div>
+    {% endif %}
+  </section>
 
 </div>
 </body>

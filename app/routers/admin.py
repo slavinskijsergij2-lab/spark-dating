@@ -1,13 +1,13 @@
 import os
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from sqlalchemy import func, select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.models.models import Profile, ProfilePhoto, User
+from app.models.models import ErrorLog, Match, Message, Profile, ProfilePhoto, User
 from app.templates import templates
 
 router = APIRouter(prefix="/admin")
@@ -68,9 +68,22 @@ async def admin_panel(request: Request, db: AsyncSession = Depends(get_db)):
     )
     banned = result2.scalars().all()
 
+    # Stats
+    total_matches = (await db.execute(select(func.count(Match.id)))).scalar() or 0
+    total_messages = (await db.execute(select(func.count(Message.id)))).scalar() or 0
+
+    # Last 20 errors
+    err_result = await db.execute(
+        select(ErrorLog).order_by(desc(ErrorLog.ts)).limit(20)
+    )
+    error_logs = err_result.scalars().all()
+
     return templates.TemplateResponse(request, "admin.html", {
         "users": users,
         "banned": banned,
+        "total_matches": total_matches,
+        "total_messages": total_messages,
+        "error_logs": error_logs,
     })
 
 

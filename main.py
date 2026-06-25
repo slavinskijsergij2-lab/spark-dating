@@ -241,6 +241,15 @@ async def startup_readiness_middleware(request: Request, call_next):
 
 
 @app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    rid = request.headers.get("X-Request-ID") or secrets.token_hex(8)
+    request.state.request_id = rid
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = rid
+    return response
+
+
+@app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
     t0 = time.perf_counter()
     response = await call_next(request)
@@ -253,7 +262,9 @@ async def request_logging_middleware(request: Request, call_next):
         if status >= 500:
             _m["errors_5xx"] += 1
     if not any(path.startswith(p) for p in _SKIP_LOG):
+        rid = getattr(request.state, "request_id", "")
         logging.info("http", extra={
+            "rid": rid,
             "method": request.method,
             "path": path,
             "status": status,
@@ -380,6 +391,16 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             response = RedirectResponse("/login", status_code=302)
             response.delete_cookie("access_token")
             return response
+        if exc.status_code == 404:
+            return HTMLResponse(
+                "<html><head><title>404 — Spark</title>"
+                "<style>body{font-family:sans-serif;text-align:center;padding:80px 20px;background:#fdf2f8}"
+                "h2{color:#ec4899}a{color:#ec4899;font-weight:600}</style></head>"
+                "<body><h2>Страница не найдена 🔍</h2>"
+                "<p style='color:#6b7280;'>Возможно, она была удалена или вы перешли по неверной ссылке.</p>"
+                "<a href='/'>На главную</a></body></html>",
+                status_code=404,
+            )
         if exc.status_code in (400, 403, 422):
             path = request.url.path or "/"
             msg = quote(str(exc.detail), safe="")
@@ -426,6 +447,11 @@ async def global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
+@app.get("/robots.txt", include_in_schema=False)
+def robots_txt():
+    return FileResponse("static/robots.txt", media_type="text/plain")
+
+
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
     return FileResponse("static/favicon.ico", media_type="image/x-icon")
@@ -441,7 +467,7 @@ def service_worker():
 
 
 @app.get("/health")
-def health():
+async def health():
     db_ok = False
     try:
         with engine.connect() as conn:
@@ -449,11 +475,26 @@ def health():
         db_ok = True
     except Exception as e:
         logging.warning("Health check: DB not ready — %s", e)
+
+    redis_ok: bool | None = None
+    try:
+        from app.rate_limit import _get_redis
+        r = await _get_redis()
+        if r is not None:
+            await r.ping()
+            redis_ok = True
+        elif os.getenv("REDIS_URL"):
+            redis_ok = False
+    except Exception:
+        redis_ok = False
+
+    all_ok = db_ok and (redis_ok is not False)
     return JSONResponse(
         status_code=200,
         content={
-            "status": "ok" if db_ok else "starting",
+            "status": "ok" if all_ok else "degraded",
             "db": db_ok,
+            "redis": redis_ok,
             "startup_done": _startup_done,
             "startup_ok": _startup_ok,
         },
@@ -514,6 +555,31 @@ async def app_errors(token: str = Query(default="")):
 @app.get("/sentry-debug")
 async def sentry_debug():
     raise RuntimeError("Sentry debug: error tracking is working!")
+
+
+@app.get("/.well-known/security.txt", include_in_schema=False)
+@app.get("/security.txt", include_in_schema=False)
+def security_txt():
+    from fastapi.responses import PlainTextResponse
+    contact = os.getenv("SECURITY_CONTACT_EMAIL", "slavinskijsergij2@gmail.com")
+    return PlainTextResponse(
+        f"Contact: mailto:{contact}\n"
+        "Preferred-Languages: ru, en\n"
+        "Policy: /privacy\n"
+    )
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+def sitemap(request: Request):
+    from fastapi.responses import Response
+    base = str(request.base_url).rstrip("/")
+    urls = ["/", "/login", "/register", "/privacy", "/forgot-password"]
+    xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+    for u in urls:
+        xml += f"  <url><loc>{base}{u}</loc></url>\n"
+    xml += "</urlset>"
+    return Response(content=xml, media_type="application/xml")
 
 
 @app.get("/privacy", response_class=HTMLResponse)

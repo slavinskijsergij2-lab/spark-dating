@@ -2,5 +2,13 @@ User-agent: *
 Disallow: /api/
 Disallow: /chat/
 Disallow: /matches
+Disallow: /matches/
 Disallow: /swipe
+Disallow: /profile/edit
+Disallow: /settings/
+Disallow: /admin/
+Disallow: /errors
+Disallow: /metrics
+Disallow: /photos/
 Allow: /
+Allow: /privacy
