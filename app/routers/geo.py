@@ -18,12 +18,16 @@ async def autocomplete(
     Searches by display name AND ASCII name (handles ä→a, ö→o, ü→u substitutions).
     """
     q_clean = q.strip()
+    # Simple transliteration for users typing without umlauts: ö→o ü→u ä→a
+    _tr = str.maketrans("äöüÄÖÜ", "aouAOU")
+    q_simple = q_clean.translate(_tr).replace("ß", "ss").lower()
     result = await db.execute(
         select(GermanLocation)
         .where(
             or_(
                 GermanLocation.name.ilike(f"{q_clean}%"),
                 GermanLocation.name_ascii.ilike(f"{q_clean}%"),
+                GermanLocation.name_simple.ilike(f"{q_simple}%"),
             )
         )
         .order_by(GermanLocation.population.desc())

@@ -10,6 +10,7 @@ class GermanLocation(Base):
     geonames_id = Column(Integer, unique=True, nullable=True)
     name = Column(String(200), nullable=False)
     name_ascii = Column(String(200), nullable=True)
+    name_simple = Column(String(200), nullable=True)
     bundesland = Column(String(100), nullable=False)
     landkreis = Column(String(200), nullable=True)
     location_type = Column(String(10), server_default="PPL")
@@ -19,6 +20,7 @@ class GermanLocation(Base):
 
     __table_args__ = (
         Index("ix_german_loc_name_ascii", "name_ascii"),
+        Index("ix_german_loc_name_simple", "name_simple"),
         Index("ix_german_loc_lat_lon", "lat", "lon"),
         Index("ix_german_loc_bundesland", "bundesland"),
     )

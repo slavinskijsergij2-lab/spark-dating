@@ -29,7 +29,8 @@ GEONAMES_URL = "https://download.geonames.org/export/dump/DE.zip"
 
 # Only keep these GeoNames feature codes (exclude tiny hamlets / administrative)
 WANTED_CODES = {
-    "PPLA",   # state capital (Berlin, München, Hamburg...)
+    "PPLC",   # country capital (Berlin)
+    "PPLA",   # state capital (München, Hamburg...)
     "PPLA2",  # large city
     "PPLA3",  # mid-size city
     "PPL",    # populated place
@@ -37,23 +38,24 @@ WANTED_CODES = {
 }
 
 # GeoNames admin1 code → German Bundesland name
+# Verified against https://download.geonames.org/export/dump/admin1CodesASCII.txt
 _BUNDESLAND_MAP = {
-    "01": "Schleswig-Holstein",
-    "02": "Hamburg",
-    "03": "Niedersachsen",
-    "04": "Bremen",
-    "05": "Nordrhein-Westfalen",
-    "06": "Hessen",
-    "07": "Rheinland-Pfalz",
-    "08": "Baden-Württemberg",
-    "09": "Bayern",
-    "10": "Saarland",
-    "11": "Berlin",
-    "12": "Brandenburg",
-    "13": "Mecklenburg-Vorpommern",
-    "14": "Sachsen",
-    "15": "Sachsen-Anhalt",
-    "16": "Thüringen",
+    "01": "Baden-Württemberg",
+    "02": "Bayern",
+    "03": "Bremen",
+    "04": "Hamburg",
+    "05": "Hessen",
+    "06": "Niedersachsen",
+    "07": "Nordrhein-Westfalen",
+    "08": "Rheinland-Pfalz",
+    "09": "Saarland",
+    "10": "Schleswig-Holstein",
+    "11": "Brandenburg",
+    "12": "Mecklenburg-Vorpommern",
+    "13": "Sachsen",
+    "14": "Sachsen-Anhalt",
+    "15": "Thüringen",
+    "16": "Berlin",
 }
 
 
@@ -64,10 +66,15 @@ def _admin1_name(code: str) -> str:
 # ── ASCII transliteration for search without umlauts ─────────────────────────
 
 _UMLAUT_MAP = str.maketrans({"ä": "a", "ö": "o", "ü": "u", "Ä": "A", "Ö": "O", "Ü": "U", "ß": "ss"})
+_SIMPLE_MAP = str.maketrans("äöüÄÖÜ", "aouAOU")
 
 
 def _to_ascii(s: str) -> str:
     return s.translate(_UMLAUT_MAP)
+
+
+def _to_simple(s: str) -> str:
+    return s.translate(_SIMPLE_MAP).replace("ß", "ss").lower()
 
 
 # ── Database ──────────────────────────────────────────────────────────────────
@@ -124,19 +131,21 @@ def _parse_geonames(raw: bytes) -> list[dict]:
             for cols in reader:
                 if len(cols) < 15:
                     continue
-                # GeoNames column layout (0-indexed):
+                # GeoNames column layout (0-indexed, 19 total columns):
                 # 0  geonameid
                 # 1  name
                 # 2  asciiname
+                # 3  alternatenames
                 # 4  latitude
                 # 5  longitude
-                # 7  feature_class
-                # 8  feature_code
-                # 10 country_code
-                # 11 admin1_code  (Bundesland)
-                # 12 admin2_code  (Landkreis)
+                # 6  feature_class
+                # 7  feature_code
+                # 8  country_code
+                # 9  cc2
+                # 10 admin1_code  (Bundesland)
+                # 11 admin2_code  (Landkreis)
                 # 14 population
-                feature_code = cols[8]
+                feature_code = cols[7]
                 if feature_code not in WANTED_CODES:
                     continue
                 try:
@@ -151,8 +160,9 @@ def _parse_geonames(raw: bytes) -> list[dict]:
                     "geonames_id": int(cols[0]),
                     "name": name,
                     "name_ascii": _to_ascii(cols[2] or name),
-                    "bundesland": _admin1_name(cols[11]),
-                    "landkreis": cols[12] or None,
+                    "name_simple": _to_simple(name),
+                    "bundesland": _admin1_name(cols[10]),
+                    "landkreis": cols[11] or None,
                     "location_type": feature_code,
                     "population": pop,
                     "lat": lat,
@@ -167,14 +177,15 @@ async def _upsert(session: AsyncSession, rows: list[dict], batch_size: int = 500
         await session.execute(
             text("""
                 INSERT INTO german_locations
-                    (geonames_id, name, name_ascii, bundesland, landkreis,
+                    (geonames_id, name, name_ascii, name_simple, bundesland, landkreis,
                      location_type, population, lat, lon)
                 VALUES
-                    (:geonames_id, :name, :name_ascii, :bundesland, :landkreis,
+                    (:geonames_id, :name, :name_ascii, :name_simple, :bundesland, :landkreis,
                      :location_type, :population, :lat, :lon)
                 ON CONFLICT (geonames_id) DO UPDATE SET
                     name          = EXCLUDED.name,
                     name_ascii    = EXCLUDED.name_ascii,
+                    name_simple   = EXCLUDED.name_simple,
                     bundesland    = EXCLUDED.bundesland,
                     landkreis     = EXCLUDED.landkreis,
                     location_type = EXCLUDED.location_type,
