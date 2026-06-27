@@ -117,9 +117,20 @@ function loadStories() {
   fetch('/stories/feed')
     .then(function(r){ return r.json(); })
     .then(function(data) {
-      _storyUsers = data.filter(function(u){ return !u.is_me; });
+      var now = Date.now();
+      _storyUsers = data.filter(function(u){
+        if (u.is_me) return false;
+        // Filter out users whose all stories have already expired client-side
+        u.stories = (u.stories || []).filter(function(s){
+          return new Date(s.expires_at + 'Z').getTime() > now;
+        });
+        return u.stories.length > 0;
+      });
       var list = document.getElementById('stories-list');
       if (!list) return;
+      // Remove old story buttons (keep the "My story" link which is the first child)
+      var kids = Array.from(list.children);
+      for (var i = 1; i < kids.length; i++) kids[i].remove();
       _storyUsers.forEach(function(u) {
         var btn = document.createElement('button');
         btn.className = 'flex-shrink-0 flex flex-col items-center gap-1.5';
@@ -139,6 +150,8 @@ function loadStories() {
     })
     .catch(function(){});
 }
+// Re-check stories every 5 minutes so expired ones disappear without page reload
+setInterval(loadStories, 5 * 60 * 1000);
 
 function openStory(u) {
   _curStoryUser = u;

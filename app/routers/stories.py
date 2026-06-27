@@ -65,9 +65,9 @@ async def create_story(
     )
     existing = result.scalar_one_or_none()
     if existing:
+        # Keep original expires_at — don't extend the 24h window on every edit
         existing.content = content
         existing.media_type = media_type
-        existing.expires_at = expires
         await db.commit()
         await db.refresh(existing)
         return JSONResponse({"success": True, "id": existing.id})
