@@ -11,7 +11,14 @@ jobs:
     steps:
       - name: Check /health
         run: |
-          response=$(curl -sf --max-time 15 https://spark-dating.club/health)
+          # Try custom domain first, fall back to Railway URL
+          for url in "https://spark-dating.club/health" "https://spark-dating-production.up.railway.app/health"; do
+            response=$(curl -sf --max-time 15 "$url" 2>/dev/null) && break || response=""
+          done
+          if [ -z "$response" ]; then
+            echo "::error::Site unreachable on both URLs"
+            exit 1
+          fi
           echo "Response: $response"
           status=$(echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','unknown'))")
           echo "Status: $status"
@@ -19,4 +26,4 @@ jobs:
             echo "::error::Site unhealthy — status=$status"
             exit 1
           fi
-          echo "OK — spark-dating.club is healthy"
+          echo "OK — app is healthy"
