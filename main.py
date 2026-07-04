@@ -120,6 +120,7 @@ async def lifespan(app: FastAPI):
     if not os.getenv("TESTING"):
         asyncio.create_task(_run_startup_tasks())
         asyncio.create_task(_periodic_cleanup())
+        asyncio.create_task(_self_monitor())
     yield
 
 
@@ -294,6 +295,54 @@ async def _periodic_cleanup() -> None:
         except Exception as _e:
             logging.error("periodic_cleanup: unexpected error: %s", _e, exc_info=True)
         await asyncio.sleep(3600)
+
+
+_last_alert_sent: float = 0.0
+_ALERT_COOLDOWN = 3600  # не чаще раза в час
+
+
+async def _self_monitor() -> None:
+    """Ping own /health every 5 min; email admin if unhealthy."""
+    global _last_alert_sent
+    await asyncio.sleep(120)  # дать время на старт
+    import httpx
+    admin_email = os.getenv("ADMIN_EMAIL", "slavinskijsergij2@gmail.com")
+    own_url = "https://spark-dating-production.up.railway.app/health"
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                r = await client.get(own_url)
+                data = r.json()
+                healthy = r.status_code == 200 and data.get("status") == "ok"
+        except Exception as _e:
+            healthy = False
+            logging.warning("self_monitor: health check failed — %s", _e)
+
+        if not healthy:
+            now = time.time()
+            if now - _last_alert_sent > _ALERT_COOLDOWN:
+                _last_alert_sent = now
+                try:
+                    from app.email_utils import _resend_post, RESEND_FROM
+                    await asyncio.to_thread(
+                        _resend_post,
+                        {
+                            "from": RESEND_FROM or "Spark <noreply@spark-dating.club>",
+                            "to": [admin_email],
+                            "subject": "⚠️ Spark — сайт недоступен",
+                            "html": (
+                                "<h2>⚠️ Spark Dating недоступен</h2>"
+                                "<p>Автоматическая проверка обнаружила проблему с сайтом.</p>"
+                                "<p>Проверь Railway: "
+                                "<a href='https://railway.com/project/02aa4531-33a3-4517-95dd-2a992b112294'>"
+                                "открыть панель Railway</a></p>"
+                            ),
+                        },
+                    )
+                    logging.warning("self_monitor: alert email sent to %s", admin_email)
+                except Exception as _e2:
+                    logging.error("self_monitor: failed to send alert email — %s", _e2)
+        await asyncio.sleep(300)  # каждые 5 минут
 
 
 # HIGH-6: Reject oversized request bodies before they reach route handlers.
