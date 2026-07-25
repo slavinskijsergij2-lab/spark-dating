@@ -161,7 +161,7 @@
         </div>
       </div>
     </div>
-    <!-- Android button -->
+    <!-- Chrome/Edge/Android: one-tap install -->
     <button id="pwa-install-btn" onclick="doPwaInstall()"
             style="display:none;width:100%;background:linear-gradient(135deg,#f472b6,#ec4899);
                    color:white;border:none;padding:16px;border-radius:999px;
@@ -169,18 +169,33 @@
                    box-shadow:0 6px 24px rgba(236,72,153,.4);margin-bottom:10px;">
       📲 Установить приложение
     </button>
-    <!-- iOS instructions -->
+    <!-- iOS Safari instructions -->
     <div id="pwa-ios-steps" style="display:none;margin-bottom:10px;">
       <p style="font-size:13px;font-weight:700;color:#374151;margin:0 0 10px;">Как установить на iPhone / iPad:</p>
       <div style="display:flex;flex-direction:column;gap:8px;">
         <div style="display:flex;align-items:center;gap:10px;font-size:13px;color:#374151;background:#f9fafb;border-radius:12px;padding:10px 12px;">
-          <span style="font-size:20px;">1️⃣</span> Нажми кнопку <strong style="margin:0 4px;">«Поделиться»</strong> <span style="font-size:16px;">📤</span> внизу Safari
+          <span style="font-size:20px;">1️⃣</span> Нажми <strong style="margin:0 4px;">«Поделиться»</strong> <span style="font-size:16px;">📤</span> внизу Safari
         </div>
         <div style="display:flex;align-items:center;gap:10px;font-size:13px;color:#374151;background:#f9fafb;border-radius:12px;padding:10px 12px;">
           <span style="font-size:20px;">2️⃣</span> Выбери <strong style="margin:0 4px;">«На экран «Домой»»</strong>
         </div>
         <div style="display:flex;align-items:center;gap:10px;font-size:13px;color:#374151;background:#f9fafb;border-radius:12px;padding:10px 12px;">
           <span style="font-size:20px;">3️⃣</span> Нажми <strong style="margin:0 4px;">«Добавить»</strong> — готово!
+        </div>
+      </div>
+    </div>
+    <!-- Other browsers (Firefox, Opera, etc.) -->
+    <div id="pwa-generic-steps" style="display:none;margin-bottom:10px;">
+      <p style="font-size:13px;font-weight:700;color:#374151;margin:0 0 10px;">Добавить на рабочий стол:</p>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div style="display:flex;align-items:center;gap:10px;font-size:13px;color:#374151;background:#f9fafb;border-radius:12px;padding:10px 12px;">
+          <span style="font-size:20px;">1️⃣</span> Открой меню браузера <strong style="margin:0 4px;">⋮</strong>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;font-size:13px;color:#374151;background:#f9fafb;border-radius:12px;padding:10px 12px;">
+          <span style="font-size:20px;">2️⃣</span> Нажми <strong style="margin:0 4px;">«Добавить на главный экран»</strong>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;font-size:13px;color:#374151;background:#f9fafb;border-radius:12px;padding:10px 12px;">
+          <span style="font-size:20px;">💡</span> Для лучшего опыта открой в <strong style="margin:0 4px;">Chrome</strong>
         </div>
       </div>
     </div>
@@ -522,25 +537,30 @@ function _shouldShowPwa() {
   } catch(e){}
   return true;
 }
-// Android/Chrome: capture install event
+// Capture install event (Chrome/Edge/Samsung/Android)
 window.addEventListener('beforeinstallprompt', function(e) {
   e.preventDefault();
   _deferredInstallPrompt = e;
-  if (_shouldShowPwa()) {
-    setTimeout(function() {
+});
+
+// Show PWA sheet to everyone after 5 sec
+if (!_isStandalone && _shouldShowPwa()) {
+  setTimeout(function() {
+    if (_deferredInstallPrompt) {
+      // Chrome/Edge/Android: one-tap install button
       var btn = document.getElementById('pwa-install-btn');
       if (btn) btn.style.display = 'block';
-      openPwaSheet();
-    }, 45000); // show after 45 sec on page
-  }
-});
-// iOS: show manual instructions after delay
-if (_isIOS && !_isStandalone && _shouldShowPwa()) {
-  setTimeout(function() {
-    var steps = document.getElementById('pwa-ios-steps');
-    if (steps) steps.style.display = 'block';
+    } else if (_isIOS) {
+      // iOS Safari: manual steps
+      var steps = document.getElementById('pwa-ios-steps');
+      if (steps) steps.style.display = 'block';
+    } else {
+      // Firefox, Opera, desktop and others: generic steps
+      var gen = document.getElementById('pwa-generic-steps');
+      if (gen) gen.style.display = 'block';
+    }
     openPwaSheet();
-  }, 45000);
+  }, 5000);
 }
 // ── end PWA install ──────────────────────────────────────────────────────────
 
