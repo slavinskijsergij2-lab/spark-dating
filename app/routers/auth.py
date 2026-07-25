@@ -16,6 +16,7 @@ from app.auth import (
     hash_password,
     verify_password,
     get_optional_user,
+    invalidate_user_cache,
 )
 from app.csrf import validate_csrf_form
 from app.database import get_db
@@ -401,6 +402,7 @@ async def reset_password(
     user.password_reset_expires = None
     user.token_version = (user.token_version or 0) + 1
     await db.commit()
+    invalidate_user_cache(user.id)
 
     access_token = create_access_token(user.id, token_version=user.token_version)
     redirect = RedirectResponse("/swipe", status_code=302)

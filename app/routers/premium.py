@@ -9,7 +9,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.auth import get_current_user
+from app.auth import get_current_user, invalidate_user_cache
 from app.csrf import validate_csrf_header
 from app.database import get_db
 from app.i18n import get_lang, get_translations, is_rtl
@@ -65,6 +65,7 @@ async def activate_premium(
             return JSONResponse({"error": t.get("premium_code_invalid", "Invalid activation code")}, status_code=400)
     user.is_premium = True
     await db.commit()
+    invalidate_user_cache(user.id)
     return JSONResponse({"success": True})
 
 
@@ -73,6 +74,7 @@ async def deactivate_premium(user: User = Depends(get_current_user), db: AsyncSe
     user.is_premium = False
     user.premium_until = None
     await db.commit()
+    invalidate_user_cache(user.id)
     return JSONResponse({"success": True})
 
 

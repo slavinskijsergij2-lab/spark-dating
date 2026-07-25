@@ -1,5 +1,6 @@
 import logging
 import os
+import time as _time
 from datetime import timedelta
 from typing import Optional
 
@@ -12,6 +13,26 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.models import User
+
+# In-memory user cache: user_id → (user_obj, cached_at)
+# Avoids 1-2 DB round trips (each ~150ms) on every authenticated request.
+_USER_CACHE: dict[int, tuple] = {}
+_USER_CACHE_TTL = 30  # seconds
+
+
+def _cache_get(user_id: int):
+    entry = _USER_CACHE.get(user_id)
+    if entry and (_time.monotonic() - entry[1]) < _USER_CACHE_TTL:
+        return entry[0]
+    return None
+
+
+def _cache_set(user: User):
+    _USER_CACHE[user.id] = (user, _time.monotonic())
+
+
+def invalidate_user_cache(user_id: int):
+    _USER_CACHE.pop(user_id, None)
 
 _SECRET_KEY = os.getenv("SECRET_KEY", "")
 if not _SECRET_KEY:
@@ -67,6 +88,13 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_db))
     except (_jwt.InvalidTokenError, TypeError, ValueError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
+    # Fast path: serve from in-memory cache (avoids ~150ms DB round-trip)
+    cached = _cache_get(user_id)
+    if cached is not None:
+        if token_version != (cached.token_version or 0):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token revoked")
+        return cached
+
     result = await db.execute(
         select(User)
         .options(selectinload(User.profile))
@@ -76,18 +104,16 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_db))
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-    # Reject tokens issued before a password change
     if token_version != (user.token_version or 0):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token revoked")
 
     now = _utcnow()
     if not user.last_seen or (now - user.last_seen).total_seconds() > 60:
-        # Use a raw UPDATE to avoid contaminating the shared request session with an
-        # unexpected commit that could flush unrelated pending changes prematurely.
         await db.execute(_update(User).where(User.id == user.id).values(last_seen=now))
         await db.commit()
         user.last_seen = now
 
+    _cache_set(user)
     return user
 
 

@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import get_current_user
+from app.auth import get_current_user, invalidate_user_cache
 from app.csrf import validate_csrf_header
 from app.database import get_db, AsyncSessionLocal
 from app.i18n import get_lang, get_translations, is_rtl
@@ -163,6 +163,7 @@ async def _activate_premium(user_id: int, plan: str, subscription_id, db: AsyncS
         if subscription_id:
             user.stripe_subscription_id = subscription_id
     await db.commit()
+    invalidate_user_cache(user.id)
 
 
 async def _extend_subscription(sub_id: str, db: AsyncSession):

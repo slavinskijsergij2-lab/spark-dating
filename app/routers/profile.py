@@ -15,7 +15,7 @@ try:
 except Exception:
     pass
 
-from app.auth import get_current_user, hash_password, verify_password
+from app.auth import get_current_user, hash_password, verify_password, invalidate_user_cache
 from app.csrf import validate_csrf_form
 from app.database import get_db
 from app.rate_limit import rate_limit
@@ -236,6 +236,7 @@ async def edit_profile(
         new_lang = language
 
     await db.commit()
+    invalidate_user_cache(user.id)
 
     dest = "/swipe" if is_new_profile else "/profile/edit?saved=1"
     redirect = RedirectResponse(dest, status_code=302)
@@ -371,6 +372,7 @@ async def change_password(
         )
     )
     await db.commit()
+    invalidate_user_cache(user.id)
 
     # Re-issue JWT so the current session stays valid with the new token_version
     from app.auth import create_access_token
