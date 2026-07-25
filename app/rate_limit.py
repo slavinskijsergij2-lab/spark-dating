@@ -28,6 +28,10 @@ _redis_ok = True  # flipped to False on first connection failure, retried after 
 _redis_fail_at: float = 0.0
 _RETRY_INTERVAL = 60.0  # seconds before we try Redis again after a failure
 
+# Single-instance deployments: skip Redis for rate limiting (zero-latency in-memory is equivalent).
+# Redis is still used for cross-request caches (archive throttle, compat scores) via _get_redis().
+_RATE_LIMIT_INMEMORY = bool(os.getenv("RATE_LIMIT_INMEMORY", "1"))
+
 
 async def _get_redis():
     global _redis_client, _redis_ok, _redis_fail_at
@@ -101,18 +105,19 @@ def rate_limit(max_calls: int, window_seconds: int = 60) -> Callable:
 
         key = f"rl:{request.url.path}:{ip}"
 
-        redis = await _get_redis()
-        if redis is not None:
-            limited = await _redis_check(redis, key, max_calls, window_seconds)
-            if limited:
-                raise HTTPException(
-                    status_code=429,
-                    detail="Too many requests. Please try again later.",
-                    headers={"Retry-After": str(window_seconds)},
-                )
-            return
+        if not _RATE_LIMIT_INMEMORY:
+            redis = await _get_redis()
+            if redis is not None:
+                limited = await _redis_check(redis, key, max_calls, window_seconds)
+                if limited:
+                    raise HTTPException(
+                        status_code=429,
+                        detail="Too many requests. Please try again later.",
+                        headers={"Retry-After": str(window_seconds)},
+                    )
+                return
 
-        # ── in-memory fallback ────────────────────────────────────────────────
+        # ── in-memory (default for single-instance deployments) ───────────────
         now = time.monotonic()
         async with _lock:
             cutoff = now - window_seconds
