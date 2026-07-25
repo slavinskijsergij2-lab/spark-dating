@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ t.get('verify_email_title', 'Подтверждение email') }} — Spark{% endblock %}
+{% block content %}
+<div class="flex flex-col items-center justify-center min-h-[80vh]">
+  <div class="w-full max-w-sm text-center">
+    <div class="bg-white rounded-3xl card-shadow p-10">
+      <div class="text-6xl mb-4">📧</div>
+      <h1 class="text-2xl font-bold text-gray-800 mb-3">
+        {{ t.get('verify_email_heading', 'Подтвердить email?') }}
+      </h1>
+      <p class="text-gray-500 text-sm leading-relaxed mb-8">
+        {{ t.get('verify_email_desc', 'Нажми кнопку ниже, чтобы подтвердить свой адрес электронной почты и войти в Spark.') }}
+      </p>
+
+      <form method="POST" action="/verify-email/{{ token | e }}">
+        <input type="hidden" name="csrftoken" value="{{ request.state.csrf_token }}" />
+        <button type="submit"
+                class="w-full gradient-pink text-white py-4 rounded-full font-bold text-lg shadow-lg hover:opacity-90 transition">
+          {{ t.get('verify_email_btn', '✓ Подтвердить') }}
+        </button>
+      </form>
+    </div>
+    <p class="text-gray-400 text-xs mt-6">💘 Spark</p>
+  </div>
+</div>
+{% endblock %}

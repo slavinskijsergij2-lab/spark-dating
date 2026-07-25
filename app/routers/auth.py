@@ -228,31 +228,52 @@ def check_email_page(request: Request):
     })
 
 
-@router.get("/verify-email/{token}", response_class=HTMLResponse, dependencies=[Depends(rate_limit(10, 60))])
-async def verify_email(token: str, request: Request, db: AsyncSession = Depends(get_db)):
+async def _check_verify_token(token: str, request: Request, db: AsyncSession):
+    """Shared validation — returns (user, error_response)."""
     result = await db.execute(select(User).where(User.email_verify_token == token))
     user = result.scalar_one_or_none()
     if not user:
         lang = get_lang(request)
         t = get_translations(lang)
-        return templates.TemplateResponse(request, "verify_error.html", {
+        return None, templates.TemplateResponse(request, "verify_error.html", {
             "t": t, "rtl": is_rtl(lang), "lang": lang,
             "error_key": "verify_invalid",
             "error_msg": t.get("verify_invalid_link", "Ссылка недействительна или уже использована."),
         }, status_code=400)
-
     if user.email_verify_created_at:
         age_seconds = (_utcnow() - user.email_verify_created_at).total_seconds()
         if age_seconds > _EMAIL_VERIFY_TTL_SECONDS:
             lang = user.language or get_lang(request)
             t = get_translations(lang)
-            return templates.TemplateResponse(request, "verify_error.html", {
+            return None, templates.TemplateResponse(request, "verify_error.html", {
                 "t": t, "rtl": is_rtl(lang), "lang": lang,
                 "error_key": "verify_expired",
                 "error_msg": t.get("verify_expired_link", "Ссылка истекла (действует 24 ч). Войдите, чтобы получить новую."),
                 "show_resend": True,
                 "resend_email": user.email,
             }, status_code=400)
+    return user, None
+
+
+@router.get("/verify-email/{token}", response_class=HTMLResponse, dependencies=[Depends(rate_limit(30, 60))])
+async def verify_email_page(token: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Show confirmation page — does NOT activate the account yet (protects against email scanner bots)."""
+    user, err = await _check_verify_token(token, request, db)
+    if err:
+        return err
+    lang = user.language or get_lang(request)
+    t = get_translations(lang)
+    return templates.TemplateResponse(request, "verify_email_confirm.html", {
+        "t": t, "rtl": is_rtl(lang), "lang": lang, "token": token,
+    })
+
+
+@router.post("/verify-email/{token}", response_class=HTMLResponse, dependencies=[Depends(rate_limit(10, 60))])
+async def verify_email_confirm(token: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Actually activate the account after the user clicked the confirm button."""
+    user, err = await _check_verify_token(token, request, db)
+    if err:
+        return err
 
     user.email_verified = True
     user.email_verify_token = None
