@@ -18,10 +18,18 @@ from app.i18n import get_lang, get_translations, is_rtl
 from app.models.models import Block, Like, Match, Message, MessageReaction, QuizAnswer, User
 from app.quiz_questions import CATEGORY_ORDER, QID_TO_CATEGORY
 from app.push import send_push_to_user
-from app.rate_limit import rate_limit
+from app.rate_limit import rate_limit, _get_redis
 from app.templates import templates
 
 router = APIRouter()
+
+
+async def _get_redis_client():
+    """Return the shared Redis client, or None if unavailable."""
+    try:
+        return await _get_redis()
+    except Exception:
+        return None
 
 
 class _WsManager:
@@ -83,47 +91,66 @@ def _update_streak(match: "Match", db):
     match.last_streak_date = _utcnow()
 
 
+def _calc_compat(user_answers: dict, partner_answers: dict) -> dict | None:
+    common_qids = set(user_answers.keys()) & set(partner_answers.keys())
+    if not common_qids:
+        return None
+    cat_matched: dict = {}
+    cat_total: dict = {}
+    for qid in common_qids:
+        cat = QID_TO_CATEGORY.get(qid, "lifestyle")
+        cat_total[cat] = cat_total.get(cat, 0) + 1
+        if user_answers[qid] == partner_answers[qid]:
+            cat_matched[cat] = cat_matched.get(cat, 0) + 1
+    categories = {
+        cat: round(100 * cat_matched.get(cat, 0) / cat_total[cat])
+        for cat in CATEGORY_ORDER
+        if cat_total.get(cat, 0) > 0
+    }
+    overall = round(100 * sum(cat_matched.values()) / len(common_qids))
+    return {"overall": overall, "categories": categories}
+
+
 async def compute_compatibility_batch(user_id: int, partner_ids: list, db: AsyncSession) -> dict:
     if not partner_ids:
         return {}
 
-    all_ids = [user_id] + list(partner_ids)
-    result = await db.execute(select(QuizAnswer).where(QuizAnswer.user_id.in_(all_ids)))
-    all_answers = result.scalars().all()
+    import json as _json_mod
+    redis = await _get_redis_client()
+    out: dict = {}
+    missing_ids: list = []
 
+    # Check Redis cache for each pair
+    _CACHE_TTL = 3600  # 1 hour
+    if redis:
+        for pid in partner_ids:
+            key = f"compat:{min(user_id, pid)}:{max(user_id, pid)}"
+            cached = await redis.get(key)
+            if cached is not None:
+                out[pid] = _json_mod.loads(cached) if cached != "null" else None
+            else:
+                missing_ids.append(pid)
+    else:
+        missing_ids = list(partner_ids)
+
+    if not missing_ids:
+        return out
+
+    # Compute for cache misses
+    all_ids = [user_id] + missing_ids
+    result = await db.execute(select(QuizAnswer).where(QuizAnswer.user_id.in_(all_ids)))
     answers_by_user: dict = {}
-    for qa in all_answers:
+    for qa in result.scalars().all():
         answers_by_user.setdefault(qa.user_id, {})[qa.question_id] = qa.answer_index
 
     user_answers = answers_by_user.get(user_id, {})
-    out = {}
-
-    for partner_id in partner_ids:
-        partner_answers = answers_by_user.get(partner_id, {})
-        if not user_answers or not partner_answers:
-            out[partner_id] = None
-            continue
-        common_qids = set(user_answers.keys()) & set(partner_answers.keys())
-        if not common_qids:
-            out[partner_id] = None
-            continue
-
-        cat_matched: dict = {}
-        cat_total: dict = {}
-        for qid in common_qids:
-            cat = QID_TO_CATEGORY.get(qid, "lifestyle")
-            cat_total[cat] = cat_total.get(cat, 0) + 1
-            if user_answers[qid] == partner_answers[qid]:
-                cat_matched[cat] = cat_matched.get(cat, 0) + 1
-
-        categories = {
-            cat: round(100 * cat_matched.get(cat, 0) / cat_total[cat])
-            for cat in CATEGORY_ORDER
-            if cat_total.get(cat, 0) > 0
-        }
-        total_matched = sum(cat_matched.values())
-        overall = round(100 * total_matched / len(common_qids))
-        out[partner_id] = {"overall": overall, "categories": categories}
+    for pid in missing_ids:
+        partner_answers = answers_by_user.get(pid, {})
+        score = _calc_compat(user_answers, partner_answers) if (user_answers and partner_answers) else None
+        out[pid] = score
+        if redis:
+            key = f"compat:{min(user_id, pid)}:{max(user_id, pid)}"
+            await redis.set(key, _json_mod.dumps(score), ex=_CACHE_TTL)
 
     return out
 
@@ -195,50 +222,54 @@ async def matches_page(
     db: AsyncSession = Depends(get_db),
 ):
     base_where = or_(Match.user1_id == user.id, Match.user2_id == user.id)
-
-    # Auto-archive matches with no messages for 7+ days
-    from datetime import timedelta
-    archive_cutoff = _utcnow() - timedelta(days=ARCHIVE_AFTER_DAYS)
-    stale_ids_q = (
-        select(Match.id)
-        .where(base_where, Match.archived_at.is_(None))
-        .where(Match.created_at < archive_cutoff)
-        .where(
-            ~select(Message.id).where(
-                Message.match_id == Match.id,
-                Message.created_at > archive_cutoff,
-            ).correlate(Match).exists()
-        )
-    )
-    stale_result = await db.execute(stale_ids_q)
-    stale_ids = [r[0] for r in stale_result.all()]
-    if stale_ids:
-        await db.execute(
-            update(Match).where(Match.id.in_(stale_ids)).values(archived_at=_utcnow())
-        )
-        await db.commit()
-
     active_where = and_(base_where, Match.archived_at.is_(None))
 
-    result = await db.execute(select(func.count(Match.id)).where(active_where))
-    total_matches = result.scalar() or 0
-    total_pages = max(1, (total_matches + MATCHES_PAGE_SIZE - 1) // MATCHES_PAGE_SIZE)
-    page = min(page, total_pages)
+    # Auto-archive stale matches — throttled to once per hour per user via Redis
+    from datetime import timedelta
+    _archive_key = f"arch_done:{user.id}"
+    _redis = await _get_redis_client()
+    _already_ran = _redis and await _redis.get(_archive_key)
+    if not _already_ran:
+        archive_cutoff = _utcnow() - timedelta(days=ARCHIVE_AFTER_DAYS)
+        stale_ids_q = (
+            select(Match.id)
+            .where(base_where, Match.archived_at.is_(None))
+            .where(Match.created_at < archive_cutoff)
+            .where(
+                ~select(Message.id).where(
+                    Message.match_id == Match.id,
+                    Message.created_at > archive_cutoff,
+                ).correlate(Match).exists()
+            )
+        )
+        stale_result = await db.execute(stale_ids_q)
+        stale_ids = [r[0] for r in stale_result.all()]
+        if stale_ids:
+            await db.execute(
+                update(Match).where(Match.id.in_(stale_ids)).values(archived_at=_utcnow())
+            )
+            await db.commit()
+        if _redis:
+            await _redis.set(_archive_key, "1", ex=3600)
 
-    result = await db.execute(
+    count_r = await db.execute(select(func.count(Match.id)).where(active_where))
+    total_matches = count_r.scalar() or 0
+    total_pages   = max(1, (total_matches + MATCHES_PAGE_SIZE - 1) // MATCHES_PAGE_SIZE)
+    page          = min(page, total_pages)
+
+    matches_r = await db.execute(
         select(Match)
         .where(active_where)
         .order_by(Match.created_at.desc())
         .offset((page - 1) * MATCHES_PAGE_SIZE)
         .limit(MATCHES_PAGE_SIZE)
     )
-    matches = result.scalars().all()
+    matches = matches_r.scalars().all()
 
-    # Count archived for the banner
-    arch_result = await db.execute(
+    arch_r = await db.execute(
         select(func.count(Match.id)).where(base_where, Match.archived_at.isnot(None))
     )
-    archived_count = arch_result.scalar() or 0
+    archived_count = arch_r.scalar() or 0
 
     match_ids = [m.id for m in matches]
     if match_ids:

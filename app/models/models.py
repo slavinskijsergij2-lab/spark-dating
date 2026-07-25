@@ -172,8 +172,10 @@ class Match(Base):
 
     __table_args__ = (
         UniqueConstraint("user1_id", "user2_id", name="uq_match_pair"),
-        # Enforce that user1_id < user2_id so (A,B) and (B,A) can't both exist
         CheckConstraint("user1_id < user2_id", name="ck_match_user_order"),
+        # Speeds up "my active matches" and "my archived matches" queries
+        Index("ix_match_user1_archived", "user1_id", "archived_at", "created_at"),
+        Index("ix_match_user2_archived", "user2_id", "archived_at", "created_at"),
     )
 
 
