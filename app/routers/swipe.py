@@ -5,11 +5,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+import asyncio
+
 from app.auth import get_current_user
 from app.csrf import validate_csrf_header
 from app.rate_limit import rate_limit
 from app.utils.time import utcnow as _utcnow
-from app.database import get_db
+from app.database import get_db, AsyncSessionLocal
 from app.email_utils import is_smtp_configured, send_match_email
 from app.i18n import get_lang, get_translations, is_rtl
 from app.models.models import Block, Like, Match, Profile, ProfilePhoto, User, GenderEnum
@@ -114,8 +116,11 @@ async def find_next_candidate(
 ):
     from datetime import timedelta
 
-    result = await db.execute(select(Profile).where(Profile.user_id == user.id))
-    profile = result.scalar_one_or_none()
+    # Use already-loaded profile from user object (avoids a round-trip DB query)
+    profile = user.profile
+    if profile is None:
+        result = await db.execute(select(Profile).where(Profile.user_id == user.id))
+        profile = result.scalar_one_or_none()
     if not profile:
         return None
 
@@ -250,21 +255,49 @@ async def swipe_page(
         if _loc:
             city_filter = _loc.name
 
-    candidate = await find_next_candidate(
-        user, db, intention=intention, age_min=age_min, age_max=age_max,
-        city=city_filter if not location_id else None,
-        online_only=online_only, location_id=location_id,
-    )
-    lang = get_lang(request, user)
-    super_likes_left = max(0, (999 if user.is_premium_active else 5) - await _super_likes_today(user.id, db))
-    likes_used_today = await _likes_today(user.id, db)
-    daily_limit = FREE_DAILY_LIKES
-    likes_left = None if user.is_premium_active else max(0, daily_limit - likes_used_today)
+    # Run independent queries in parallel using separate sessions (each ~150ms → all finish together)
+    today_start = _utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
-    result = await db.execute(
-        select(Like).where(Like.liker_id == user.id).order_by(Like.id.desc()).limit(1)
+    async def _fetch_candidate():
+        async with AsyncSessionLocal() as s:
+            return await find_next_candidate(
+                user, s, intention=intention, age_min=age_min, age_max=age_max,
+                city=city_filter if not location_id else None,
+                online_only=online_only, location_id=location_id,
+            )
+
+    async def _fetch_super_likes():
+        async with AsyncSessionLocal() as s:
+            r = await s.execute(select(func.count(Like.id)).where(
+                Like.liker_id == user.id, Like.is_super == True, Like.created_at >= today_start,
+            ))
+            return r.scalar() or 0
+
+    async def _fetch_likes_today():
+        async with AsyncSessionLocal() as s:
+            r = await s.execute(select(func.count(Like.id)).where(
+                Like.liker_id == user.id, Like.is_like == True, Like.created_at >= today_start,
+            ))
+            return r.scalar() or 0
+
+    async def _fetch_last_like():
+        async with AsyncSessionLocal() as s:
+            r = await s.execute(
+                select(Like).where(Like.liker_id == user.id).order_by(Like.id.desc()).limit(1)
+            )
+            return r.scalar_one_or_none()
+
+    candidate, super_likes_used, likes_used_today, last_like = await asyncio.gather(
+        _fetch_candidate(),
+        _fetch_super_likes(),
+        _fetch_likes_today(),
+        _fetch_last_like(),
     )
-    last_like = result.scalar_one_or_none()
+
+    lang = get_lang(request, user)
+    daily_limit = FREE_DAILY_LIKES
+    super_likes_left = max(0, (999 if user.is_premium_active else 5) - super_likes_used)
+    likes_left = None if user.is_premium_active else max(0, daily_limit - likes_used_today)
 
     extra_photos = []
     if candidate and candidate.profile:
