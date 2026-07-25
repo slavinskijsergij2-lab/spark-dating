@@ -108,6 +108,37 @@ function fixAndPreviewPhoto(input, previewId, placeholderId, autoSubmit) {
 {% set allTags = [t.get('tag_music','Музыка'),t.get('tag_games','Игры'),t.get('tag_sports','Спорт'),t.get('tag_food','Еда'),t.get('tag_travel','Путешествия'),t.get('tag_books','Книги'),t.get('tag_movies','Кино'),t.get('tag_animals','Животные'),t.get('tag_art','Искусство'),t.get('tag_nature','Природа'),t.get('tag_tech','Технологии'),t.get('tag_cooking','Кулинария'),t.get('tag_yoga','Йога'),t.get('tag_theater','Театр'),t.get('tag_photo','Фото'),t.get('tag_cycling','Велоспорт'),t.get('tag_languages','Языки'),t.get('tag_concerts','Концерты'),t.get('tag_boardgames','Настолки'),t.get('tag_beach','Пляж')] %}
 {% set selTags = (profile.interests.split(',') | map('trim') | list) if profile and profile.interests else [] %}
 
+<!-- ── Profile completion indicator ── -->
+{% set pct = completion.pct %}
+{% set missing = completion.missing %}
+<div class="mb-4 bg-white rounded-2xl card-shadow p-4">
+  <div class="flex items-center justify-between mb-2">
+    <span class="text-sm font-bold text-gray-700">Заполненность профиля</span>
+    <span class="text-sm font-black {% if pct >= 70 %}text-green-500{% elif pct >= 40 %}text-yellow-500{% else %}text-red-400{% endif %}">{{ pct }}%</span>
+  </div>
+  <div class="w-full bg-gray-100 rounded-full h-2.5 mb-3">
+    <div class="h-2.5 rounded-full transition-all duration-500
+      {% if pct >= 70 %}bg-green-400{% elif pct >= 40 %}bg-yellow-400{% else %}bg-red-400{% endif %}"
+      style="width: {{ pct }}%"></div>
+  </div>
+  {% if missing %}
+  <div class="flex flex-wrap gap-2">
+    {% set labels = {
+      'photo': '📷 Фото',
+      'bio': '📝 О себе',
+      'city': '📍 Город',
+      'interests': '✨ Интересы',
+      'intention': '🎯 Цель'
+    } %}
+    {% for field in missing %}
+    <span class="text-xs bg-gray-100 text-gray-500 px-2.5 py-1 rounded-full">{{ labels.get(field, field) }}</span>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-xs text-green-500 font-semibold">✓ Профиль заполнен полностью!</p>
+  {% endif %}
+</div>
+
 <div class="bg-white rounded-2xl card-shadow p-6">
 
   <form method="POST" action="/profile/edit" enctype="multipart/form-data">

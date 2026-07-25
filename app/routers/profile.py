@@ -29,6 +29,36 @@ from app.utils.time import utcnow as _utcnow
 
 router = APIRouter()
 
+
+def profile_completion(profile) -> dict:
+    """Return completion percentage and list of missing fields."""
+    if not profile:
+        return {"pct": 0, "missing": ["photo", "bio", "city", "interests", "intention"]}
+    score = 0
+    missing = []
+    if profile.photo:
+        score += 30
+    else:
+        missing.append("photo")
+    if profile.bio and len(profile.bio.strip()) > 5:
+        score += 20
+    else:
+        missing.append("bio")
+    if profile.interests and profile.interests.strip():
+        score += 20
+    else:
+        missing.append("interests")
+    if profile.city and profile.city.strip():
+        score += 15
+    else:
+        missing.append("city")
+    if profile.intention and profile.intention.strip():
+        score += 15
+    else:
+        missing.append("intention")
+    return {"pct": score, "missing": missing}
+
+
 MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_NAME_LEN = 100
 MAX_BIO_LEN = 1000
@@ -75,6 +105,7 @@ async def edit_profile_page(request: Request, user: User = Depends(get_current_u
         "saved_flash": saved_flash,
         "error": error_flash,
         "now": _utcnow,
+        "completion": profile_completion(profile),
     })
 
 

@@ -280,6 +280,7 @@ async def swipe_page(
             t.strip() for t in candidate.profile.interests.split(",") if t.strip()
         ][:4]
 
+    from app.routers.profile import profile_completion
     return templates.TemplateResponse(request, "swipe.html", {
         "user": user,
         "candidate": candidate,
@@ -287,6 +288,7 @@ async def swipe_page(
         "extra_photos": extra_photos,
         "init_interests": init_interests,
         "t": get_translations(lang),
+        "completion": profile_completion(user.profile),
         "rtl": is_rtl(lang),
         "lang": lang,
         "current_intention": intention or "",
