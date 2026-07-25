@@ -183,6 +183,111 @@ def send_password_reset_email(to_email: str, token: str, lang: str = "en") -> bo
     return _resend_post({"from": RESEND_FROM, "to": [to_email], "subject": subject, "html": html})
 
 
+_REACTIV_SUBJECTS = {
+    "ru": "Привет, {}! Тебя ждут в Spark 💘",
+    "uk": "Привіт, {}! На тебе чекають у Spark 💘",
+    "en": "Hey, {}! People are waiting for you on Spark 💘",
+    "de": "Hey, {}! Menschen warten auf dich bei Spark 💘",
+    "tr": "Hey, {}! Spark'ta insanlar seni bekliyor 💘",
+    "ar": "{}، مرحباً! أناس ينتظرونك على Spark 💘",
+}
+_REACTIV_GREETING = {
+    "ru": "Давно не заходил(а)!",
+    "uk": "Давно не заходив(ла)!",
+    "en": "You've been missed!",
+    "de": "Du wurdest vermisst!",
+    "tr": "Seni özledik!",
+    "ar": "لقد كنت غائباً!",
+}
+_REACTIV_BODY_BOTH = {
+    "ru": "У тебя <strong>{} взаимных матчей</strong> и <strong>{} новых лайков</strong> — люди ждут твоего сообщения!",
+    "uk": "У тебе <strong>{} взаємних метчів</strong> і <strong>{} нових лайків</strong> — люди чекають твого повідомлення!",
+    "en": "You have <strong>{} mutual matches</strong> and <strong>{} new likes</strong> — they're waiting to hear from you!",
+    "de": "Du hast <strong>{} gegenseitige Matches</strong> und <strong>{} neue Likes</strong> — sie warten auf deine Nachricht!",
+    "tr": "<strong>{} karşılıklı eşleşmen</strong> ve <strong>{} yeni beğenin</strong> var — mesajını bekliyorlar!",
+    "ar": "لديك <strong>{} تطابقات متبادلة</strong> و<strong>{} إعجابات جديدة</strong> — ينتظرون رسالتك!",
+}
+_REACTIV_BODY_MATCHES = {
+    "ru": "У тебя <strong>{} взаимных матчей</strong> — напиши им первым и познакомься!",
+    "uk": "У тебе <strong>{} взаємних метчів</strong> — напиши їм першим і познайомся!",
+    "en": "You have <strong>{} mutual matches</strong> — say hello and start a conversation!",
+    "de": "Du hast <strong>{} gegenseitige Matches</strong> — sag Hallo und beginne ein Gespräch!",
+    "tr": "<strong>{} karşılıklı eşleşmen</strong> var — merhaba de ve bir sohbet başlat!",
+    "ar": "لديك <strong>{} تطابقات متبادلة</strong> — قل مرحباً وابدأ محادثة!",
+}
+_REACTIV_BODY_LIKES = {
+    "ru": "<strong>{} человек(а)</strong> лайкнули тебя, пока тебя не было — может, среди них твоя вторая половинка?",
+    "uk": "<strong>{} людини</strong> лайкнули тебе, поки тебе не було — можливо, серед них твоя половинка?",
+    "en": "<strong>{} people</strong> liked you while you were away — your match might be among them!",
+    "de": "<strong>{} Personen</strong> haben dich geliked, während du weg warst — dein Match könnte dabei sein!",
+    "tr": "Yokken <strong>{} kişi</strong> seni beğendi — eşleşmen aralarında olabilir!",
+    "ar": "<strong>{} شخص</strong> أعجب بك في غيابك — ربما يكون توافقك بينهم!",
+}
+_REACTIV_BTN = {
+    "ru": "Открыть Spark",
+    "uk": "Відкрити Spark",
+    "en": "Open Spark",
+    "de": "Spark öffnen",
+    "tr": "Spark'ı Aç",
+    "ar": "فتح Spark",
+}
+_REACTIV_FOOTER = {
+    "ru": "Не хочешь получать напоминания? Отключи уведомления в настройках профиля.",
+    "uk": "Не хочеш отримувати нагадування? Вимкни сповіщення в налаштуваннях профілю.",
+    "en": "Don't want reminders? Disable notifications in your profile settings.",
+    "de": "Keine Erinnerungen? Deaktiviere Benachrichtigungen in deinen Profileinstellungen.",
+    "tr": "Hatırlatmaları istemiyorsan profil ayarlarından bildirimleri kapat.",
+    "ar": "لا تريد التذكيرات؟ عطّل الإشعارات في إعدادات ملفك الشخصي.",
+}
+
+
+def send_reactivation_email(
+    to_email: str, name: str, match_count: int, new_likes: int, lang: str = "ru"
+) -> bool:
+    """Reactivation email for users inactive 3+ days."""
+    if not RESEND_API_KEY:
+        return False
+
+    safe_name = _html.escape(name)
+    lang = lang if lang in _REACTIV_SUBJECTS else "en"
+
+    subject  = _REACTIV_SUBJECTS[lang].format(safe_name)
+    greeting = _REACTIV_GREETING[lang]
+    btn      = _REACTIV_BTN[lang]
+    footer   = _REACTIV_FOOTER[lang]
+
+    if match_count > 0 and new_likes > 0:
+        body = _REACTIV_BODY_BOTH[lang].format(match_count, new_likes)
+    elif match_count > 0:
+        body = _REACTIV_BODY_MATCHES[lang].format(match_count)
+    else:
+        body = _REACTIV_BODY_LIKES[lang].format(new_likes)
+
+    html = f"""<!DOCTYPE html>
+<html>
+<body style="font-family:Arial,sans-serif;background:#fff5f7;margin:0;padding:40px 20px;">
+  <div style="max-width:480px;margin:0 auto;background:white;border-radius:20px;
+              padding:40px;box-shadow:0 4px 24px rgba(0,0,0,.08);">
+    <div style="text-align:center;margin-bottom:32px;">
+      <div style="font-size:56px;">💘</div>
+      <div style="font-size:28px;font-weight:bold;color:#ec4899;">Spark</div>
+    </div>
+    <h2 style="color:#1f2937;margin-bottom:12px;font-size:20px;text-align:center;">{greeting}</h2>
+    <p style="color:#6b7280;line-height:1.6;font-size:16px;margin-bottom:32px;text-align:center;">{body}</p>
+    <div style="text-align:center;margin-bottom:32px;">
+      <a href="{APP_URL}/matches"
+         style="display:inline-block;background:linear-gradient(135deg,#ec4899,#f43f5e);
+                color:white;padding:14px 40px;border-radius:50px;font-weight:bold;
+                font-size:16px;text-decoration:none;">{btn}</a>
+    </div>
+    <p style="color:#9ca3af;font-size:12px;text-align:center;">{footer}</p>
+  </div>
+</body>
+</html>"""
+
+    return _resend_post({"from": RESEND_FROM, "to": [to_email], "subject": subject, "html": html})
+
+
 def send_verification_email(to_email: str, token: str, lang: str = "en") -> bool:
     if not RESEND_API_KEY:
         logger.warning("RESEND_API_KEY not set — skipping verification email for %s", to_email)

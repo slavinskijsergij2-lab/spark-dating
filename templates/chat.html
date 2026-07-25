@@ -411,6 +411,8 @@
   var sending = false;
   var sseRetries = 0;
   var sse;
+  var ws;
+  var wsRetries = 0;
 
   // ── helpers ───────────────────────────────────────────────────
   function getCsrf() {
@@ -744,25 +746,48 @@
     .catch(function() { window.location.href = '/matches'; });
   };
 
-  // ── SSE ───────────────────────────────────────────────────────
+  // ── Shared update handler (WebSocket + SSE both use this) ─────
+  function handleUpdate(d) {
+    var msgs = d.messages || [];
+    msgs.forEach(function(m) {
+      if (!container.querySelector('[data-msg-id="' + m.id + '"]')) {
+        appendMessage(m.id, m.content, m.sender_id, fmtTime(m.created_at), m.is_image, m.is_voice);
+        if (m.id > lastId) lastId = m.id;
+      }
+    });
+    if (d.partner_read_up_to) updateReadTicks(d.partner_read_up_to);
+    if (typeof d.typing === 'boolean') setTyping(d.typing);
+  }
+
+  // ── WebSocket (primary — instant delivery) ────────────────────
+  function connectWS() {
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(proto + '//' + location.host + '/ws/chat/' + MATCH);
+    var ping;
+    ws.onopen = function() {
+      wsRetries = 0;
+      ping = setInterval(function() { if (ws && ws.readyState === 1) ws.send('ping'); }, 25000);
+    };
+    ws.onmessage = function(e) {
+      if (e.data === 'pong') return;
+      try { handleUpdate(JSON.parse(e.data)); } catch(_) {}
+    };
+    ws.onclose = function(e) {
+      clearInterval(ping);
+      ws = null;
+      if (e.code === 4001 || e.code === 4003) { connectSSE(); return; }
+      wsRetries++;
+      if (wsRetries > 5) { connectSSE(); return; }
+      setTimeout(connectWS, Math.min(1000 * wsRetries, 8000));
+    };
+    ws.onerror = function() {};
+  }
+
+  // ── SSE (fallback when WebSocket unavailable) ─────────────────
   function connectSSE() {
     sse = new EventSource('/chat/' + MATCH + '/stream?after_id=' + lastId);
     sse.onmessage = function(e) {
-      try {
-        var d = JSON.parse(e.data);
-        // New messages
-        var msgs = d.messages || [];
-        msgs.forEach(function(m) {
-          if (!container.querySelector('[data-msg-id="' + m.id + '"]')) {
-            appendMessage(m.id, m.content, m.sender_id, fmtTime(m.created_at), m.is_image, m.is_voice);
-            if (m.id > lastId) lastId = m.id;
-          }
-        });
-        // Read receipts
-        if (d.partner_read_up_to) updateReadTicks(d.partner_read_up_to);
-        // Typing
-        if (typeof d.typing === 'boolean') setTyping(d.typing);
-      } catch(_) {}
+      try { handleUpdate(JSON.parse(e.data)); } catch(_) {}
     };
     sse.addEventListener('reconnect', function() {
       sse.close(); setTimeout(connectSSE, 500);
@@ -922,11 +947,19 @@
     });
   }
 
-  connectSSE();
+  connectWS();
   scrollBottom();
-  window.addEventListener('pagehide', function() { if (sse) sse.close(); });
+  window.addEventListener('pagehide', function() {
+    if (ws) ws.close();
+    if (sse) sse.close();
+  });
   window.addEventListener('pageshow', function(e) {
-    if (e.persisted) { sseRetries = 0; if (sse) sse.close(); connectSSE(); }
+    if (e.persisted) {
+      wsRetries = 0; sseRetries = 0;
+      if (ws) ws.close();
+      if (sse) sse.close();
+      connectWS();
+    }
   });
 })();
 </script>

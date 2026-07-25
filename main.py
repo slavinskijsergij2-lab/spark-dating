@@ -121,6 +121,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_run_startup_tasks())
         asyncio.create_task(_periodic_cleanup())
         asyncio.create_task(_self_monitor())
+        asyncio.create_task(_reactivation_email_loop())
     yield
 
 
@@ -343,6 +344,73 @@ async def _self_monitor() -> None:
                 except Exception as _e2:
                     logging.error("self_monitor: failed to send alert email — %s", _e2)
         await asyncio.sleep(300)  # каждые 5 минут
+
+
+async def _reactivation_email_loop() -> None:
+    """Daily: email users inactive 3–4 days who have matches or new likes."""
+    await asyncio.sleep(3600)
+    while True:
+        try:
+            from app.database import AsyncSessionLocal
+            from app.models.models import User, Profile, Match, Like
+            from app.email_utils import send_reactivation_email
+            from sqlalchemy import select, or_, func
+            from datetime import datetime, timedelta
+
+            now = datetime.utcnow()
+            cutoff_min = now - timedelta(days=4)
+            cutoff_max = now - timedelta(days=3)
+
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(
+                    select(User, Profile)
+                    .join(Profile, Profile.user_id == User.id)
+                    .where(
+                        User.email_verified == True,
+                        User.is_active == True,
+                        User.notif_matches == True,
+                        User.last_seen >= cutoff_min,
+                        User.last_seen < cutoff_max,
+                    )
+                )
+                rows = result.all()
+
+                sent = 0
+                for user, profile in rows:
+                    match_result = await session.execute(
+                        select(func.count()).select_from(Match).where(
+                            or_(Match.user1_id == user.id, Match.user2_id == user.id)
+                        )
+                    )
+                    match_count = match_result.scalar_one()
+
+                    like_result = await session.execute(
+                        select(func.count()).select_from(Like).where(
+                            Like.liked_id == user.id,
+                            Like.is_like == True,
+                            Like.created_at >= user.last_seen,
+                        )
+                    )
+                    new_likes = like_result.scalar_one()
+
+                    if match_count == 0 and new_likes == 0:
+                        continue
+
+                    ok = await asyncio.to_thread(
+                        send_reactivation_email,
+                        user.email,
+                        profile.name,
+                        match_count,
+                        new_likes,
+                        user.language or "ru",
+                    )
+                    if ok:
+                        sent += 1
+
+            logging.info("reactivation_emails: sent %d/%d", sent, len(rows))
+        except Exception as _e:
+            logging.error("reactivation_email_loop: %s", _e, exc_info=True)
+        await asyncio.sleep(86400)
 
 
 # HIGH-6: Reject oversized request bodies before they reach route handlers.

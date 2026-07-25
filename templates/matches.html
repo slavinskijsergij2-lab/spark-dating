@@ -3,47 +3,7 @@
 
 {% block head %}
 <style>
-  .match-card {
-    position: relative;
-    border-radius: 18px;
-    overflow: hidden;
-    aspect-ratio: 4/5;
-    cursor: pointer;
-    display: block;
-    transition: transform .2s, box-shadow .2s;
-  }
-  .match-card:active { transform: scale(.97); }
-  .match-card:hover  { transform: scale(1.02); box-shadow: 0 10px 32px rgba(236,72,153,.3); }
-  .match-card-img { width:100%; height:100%; object-fit:cover; display:block; }
-  .match-card-overlay {
-    position: absolute; inset: 0;
-    background: linear-gradient(to top, rgba(0,0,0,.80) 0%, rgba(0,0,0,.15) 50%, transparent 100%);
-  }
-  .match-card-body {
-    position: absolute; bottom: 0; left: 0; right: 0;
-    padding: 8px 10px 10px;
-    min-width: 0;
-    overflow: hidden;
-  }
-  .match-card-name {
-    font-size: 13px; font-weight: 800; color: white;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    line-height: 1.2;
-    text-shadow: 0 1px 4px rgba(0,0,0,.5);
-  }
-  .match-card-sub {
-    font-size: 10px; color: rgba(255,255,255,.75);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    margin-top: 2px; line-height: 1.2;
-  }
-  .match-badge {
-    display: inline-flex; align-items: center;
-    font-size: 10px; font-weight: 700; color: white;
-    padding: 2px 6px; border-radius: 999px;
-    margin-top: 4px; line-height: 1.2;
-    max-width: 100%; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis;
-  }
+  .match-card { text-decoration: none; }
   .liked-card {
     border-radius: 18px;
     overflow: hidden;
@@ -364,63 +324,81 @@ document.addEventListener('DOMContentLoaded', function() { loadStories(); });
             class="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 text-lg leading-none transition">×</button>
   </div>
 
-  <!-- 2-column card grid -->
-  <div class="grid grid-cols-2 gap-2">
+  <!-- Chat list -->
+  <div class="flex flex-col gap-1">
     {% for match, partner, compat in partners %}
     {% if partner.profile %}
     {% set os = online_status(partner.last_seen, lang) %}
+    {% set last_msg = last_message_by_match.get(match.id) %}
+    {% set unread = unread_by_match.get(match.id, 0) %}
     <a href="/chat/{{ match.id }}"
        data-name="{{ partner.profile.name | lower }}"
-       class="match-card">
+       class="match-card flex items-center gap-3 px-3 py-3 bg-white rounded-2xl border border-gray-100 shadow-sm hover:bg-pink-50 active:scale-[.98] transition">
 
-      <!-- Photo -->
-      {% if partner.profile.photo %}
-      <img src="{{ partner.profile.photo }}" class="match-card-img" alt="{{ partner.profile.name }}" loading="lazy" />
-      {% else %}
-      <div class="match-card-img bg-gradient-to-br from-pink-200 to-rose-300 flex items-center justify-center">
-        <span class="text-4xl">👤</span>
-      </div>
-      {% endif %}
-
-      <!-- Gradient overlay -->
-      <div class="match-card-overlay"></div>
-
-      <!-- Top badges -->
-      <div class="absolute top-2.5 right-2.5 flex flex-col items-end gap-1">
-        {% if os and os.is_online %}
-        <span class="bg-green-400/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shadow">
-          <span class="w-1.5 h-1.5 bg-white rounded-full flex-shrink-0"></span>{{ os.label }}
-        </span>
-        {% endif %}
-        {% if match.streak_days and match.streak_days > 1 %}
-        <span class="bg-orange-500/90 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow">🔥{{ match.streak_days }}</span>
-        {% endif %}
-      </div>
-
-      <!-- Bottom info -->
-      {% set last_msg = last_message_by_match.get(match.id) %}
-      <div class="match-card-body">
-        <div class="match-card-name">{{ partner.profile.name }}, {{ partner.profile.age }}</div>
-        {% if last_msg %}
-          {% if last_msg.is_voice %}
-          <div class="match-card-sub">{% if last_msg.sender_id == user.id %}{{ t.get('you_prefix','Ты:') }} {% endif %}🎤 {{ t.get('voice_msg','Голосовое') }}</div>
+      <!-- Avatar -->
+      <div class="relative flex-shrink-0">
+        <div class="w-14 h-14 rounded-full overflow-hidden bg-gradient-to-br from-pink-100 to-rose-200 flex items-center justify-center">
+          {% if partner.profile.photo %}
+          <img src="{{ partner.profile.photo }}" class="w-full h-full object-cover" loading="lazy" />
           {% else %}
-          <div class="match-card-sub">{% if last_msg.sender_id == user.id %}{{ t.get('you_prefix','Ты:') }} {% endif %}{{ last_msg.content[:35] }}{% if last_msg.content|length > 35 %}…{% endif %}</div>
+          <span class="text-2xl">👤</span>
           {% endif %}
-        {% elif os and not os.is_online and os.label %}
-        <div class="match-card-sub">{{ os.label }}</div>
-        {% elif partner.profile.city %}
-        <div class="match-card-sub">📍 {{ partner.profile.city }}</div>
+        </div>
+        {% if os and os.is_online %}
+        <span class="absolute bottom-0.5 right-0.5 w-3.5 h-3.5 bg-green-400 border-2 border-white rounded-full"></span>
         {% endif %}
-        {% if compat is not none %}
-        <span class="match-badge bg-pink-500/80 backdrop-blur-sm">💞 {{ compat.overall }}%</span>
-        {% endif %}
+      </div>
+
+      <!-- Name + last message -->
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center justify-between gap-1">
+          <div class="flex items-center gap-1.5 min-w-0">
+            <span class="font-bold text-gray-900 text-sm truncate">{{ partner.profile.name }}, {{ partner.profile.age }}</span>
+            {% if match.streak_days and match.streak_days > 1 %}
+            <span class="text-[11px] flex-shrink-0">🔥{{ match.streak_days }}</span>
+            {% endif %}
+            {% if compat is not none %}
+            <span class="text-[10px] text-pink-400 font-semibold flex-shrink-0">{{ compat.overall }}%</span>
+            {% endif %}
+          </div>
+          {% if last_msg %}
+          <span class="text-[11px] text-gray-400 flex-shrink-0 msg-time" data-ts="{{ last_msg.created_at.isoformat() }}"></span>
+          {% endif %}
+        </div>
+        <div class="flex items-center justify-between gap-2 mt-0.5">
+          <span class="text-xs text-gray-500 truncate">
+            {% if last_msg %}
+              {% if last_msg.sender_id == user.id %}<span class="text-gray-400">{{ t.get('you_prefix','Ты:') }}</span> {% endif %}
+              {% if last_msg.is_voice %}🎤 {{ t.get('voice_msg','Голосовое') }}
+              {% elif last_msg.is_image %}📷 {{ t.get('photo','Фото') }}
+              {% else %}{{ last_msg.content[:50] }}{% if last_msg.content|length > 50 %}…{% endif %}
+              {% endif %}
+            {% elif partner.profile.city %}📍 {{ partner.profile.city }}
+            {% else %}<span class="italic text-gray-300">{{ t.get('no_messages_yet','Нет сообщений') }}</span>
+            {% endif %}
+          </span>
+          {% if unread > 0 %}
+          <span class="flex-shrink-0 bg-pink-500 text-white text-[10px] font-black rounded-full min-w-[20px] h-5 flex items-center justify-center px-1.5">{{ unread }}</span>
+          {% endif %}
+        </div>
       </div>
 
     </a>
     {% endif %}
     {% endfor %}
   </div>
+
+  <script>
+  document.querySelectorAll('.msg-time[data-ts]').forEach(function(el) {
+    var d = new Date(el.dataset.ts.endsWith('Z') ? el.dataset.ts : el.dataset.ts + 'Z');
+    var now = new Date();
+    var isToday = d.toDateString() === now.toDateString();
+    var yest = new Date(now); yest.setDate(now.getDate() - 1);
+    if (isToday) el.textContent = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    else if (d.toDateString() === yest.toDateString()) el.textContent = 'Вчера';
+    else el.textContent = d.toLocaleDateString([], {day:'numeric', month:'short'});
+  });
+  </script>
 
   <!-- Pagination -->
   {% if total_pages > 1 %}

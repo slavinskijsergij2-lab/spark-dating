@@ -3,7 +3,7 @@ import io
 import json as _json
 from datetime import timedelta
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from PIL import Image
 from sqlalchemy import and_, func, or_, select, update, delete
@@ -22,6 +22,40 @@ from app.rate_limit import rate_limit
 from app.templates import templates
 
 router = APIRouter()
+
+
+class _WsManager:
+    """In-process WebSocket registry. Push messages instantly to connected clients."""
+
+    def __init__(self):
+        self._queues: dict[int, dict[int, asyncio.Queue]] = {}
+
+    def subscribe(self, match_id: int, user_id: int) -> asyncio.Queue:
+        if match_id not in self._queues:
+            self._queues[match_id] = {}
+        q: asyncio.Queue = asyncio.Queue(maxsize=100)
+        self._queues[match_id][user_id] = q
+        return q
+
+    def unsubscribe(self, match_id: int, user_id: int) -> None:
+        m = self._queues.get(match_id)
+        if m:
+            m.pop(user_id, None)
+            if not m:
+                self._queues.pop(match_id, None)
+
+    def push(self, match_id: int, payload: dict, exclude_user_id: int | None = None) -> None:
+        for uid, q in list(self._queues.get(match_id, {}).items()):
+            if uid == exclude_user_id:
+                continue
+            try:
+                q.put_nowait(payload)
+            except asyncio.QueueFull:
+                pass
+
+
+_ws_manager = _WsManager()
+
 
 MAX_MESSAGE_LENGTH = 2000
 CHAT_PAGE_SIZE = 50
@@ -259,6 +293,19 @@ async def matches_page(
         for msg in result.scalars().all():
             last_message_by_match[msg.match_id] = msg
 
+    unread_by_match: dict = {}
+    if match_ids:
+        unread_result = await db.execute(
+            select(Message.match_id, func.count().label("cnt"))
+            .where(
+                Message.match_id.in_(match_ids),
+                Message.sender_id != user.id,
+                Message.is_read == False,
+            )
+            .group_by(Message.match_id)
+        )
+        unread_by_match = {row[0]: row[1] for row in unread_result.all()}
+
     partners = []
     for m in matches:
         pid = partner_id_by_match[m.id]
@@ -319,6 +366,7 @@ async def matches_page(
         "liked_me_total": liked_me_total,
         "partner_names": partner_names,
         "last_message_by_match": last_message_by_match,
+        "unread_by_match": unread_by_match,
         "archived_count": archived_count,
         "page": page,
         "total_pages": total_pages,
@@ -453,6 +501,12 @@ async def send_message(
     await db.commit()
     await db.refresh(msg)
 
+    _ws_manager.push(match_id, {
+        "messages": [{"id": msg.id, "content": msg.content, "sender_id": msg.sender_id,
+                      "created_at": msg.created_at.isoformat(), "is_image": False, "is_voice": False}],
+        "partner_read_up_to": 0, "typing": False,
+    }, exclude_user_id=user.id)
+
     sender_name = user.profile.name if hasattr(user, "profile") and user.profile else "Spark"
     preview = content[:60] + ("…" if len(content) > 60 else "")
     background_tasks.add_task(
@@ -486,6 +540,9 @@ async def typing_indicator(
             await redis.set(f"typing:{match_id}:{user.id}", "1", ex=5)
     except Exception:
         pass
+    partner_id = match.user2_id if match.user1_id == user.id else match.user1_id
+    _ws_manager.push(match_id, {"messages": [], "partner_read_up_to": 0, "typing": True},
+                     exclude_user_id=user.id)
     return JSONResponse({"ok": True})
 
 
@@ -526,6 +583,12 @@ async def send_voice(
     _update_streak(match, db)
     await db.commit()
     await db.refresh(msg)
+
+    _ws_manager.push(match_id, {
+        "messages": [{"id": msg.id, "content": msg.content, "sender_id": msg.sender_id,
+                      "created_at": msg.created_at.isoformat(), "is_image": False, "is_voice": True}],
+        "partner_read_up_to": 0, "typing": False,
+    }, exclude_user_id=user.id)
 
     return JSONResponse({
         "id": msg.id,
@@ -579,6 +642,12 @@ async def send_photo(
     _update_streak(match, db)
     await db.commit()
     await db.refresh(msg)
+
+    _ws_manager.push(match_id, {
+        "messages": [{"id": msg.id, "content": msg.content, "sender_id": msg.sender_id,
+                      "created_at": msg.created_at.isoformat(), "is_image": True, "is_voice": False}],
+        "partner_read_up_to": 0, "typing": False,
+    }, exclude_user_id=user.id)
 
     sender_name = user.profile.name if hasattr(user, "profile") and user.profile else "Spark"
     asyncio.create_task(send_push_to_user(partner_id, f"📷 {sender_name}", "Фото", f"/chat/{match_id}", "message"))
@@ -993,3 +1062,59 @@ async def chat_stream(
             "Connection": "keep-alive",
         },
     )
+
+
+@router.websocket("/ws/chat/{match_id}")
+async def chat_websocket(match_id: int, websocket: WebSocket):
+    """WebSocket chat — instant delivery, no polling lag. SSE remains as fallback."""
+    token = websocket.cookies.get("access_token")
+    if not token:
+        await websocket.close(code=4001)
+        return
+
+    try:
+        import jwt as _jwt
+        from app.auth import SECRET_KEY, ALGORITHM
+        payload = _jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = int(payload.get("sub"))
+        token_version = int(payload.get("tv", 0))
+    except Exception:
+        await websocket.close(code=4001)
+        return
+
+    async with AsyncSessionLocal() as db:
+        match_result = await db.execute(select(Match).where(Match.id == match_id))
+        match = match_result.scalar_one_or_none()
+        if not match or (match.user1_id != user_id and match.user2_id != user_id):
+            await websocket.close(code=4003)
+            return
+        user_result = await db.execute(select(User).where(User.id == user_id, User.is_active == True))
+        db_user = user_result.scalar_one_or_none()
+        if not db_user or (db_user.token_version or 0) != token_version:
+            await websocket.close(code=4001)
+            return
+
+    await websocket.accept()
+    q = _ws_manager.subscribe(match_id, user_id)
+
+    async def _sender():
+        while True:
+            data = await q.get()
+            try:
+                await websocket.send_json(data)
+            except Exception:
+                break
+
+    sender_task = asyncio.create_task(_sender())
+    try:
+        while True:
+            text = await websocket.receive_text()
+            if text == "ping":
+                await websocket.send_text("pong")
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        sender_task.cancel()
+        _ws_manager.unsubscribe(match_id, user_id)
