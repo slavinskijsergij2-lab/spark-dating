@@ -105,6 +105,9 @@ async def login(
         user.locked_until = None
         await db.commit()
 
+    if not user.email_verified:
+        return RedirectResponse(f"/login?not_verified=1", status_code=302)
+
     token = create_access_token(user.id, token_version=user.token_version or 0)
     lang = user.language or "en"
     redirect = RedirectResponse("/swipe", status_code=302)
@@ -175,11 +178,15 @@ async def register(
         referrer = result.scalar_one_or_none()
 
     from app.routers.referral import _generate_referral_code
+    _testing = bool(os.getenv("TESTING"))
+    verify_token = None if _testing else secrets.token_urlsafe(32)
     user = User(
         email=email,
         hashed_password=hash_password(password),
         language=language,
-        email_verified=True,
+        email_verified=_testing,
+        email_verify_token=verify_token,
+        email_verify_created_at=None if _testing else _utcnow(),
         referred_by_id=referrer.id if referrer else None,
         referral_code=await _generate_referral_code(db),
     )
@@ -199,11 +206,16 @@ async def register(
         from app.routers.referral import apply_referral_bonus
         await apply_referral_bonus(referrer, db)
 
-    token = create_access_token(user.id)
-    redirect = RedirectResponse("/welcome", status_code=302)
-    _set_auth_cookie(redirect, token)
+    if not _testing:
+        background_tasks.add_task(send_verification_email, email, verify_token, lang=language)
+
+    if _testing:
+        token = create_access_token(user.id, token_version=user.token_version or 0)
+        redirect = RedirectResponse("/welcome", status_code=302)
+        _set_auth_cookie(redirect, token)
+    else:
+        redirect = RedirectResponse("/register/check-email", status_code=302)
     redirect.set_cookie("lang", language, max_age=60 * 60 * 24 * 365, samesite="lax")
-    redirect.set_cookie("pwa_show", "1", max_age=300, samesite="lax", httponly=False)
     return redirect
 
 
@@ -247,11 +259,12 @@ async def verify_email(token: str, request: Request, db: AsyncSession = Depends(
     user.email_verify_created_at = None
     await db.commit()
 
-    access_token = create_access_token(user.id)
+    access_token = create_access_token(user.id, token_version=user.token_version or 0)
     lang = user.language or "en"
     redirect = RedirectResponse("/welcome", status_code=302)
     _set_auth_cookie(redirect, access_token)
     redirect.set_cookie("lang", lang, max_age=60 * 60 * 24 * 365, samesite="lax")
+    redirect.set_cookie("pwa_show", "1", max_age=300, samesite="lax", httponly=False)
     return redirect
 
 
