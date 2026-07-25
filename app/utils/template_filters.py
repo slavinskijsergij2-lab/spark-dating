@@ -2,19 +2,20 @@
 import json
 from datetime import datetime
 
+from markupsafe import Markup
 from app.utils.time import utcnow as _utcnow
 
 
-def tojson_filter(value, indent=None) -> str:
-    """Serialize *value* to JSON, escaping ``</script>`` so it's safe inside
-    a ``<script>`` block.  Use ``| tojson | safe`` in templates."""
+def tojson_filter(value, indent=None) -> Markup:
+    """Serialize *value* to JSON, safe inside a ``<script>`` block.
+    Returns Markup so Jinja2 autoescape does not double-encode the quotes."""
     def _default(o):
         if isinstance(o, datetime):
             return o.isoformat()
         raise TypeError(f"Not JSON serializable: {type(o)}")
 
     result = json.dumps(value, default=_default, indent=indent, ensure_ascii=False)
-    return result.replace("</", "<\\/").replace("<!--", "<\\!--")
+    return Markup(result.replace("</", "<\\/").replace("<!--", "<\\!--"))
 
 
 _ONLINE_LABELS: dict[str, tuple[str, str, str]] = {

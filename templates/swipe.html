@@ -119,18 +119,6 @@
 {% set os = online_status(candidate.last_seen, lang) %}
 {% endif %}
 
-{% if completion and completion.pct < 70 %}
-<a href="/profile/edit" class="flex items-center gap-3 mb-3 px-4 py-3 rounded-2xl border border-yellow-200 bg-yellow-50 hover:bg-yellow-100 transition">
-  <div class="flex-shrink-0 w-10 h-10 rounded-full bg-yellow-100 border border-yellow-200 flex items-center justify-center text-lg">⚡</div>
-  <div class="flex-1 min-w-0">
-    <div class="text-sm font-bold text-yellow-800">Заполни профиль — получи больше лайков</div>
-    <div class="w-full bg-yellow-200 rounded-full h-1.5 mt-1.5">
-      <div class="h-1.5 rounded-full bg-yellow-500" style="width:{{ completion.pct }}%"></div>
-    </div>
-  </div>
-  <span class="flex-shrink-0 text-yellow-600 font-black text-sm">{{ completion.pct }}%</span>
-</a>
-{% endif %}
 
 {% if not candidate %}
 <!-- ══ ПУСТОЙ СВАЙП ══ -->

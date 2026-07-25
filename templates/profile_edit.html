@@ -413,9 +413,9 @@ function fixAndPreviewPhoto(input, previewId, placeholderId, autoSubmit) {
 
 <script>
 (function() {
-  var _intention = {{ cur_intention | tojson }};
+  var _intention = {{ cur_intention | tojson | safe }};
   var _anon = {{ 'true' if cur_anon else 'false' }};
-  var _selectedTags = {{ selTags | tojson }};
+  var _selectedTags = {{ selTags | tojson | safe }};
 
   window.selectIntention = function(btn) {
     var val = btn.dataset.val;
