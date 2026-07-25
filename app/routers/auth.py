@@ -203,6 +203,7 @@ async def register(
     redirect = RedirectResponse("/welcome", status_code=302)
     _set_auth_cookie(redirect, token)
     redirect.set_cookie("lang", language, max_age=60 * 60 * 24 * 365, samesite="lax")
+    redirect.set_cookie("pwa_show", "1", max_age=300, samesite="lax", httponly=False)
     return redirect
 
 

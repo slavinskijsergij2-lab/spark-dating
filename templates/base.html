@@ -543,25 +543,27 @@ window.addEventListener('beforeinstallprompt', function(e) {
   _deferredInstallPrompt = e;
 });
 
-// Show PWA sheet to everyone after 5 sec
-if (!_isStandalone && _shouldShowPwa()) {
-  setTimeout(function() {
-    if (_deferredInstallPrompt) {
-      // Chrome/Edge/Android: one-tap install button
-      var btn = document.getElementById('pwa-install-btn');
-      if (btn) btn.style.display = 'block';
-    } else if (_isIOS) {
-      // iOS Safari: manual steps
-      var steps = document.getElementById('pwa-ios-steps');
-      if (steps) steps.style.display = 'block';
-    } else {
-      // Firefox, Opera, desktop and others: generic steps
-      var gen = document.getElementById('pwa-generic-steps');
-      if (gen) gen.style.display = 'block';
-    }
-    openPwaSheet();
-  }, 5000);
-}
+// Show PWA sheet 5 sec after registration (cookie set by server on register)
+(function() {
+  var hasCookie = document.cookie.split('; ').some(function(c) { return c.startsWith('pwa_show='); });
+  if (!_isStandalone && _shouldShowPwa() && hasCookie) {
+    // Consume the cookie immediately — show only once
+    document.cookie = 'pwa_show=; max-age=0; path=/; samesite=lax';
+    setTimeout(function() {
+      if (_deferredInstallPrompt) {
+        var btn = document.getElementById('pwa-install-btn');
+        if (btn) btn.style.display = 'block';
+      } else if (_isIOS) {
+        var steps = document.getElementById('pwa-ios-steps');
+        if (steps) steps.style.display = 'block';
+      } else {
+        var gen = document.getElementById('pwa-generic-steps');
+        if (gen) gen.style.display = 'block';
+      }
+      openPwaSheet();
+    }, 5000);
+  }
+})();
 // ── end PWA install ──────────────────────────────────────────────────────────
 
 async function _initSW() {
