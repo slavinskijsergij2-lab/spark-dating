@@ -356,6 +356,7 @@ async def do_swipe(
         return JSONResponse({"error": "User not found"}, status_code=404)
 
     matched = False
+    _match_id: int | None = None
     _cached_daily_super: int | None = None  # lazily populated to avoid double DB query
     result = await db.execute(
         select(Like).where(Like.liker_id == user.id, Like.liked_id == target_id)
@@ -407,6 +408,7 @@ async def do_swipe(
                 existing_match = result.scalar_one_or_none()
                 if existing_match:
                     matched = True
+                    _match_id = existing_match.id
                 else:
                     match = Match(user1_id=u1_id, user2_id=u2_id)
                     db.add(match)
@@ -414,6 +416,7 @@ async def do_swipe(
                         await db.commit()
                         await db.refresh(match)
                         matched = True
+                        _match_id = match.id
                         if is_smtp_configured() and like_committed:
                             user_name = user.profile.name if user.profile else "Someone"
                             target_name = target.profile.name if target.profile else "Someone"
@@ -461,6 +464,9 @@ async def do_swipe(
 
     return JSONResponse({
         "matched": matched,
+        "match_id": _match_id,
+        "match_photo": (target.profile.photo if target.profile else None) if matched else None,
+        "match_name": (target.profile.name if target.profile else "") if matched else None,
         "next": next_data,
         "super_likes_left": super_likes_left,
         "can_undo": last_like is not None and user.is_premium_active,

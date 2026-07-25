@@ -9,9 +9,37 @@
     background: white;
     box-shadow: 0 8px 40px rgba(0,0,0,.15);
     transition: transform .25s ease, opacity .25s ease;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
   }
   .swipe-card.fly-left  { transform: translateX(-120%) rotate(-12deg); opacity: 0; }
   .swipe-card.fly-right { transform: translateX(120%)  rotate(12deg);  opacity: 0; }
+  .swipe-card.snap-back { transition: transform .3s cubic-bezier(.34,1.26,.64,1); }
+
+  .drag-label {
+    position: absolute; top: 18px; padding: 6px 14px;
+    border-radius: 8px; font-size: 22px; font-weight: 900;
+    opacity: 0; transition: opacity .1s; pointer-events: none; z-index: 10;
+    letter-spacing: 1px; border-width: 3px; border-style: solid;
+  }
+  .drag-label-like  { left: 18px;  color: #22c55e; border-color: #22c55e; transform: rotate(-15deg); }
+  .drag-label-nope  { right: 18px; color: #ef4444; border-color: #ef4444; transform: rotate(15deg); }
+
+  /* ── Матч-экран ──────────────────────────────── */
+  #match-overlay {
+    display: none; position: fixed; inset: 0; z-index: 9999;
+    background: linear-gradient(160deg,#be185d 0%,#ec4899 45%,#a855f7 100%);
+    flex-direction: column; align-items: center; justify-content: center;
+    padding: 32px 24px; opacity: 0; transition: opacity .35s ease;
+  }
+  #match-overlay.visible { opacity: 1; }
+  @keyframes match-pop { 0%{transform:scale(0) rotate(-10deg)} 70%{transform:scale(1.12) rotate(3deg)} 100%{transform:scale(1) rotate(0)} }
+  @keyframes heart-rain { 0%{transform:translateY(-20px);opacity:1} 100%{transform:translateY(110vh);opacity:0} }
+  .match-heart-particle {
+    position: fixed; top: -10px; font-size: 20px; pointer-events: none;
+    animation: heart-rain linear infinite;
+  }
 
   .card-photo {
     position: relative;
@@ -206,7 +234,9 @@
   {% endif %}
 
   <!-- Карточка — рендерится сервером, Alpine обновляет динамически -->
-  <div class="swipe-card" id="card-el">
+  <div class="swipe-card" id="card-el" style="position:relative;">
+    <div class="drag-label drag-label-like" id="drag-like">ЛАЙК</div>
+    <div class="drag-label drag-label-nope" id="drag-nope">НOPE</div>
     <!-- Фото -->
     <div class="card-photo">
       <span>👤</span>
@@ -284,6 +314,7 @@
   var likesLeft = {{ likes_left if likes_left is not none else 'null' }};
   var canUndo   = {{ 'true' if can_undo else 'false' }};
   var swiping   = false;
+  var _userPhoto = {{ (user.profile.photo if user.profile and user.profile.photo else '') | tojson | safe }};
   // Geo filter: read location_id from current URL so it survives swipe POST calls
   var _geoParam = (function() {
     var p = new URLSearchParams(window.location.search);
@@ -396,7 +427,7 @@
           showLimitModal();
           return;
         }
-        if (data.matched) { window.location.href = '/matches'; return; }
+        if (data.matched) { showMatchScreen(data); return; }
         if (data.super_likes_left !== undefined) {
           superLeft = data.super_likes_left;
           var badge = document.getElementById('super-left-badge');
@@ -434,7 +465,7 @@
       })
       .then(function(data){
         if (!data) return;
-        if (data.matched) { window.location.href = '/matches'; return; }
+        if (data.matched) { showMatchScreen(data); return; }
         if (data.super_likes_left !== undefined) {
           superLeft = data.super_likes_left;
           var badge = document.getElementById('super-left-badge');
@@ -453,8 +484,170 @@
   };
 
   window.addEventListener('pageshow', function(e){ if (e.persisted) window.location.reload(); });
+
+  // ── Матч-экран ─────────────────────────────────────────────────────────────
+  var _matchNextData = null;
+
+  window.showMatchScreen = function(data) {
+    var overlay = document.getElementById('match-overlay');
+    if (!overlay) { window.location.href = '/matches'; return; }
+    _matchNextData = data;
+
+    var me = document.getElementById('match-photo-me');
+    var them = document.getElementById('match-photo-them');
+    var nameEl = document.getElementById('match-name-text');
+    var chatBtn = document.getElementById('match-chat-btn');
+
+    if (me)  { me.src = _userPhoto || ''; me.style.display = _userPhoto ? '' : 'none'; }
+    if (them){ them.src = data.match_photo || ''; them.style.display = data.match_photo ? '' : 'none'; }
+    if (nameEl) nameEl.textContent = data.match_name ? '{{ t.get("match_subtitle","Вы понравились друг другу!") }}'.replace('!', ' с ' + data.match_name + '!') : '{{ t.get("match_subtitle","Вы понравились друг другу!") }}';
+    if (chatBtn && data.match_id) chatBtn.href = '/chat/' + data.match_id;
+
+    _spawnHearts();
+    overlay.style.display = 'flex';
+    requestAnimationFrame(function(){ requestAnimationFrame(function(){ overlay.classList.add('visible'); }); });
+    document.body.style.overflow = 'hidden';
+  };
+
+  window.closeMatchScreen = function() {
+    var overlay = document.getElementById('match-overlay');
+    if (!overlay) return;
+    overlay.classList.remove('visible');
+    setTimeout(function(){
+      overlay.style.display = 'none';
+      document.body.style.overflow = '';
+      _clearHearts();
+      var d = _matchNextData; _matchNextData = null;
+      if (d && d.next) { updateCard(d.next); setBusy(false); }
+      else { hideCard(); }
+    }, 350);
+  };
+
+  var _heartEls = [];
+  function _spawnHearts() {
+    for (var i = 0; i < 14; i++) {
+      (function(i){
+        setTimeout(function(){
+          var el = document.createElement('span');
+          el.className = 'match-heart-particle';
+          el.textContent = ['💘','💖','💗','✨','💕'][i % 5];
+          el.style.left = (Math.random() * 100) + 'vw';
+          el.style.animationDuration = (2.5 + Math.random() * 2.5) + 's';
+          el.style.animationDelay = '0s';
+          el.style.fontSize = (14 + Math.random() * 16) + 'px';
+          document.body.appendChild(el);
+          _heartEls.push(el);
+        }, i * 180);
+      })(i);
+    }
+  }
+  function _clearHearts() {
+    _heartEls.forEach(function(el){ if (el.parentNode) el.parentNode.removeChild(el); });
+    _heartEls = [];
+  }
+
+  // ── Touch / pointer drag-to-swipe ──────────────────────────────────────────
+  var _drag = null;
+  var _THRESHOLD = 90;
+
+  function _cardEl() { return document.getElementById('card-el'); }
+
+  function _onPointerDown(e) {
+    if (swiping || e.button > 0) return;
+    var el = _cardEl();
+    if (!el) return;
+    el.classList.remove('snap-back');
+    _drag = { startX: e.clientX, el: el };
+    el.setPointerCapture(e.pointerId);
+  }
+
+  function _onPointerMove(e) {
+    if (!_drag) return;
+    var dx = e.clientX - _drag.startX;
+    var rot = dx * 0.06;
+    _drag.el.style.transform = 'translateX(' + dx + 'px) rotate(' + rot + 'deg)';
+    var likeEl = document.getElementById('drag-like');
+    var nopeEl = document.getElementById('drag-nope');
+    var t = Math.min(Math.abs(dx) / _THRESHOLD, 1);
+    if (dx > 0) {
+      if (likeEl) likeEl.style.opacity = t;
+      if (nopeEl) nopeEl.style.opacity = 0;
+    } else {
+      if (nopeEl) nopeEl.style.opacity = t;
+      if (likeEl) likeEl.style.opacity = 0;
+    }
+  }
+
+  function _onPointerUp(e) {
+    if (!_drag) return;
+    var dx = e.clientX - _drag.startX;
+    var el = _drag.el;
+    _drag = null;
+    var likeEl = document.getElementById('drag-like');
+    var nopeEl = document.getElementById('drag-nope');
+    if (likeEl) likeEl.style.opacity = 0;
+    if (nopeEl) nopeEl.style.opacity = 0;
+
+    if (dx > _THRESHOLD)       { doSwipe('like'); }
+    else if (dx < -_THRESHOLD) { doSwipe('dislike'); }
+    else {
+      el.classList.add('snap-back');
+      el.style.transform = '';
+      setTimeout(function(){ el.classList.remove('snap-back'); }, 300);
+    }
+  }
+
+  function _onPointerCancel() {
+    if (!_drag) return;
+    var el = _drag.el;
+    _drag = null;
+    el.classList.add('snap-back');
+    el.style.transform = '';
+    setTimeout(function(){ el.classList.remove('snap-back'); }, 300);
+  }
+
+  (function attachDrag() {
+    var el = _cardEl();
+    if (!el) return;
+    el.addEventListener('pointerdown',   _onPointerDown);
+    el.addEventListener('pointermove',   _onPointerMove);
+    el.addEventListener('pointerup',     _onPointerUp);
+    el.addEventListener('pointercancel', _onPointerCancel);
+  })();
+
+  window.addEventListener('pageshow', function(e){ if (e.persisted) window.location.reload(); });
 })();
 </script>
+
+<!-- ══ МАТЧ-ЭКРАН ══ -->
+<div id="match-overlay">
+  <!-- Аватары -->
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:28px;animation:match-pop .5s cubic-bezier(.34,1.26,.64,1) both .1s;">
+    <div style="width:110px;height:110px;border-radius:50%;border:4px solid rgba(255,255,255,.6);overflow:hidden;background:rgba(255,255,255,.2);flex-shrink:0;">
+      <img id="match-photo-me" src="" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none'" />
+    </div>
+    <div style="font-size:40px;flex-shrink:0;">💘</div>
+    <div style="width:110px;height:110px;border-radius:50%;border:4px solid rgba(255,255,255,.6);overflow:hidden;background:rgba(255,255,255,.2);flex-shrink:0;">
+      <img id="match-photo-them" src="" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none'" />
+    </div>
+  </div>
+  <!-- Текст -->
+  <div style="text-align:center;color:white;margin-bottom:36px;animation:match-pop .5s cubic-bezier(.34,1.26,.64,1) both .25s;">
+    <div style="font-size:36px;font-weight:900;letter-spacing:-1px;margin-bottom:8px;">{{ t.get('its_a_match','Это матч!') }}</div>
+    <div id="match-name-text" style="font-size:16px;opacity:.85;"></div>
+  </div>
+  <!-- Кнопки -->
+  <div style="display:flex;flex-direction:column;gap:12px;width:100%;max-width:320px;animation:match-pop .5s cubic-bezier(.34,1.26,.64,1) both .4s;">
+    <a id="match-chat-btn" href="/matches"
+       style="display:block;background:white;color:#ec4899;padding:16px;border-radius:999px;font-size:16px;font-weight:800;text-align:center;text-decoration:none;box-shadow:0 6px 24px rgba(0,0,0,.15);">
+      💬 {{ t.get('match_send_msg','Написать') }}
+    </a>
+    <button onclick="closeMatchScreen()"
+            style="background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.5);color:white;padding:14px;border-radius:999px;font-size:15px;font-weight:700;cursor:pointer;">
+      ✨ {{ t.get('match_keep_swiping','Продолжить') }}
+    </button>
+  </div>
+</div>
 
 <!-- ══ МОДАЛКА: лимит лайков ══ -->
 <div id="limit-modal"
