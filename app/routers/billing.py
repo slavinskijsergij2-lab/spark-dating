@@ -23,6 +23,7 @@ _STRIPE_SK = os.getenv("STRIPE_SECRET_KEY", "")
 _STRIPE_WH = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 _PRICE_MONTHLY = os.getenv("STRIPE_PRICE_MONTHLY", "")
 _PRICE_LIFETIME = os.getenv("STRIPE_PRICE_LIFETIME", "")
+_STRIPE_PORTAL_CONFIG = os.getenv("STRIPE_PORTAL_CONFIG", "")
 
 stripe_enabled = bool(_STRIPE_SK and (_PRICE_MONTHLY or _PRICE_LIFETIME))
 
@@ -129,6 +130,45 @@ async def billing_cancel():
     return RedirectResponse("/premium", status_code=302)
 
 
+# Cached portal configuration ID — created once on first use, survives restarts
+_portal_config_id: str | None = None
+
+
+async def _ensure_portal_config(stripe_module) -> str | None:
+    """Create a Stripe Customer Portal configuration via API (no Dashboard setup needed)."""
+    global _portal_config_id
+    if _portal_config_id:
+        return _portal_config_id
+    try:
+        config = await asyncio.to_thread(
+            stripe_module.billing_portal.Configuration.create,
+            business_profile={
+                "headline": "Spark Dating — управление подпиской",
+                "privacy_policy_url": "https://spark-dating-production.up.railway.app/privacy",
+                "terms_of_service_url": "https://spark-dating-production.up.railway.app/privacy",
+            },
+            features={
+                "invoice_history": {"enabled": True},
+                "payment_method_update": {"enabled": True},
+                "subscription_cancel": {
+                    "enabled": True,
+                    "mode": "at_period_end",
+                    "proration_behavior": "none",
+                    "cancellation_reason": {
+                        "enabled": True,
+                        "options": ["too_expensive", "missing_features", "switched_service", "other"],
+                    },
+                },
+            },
+        )
+        _portal_config_id = config.id
+        logging.info("billing: created portal config %s", _portal_config_id)
+        return _portal_config_id
+    except Exception as e:
+        logging.warning("billing: could not create portal config: %s", e)
+        return None
+
+
 @router.post("/portal", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(10, 60))])
 async def billing_portal(
     request: Request,
@@ -145,10 +185,18 @@ async def billing_portal(
     base_url = str(request.base_url).rstrip("/")
 
     try:
-        portal_session = await asyncio.to_thread(
-            _stripe.billing_portal.Session.create,
+        # Use env-var config first; fall back to auto-create via API
+        config_id = _STRIPE_PORTAL_CONFIG or await _ensure_portal_config(_stripe)
+        session_kwargs: dict = dict(
             customer=user.stripe_customer_id,
             return_url=f"{base_url}/premium",
+        )
+        if config_id:
+            session_kwargs["configuration"] = config_id
+
+        portal_session = await asyncio.to_thread(
+            _stripe.billing_portal.Session.create,
+            **session_kwargs,
         )
         return JSONResponse({"url": portal_session.url})
     except Exception as e:
