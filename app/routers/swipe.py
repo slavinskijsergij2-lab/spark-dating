@@ -104,7 +104,7 @@ async def _likes_today(user_id: int, db: AsyncSession) -> int:
     return result.scalar() or 0
 
 
-DISLIKE_RESHOW_DAYS = 7
+DISLIKE_RESHOW_DAYS = 1
 FREE_DAILY_LIKES = 20
 
 
