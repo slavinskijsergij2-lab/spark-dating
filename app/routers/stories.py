@@ -23,6 +23,12 @@ router = APIRouter()
 STORY_TTL_HOURS = 24
 MAX_STORY_IMG_BYTES = 5 * 1024 * 1024
 
+# FIX High #6: set PIL pixel limit here to prevent decompression bomb DoS.
+# profile.py sets this too, but module import order is not guaranteed.
+# 25 MP is sufficient for any real photo; a crafted TIFF claiming billions
+# of pixels would otherwise allocate gigabytes of RAM.
+Image.MAX_IMAGE_PIXELS = 25_000_000
+
 
 def _active_stories_stmt():
     """Return a base SELECT statement for non-expired stories."""
@@ -45,6 +51,8 @@ async def create_story(
             return JSONResponse({"error": "Image too large (max 5 MB)"}, status_code=400)
         try:
             img = Image.open(io.BytesIO(raw))
+            img.verify()          # raises on malformed/truncated files
+            img = Image.open(io.BytesIO(raw))  # re-open after verify() consumes the file
             img.thumbnail((600, 600), Image.LANCZOS)
             img = img.convert("RGB")
             buf = io.BytesIO()
@@ -65,7 +73,6 @@ async def create_story(
     )
     existing = result.scalar_one_or_none()
     if existing:
-        # Keep original expires_at — don't extend the 24h window on every edit
         existing.content = content
         existing.media_type = media_type
         await db.commit()
@@ -78,7 +85,6 @@ async def create_story(
         await db.commit()
         await db.refresh(story)
     except IntegrityError:
-        # Race: another concurrent request already inserted — update it instead
         await db.rollback()
         result2 = await db.execute(select(Story).where(Story.user_id == user.id))
         story = result2.scalar_one()
@@ -134,7 +140,8 @@ async def stories_feed(user: User = Depends(get_current_user), db: AsyncSession 
 
     user_ids = list(by_user.keys())
     result = await db.execute(
-        select(User).options(joinedload(User.profile)).where(User.id.in_(user_ids))
+        select(User).options(joinedload(User.profile))
+        .where(User.id.in_(user_ids), User.is_active == True)
     )
     users_map = {u.id: u for u in result.scalars().unique().all()}
 

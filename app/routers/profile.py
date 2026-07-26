@@ -315,8 +315,12 @@ async def delete_account(
         for ph in result2.scalars().all():
             remove_photo_file(ph.url)
 
+    user_id = user.id
     await db.delete(user)
     await db.commit()
+    # FIX Medium #13: invalidate cache so the 30-second TTL doesn't allow
+    # a deleted user to keep authenticating via a still-valid JWT.
+    invalidate_user_cache(user_id)
 
     resp = RedirectResponse("/", status_code=302)
     resp.delete_cookie("access_token")

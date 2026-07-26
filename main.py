@@ -308,7 +308,15 @@ async def _self_monitor() -> None:
     await asyncio.sleep(120)  # дать время на старт
     import httpx
     admin_email = os.getenv("ADMIN_EMAIL", "slavinskijsergij2@gmail.com")
-    own_url = "https://spark-dating-production.up.railway.app/health"
+    # FIX Low #29: don't hardcode the production URL — use the Railway-injected
+    # public URL env var so staging/preview environments monitor themselves.
+    own_url = os.getenv(
+        "RAILWAY_PUBLIC_DOMAIN",
+        "spark-dating-production.up.railway.app",
+    )
+    if not own_url.startswith("http"):
+        own_url = f"https://{own_url}"
+    own_url = own_url.rstrip("/") + "/health"
     while True:
         try:
             async with httpx.AsyncClient(timeout=15) as client:
@@ -357,7 +365,9 @@ async def _reactivation_email_loop() -> None:
             from sqlalchemy import select, or_, func
             from datetime import datetime, timedelta
 
-            now = datetime.utcnow()
+            # FIX Low #25: use project-standard utcnow() instead of deprecated datetime.utcnow()
+            from app.utils.time import utcnow as _utcnow_reactivation
+            now = _utcnow_reactivation()
             cutoff_min = now - timedelta(days=4)
             cutoff_max = now - timedelta(days=3)
 
@@ -427,6 +437,20 @@ async def max_body_size_middleware(request: Request, call_next):
             return JSONResponse({"detail": "Invalid Content-Length"}, status_code=400)
         if cl_int > _MAX_BODY_BYTES:
             return JSONResponse({"detail": "Request body too large (max 12 MB)"}, status_code=413)
+    else:
+        # FIX High #8: clients can omit Content-Length (e.g. chunked transfer).
+        # Stream-read the body up to the limit + 1 byte to detect oversize payloads
+        # before they reach route handlers and exhaust server memory.
+        if request.method in ("POST", "PUT", "PATCH"):
+            body_so_far = b""
+            async for chunk in request.stream():
+                body_so_far += chunk
+                if len(body_so_far) > _MAX_BODY_BYTES:
+                    return JSONResponse({"detail": "Request body too large (max 12 MB)"}, status_code=413)
+            # Re-inject the body so downstream handlers can read it normally.
+            async def _body_stream():
+                yield body_so_far
+            request._stream = _body_stream()
     return await call_next(request)
 
 _CSRF_COOKIE = "csrftoken"
@@ -623,7 +647,8 @@ async def health():
 @app.get("/metrics")
 def app_metrics(token: str = Query(default="")):
     required = os.getenv("METRICS_TOKEN", "")
-    if not required or token != required:
+    # FIX High #5: constant-time comparison to prevent token brute-force via timing.
+    if not required or not secrets.compare_digest(token, required):
         raise HTTPException(403, "Forbidden")
     with _m_lock:
         return JSONResponse({
@@ -637,7 +662,8 @@ def app_metrics(token: str = Query(default="")):
 @app.get("/errors")
 async def app_errors(token: str = Query(default="")):
     required = os.getenv("METRICS_TOKEN", "")
-    if not required or token != required:
+    # FIX High #5: constant-time comparison to prevent timing-based token recovery.
+    if not required or not secrets.compare_digest(token, required):
         raise HTTPException(403, "Forbidden")
     try:
         from app.database import AsyncSessionLocal
@@ -672,7 +698,11 @@ async def app_errors(token: str = Query(default="")):
 
 @app.get("/sentry-debug/")
 @app.get("/sentry-debug")
-async def sentry_debug():
+async def sentry_debug(token: str = Query(default="")):
+    # FIX Medium #18: require auth token to prevent public abuse that floods Sentry quota.
+    required = os.getenv("METRICS_TOKEN", "")
+    if not required or not secrets.compare_digest(token, required):
+        raise HTTPException(403, "Forbidden")
     raise RuntimeError("Sentry debug: error tracking is working!")
 
 

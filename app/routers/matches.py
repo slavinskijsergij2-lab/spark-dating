@@ -173,7 +173,10 @@ async def archived_matches_page(
     all_partner_ids = list(partner_id_by_match.values())
     if all_partner_ids:
         result = await db.execute(
-            select(User).options(joinedload(User.profile)).where(User.id.in_(all_partner_ids))
+            # FIX Medium #14: filter out banned (is_active=False) partners so they
+            # don't appear in the match list even if the match record still exists.
+            select(User).options(joinedload(User.profile))
+            .where(User.id.in_(all_partner_ids), User.is_active == True)
         )
         partners_map = {u.id: u for u in result.scalars().unique().all()}
     else:
@@ -301,7 +304,9 @@ async def matches_page(
     all_partner_ids = list(partner_id_by_match.values())
     if all_partner_ids:
         result = await db.execute(
-            select(User).options(joinedload(User.profile)).where(User.id.in_(all_partner_ids))
+            # FIX Medium #14: exclude banned partners from the active matches page too.
+            select(User).options(joinedload(User.profile))
+            .where(User.id.in_(all_partner_ids), User.is_active == True)
         )
         partners_map = {u.id: u for u in result.scalars().unique().all()}
     else:

@@ -30,7 +30,10 @@ _RETRY_INTERVAL = 60.0  # seconds before we try Redis again after a failure
 
 # Single-instance deployments: skip Redis for rate limiting (zero-latency in-memory is equivalent).
 # Redis is still used for cross-request caches (archive throttle, compat scores) via _get_redis().
-_RATE_LIMIT_INMEMORY = bool(os.getenv("RATE_LIMIT_INMEMORY", "1"))
+# FIX Medium #23: bool("0") == True in Python, so we can't use bool() directly.
+# Parse the env var explicitly: any non-empty, non-zero value means "in-memory mode".
+_rate_limit_env = os.getenv("RATE_LIMIT_INMEMORY", "1")
+_RATE_LIMIT_INMEMORY = _rate_limit_env.strip() not in ("0", "false", "no", "")
 
 
 async def _get_redis():

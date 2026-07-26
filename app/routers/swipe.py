@@ -161,7 +161,11 @@ async def find_next_candidate(
         q = q.where(Profile.intention == intention)
 
     if city and city.strip():
-        q = q.where(Profile.city.ilike(f"%{city.strip()}%"))
+        # FIX Medium #24: escape SQL LIKE wildcards in user input to prevent
+        # "%" and "_" from acting as match-all patterns and causing full table scans.
+        from sqlalchemy import literal
+        city_clean = city.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        q = q.where(Profile.city.ilike(f"%{city_clean}%", escape="\\"))
 
     if online_only:
         from datetime import timedelta

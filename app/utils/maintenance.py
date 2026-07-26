@@ -94,9 +94,15 @@ def do_cleanup() -> None:
             if r.rowcount:
                 logging.info("cleanup: deleted %d old profile views", r.rowcount)
 
+            # FIX High #11: was deleting ALL users with is_active=FALSE, which includes
+            # banned accounts. Now only deletes genuinely unverified (email not confirmed)
+            # accounts that are still active but never verified within 7 days.
             cutoff_unverified = now - timedelta(days=7)
             r = conn.execute(_t(
-                "DELETE FROM users WHERE is_active = FALSE AND created_at < :cutoff"
+                "DELETE FROM users "
+                "WHERE is_active = TRUE "
+                "  AND email_verified = FALSE "
+                "  AND created_at < :cutoff"
             ), {"cutoff": cutoff_unverified})
             if r.rowcount:
                 logging.info("cleanup: deleted %d stale unverified accounts", r.rowcount)

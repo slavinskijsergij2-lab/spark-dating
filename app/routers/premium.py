@@ -1,4 +1,5 @@
 import os
+import secrets
 from datetime import timedelta
 
 _stripe_enabled = bool(os.getenv("STRIPE_SECRET_KEY") and (os.getenv("STRIPE_PRICE_MONTHLY") or os.getenv("STRIPE_PRICE_LIFETIME")))
@@ -53,16 +54,27 @@ async def activate_premium(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if _PREMIUM_CODES:
-        try:
-            data = await request.json()
-        except Exception:
-            data = {}
-        code = (data.get("code") or "").strip()
-        if code not in _PREMIUM_CODES:
-            lang = get_lang(request, user)
-            t = get_translations(lang)
-            return JSONResponse({"error": t.get("premium_code_invalid", "Invalid activation code")}, status_code=400)
+    lang = get_lang(request, user)
+    t = get_translations(lang)
+
+    # FIX Critical #1: require code when PREMIUM_CODES is set;
+    # block activation entirely when codes are NOT configured (Stripe is the only path).
+    if not _PREMIUM_CODES:
+        # No activation codes configured — premium is only via Stripe payment.
+        return JSONResponse({"error": t.get("premium_code_invalid", "Invalid activation code")}, status_code=400)
+
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    code = (data.get("code") or "").strip()
+
+    # FIX Medium #12: constant-time comparison to prevent timing attacks on code enumeration.
+    # Compare against every code with secrets.compare_digest to avoid short-circuit.
+    matched = any(secrets.compare_digest(code, valid_code) for valid_code in _PREMIUM_CODES)
+    if not matched:
+        return JSONResponse({"error": t.get("premium_code_invalid", "Invalid activation code")}, status_code=400)
+
     user.is_premium = True
     await db.commit()
     invalidate_user_cache(user.id)
@@ -116,7 +128,8 @@ async def who_viewed_page(request: Request, user: User = Depends(get_current_use
         viewer_ids = [r[0] for r in rows]
         last_seen_map = {r[0]: r[1] for r in rows}
         result = await db.execute(
-            select(User).options(joinedload(User.profile)).where(User.id.in_(viewer_ids))
+            select(User).options(joinedload(User.profile))
+            .where(User.id.in_(viewer_ids), User.is_active == True)
         )
         users_map = {u.id: u for u in result.scalars().unique().all() if u.profile}
         viewers = [

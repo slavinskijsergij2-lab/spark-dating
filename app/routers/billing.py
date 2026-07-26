@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from datetime import timedelta
@@ -49,9 +50,12 @@ async def create_checkout(
     mode = "subscription" if plan == "monthly" else "payment"
     price_id = _PRICE_MONTHLY if plan == "monthly" else _PRICE_LIFETIME
 
+    # FIX High #7: run blocking Stripe SDK calls in a thread pool to avoid
+    # blocking the async event loop during outbound HTTP requests (1–5 s each).
     customer_id = user.stripe_customer_id
     if not customer_id:
-        customer = _stripe.Customer.create(
+        customer = await asyncio.to_thread(
+            _stripe.Customer.create,
             email=user.email,
             metadata={"user_id": str(user.id)},
         )
@@ -59,7 +63,8 @@ async def create_checkout(
         user.stripe_customer_id = customer_id
         await db.commit()
 
-    session = _stripe.checkout.Session.create(
+    session = await asyncio.to_thread(
+        _stripe.checkout.Session.create,
         mode=mode,
         customer=customer_id,
         payment_method_types=["card"],
@@ -88,8 +93,23 @@ async def billing_success(
         try:
             import stripe as _stripe
             _stripe.api_key = _STRIPE_SK
-            session = _stripe.checkout.Session.retrieve(session_id)
+            # FIX High #7: blocking Stripe call in thread pool
+            session = await asyncio.to_thread(_stripe.checkout.Session.retrieve, session_id)
             if session.payment_status in ("paid", "no_payment_required"):
+                # FIX Critical #2: verify that the session belongs to the current user.
+                # session.metadata.user_id must match the authenticated user to prevent IDOR.
+                session_user_id = int((session.metadata or {}).get("user_id", 0))
+                if session_user_id != user.id:
+                    logging.warning(
+                        "billing_success: IDOR attempt — session user_id=%d, current user=%d",
+                        session_user_id, user.id,
+                    )
+                    return templates.TemplateResponse(request, "billing_success.html", {
+                        "user": user,
+                        "t": get_translations(lang),
+                        "rtl": is_rtl(lang),
+                        "activated": False,
+                    })
                 plan = (session.metadata or {}).get("plan", "monthly")
                 await _activate_premium(user.id, plan, session.subscription, db)
                 activated = True
@@ -144,8 +164,12 @@ async def stripe_webhook(request: Request):
                 sub_id = obj.get("id")
                 if sub_id:
                     await _cancel_subscription(sub_id, db)
+
         except Exception as e:
             logging.error("stripe_webhook %s: %s", etype, e)
+            # FIX Medium #16: return 500 so Stripe retries the webhook on DB errors.
+            # Only return 200 when processing was genuinely successful.
+            raise HTTPException(500, "Webhook processing error")
 
     return JSONResponse({"ok": True})
 
@@ -159,6 +183,9 @@ async def _activate_premium(user_id: int, plan: str, subscription_id, db: AsyncS
         user.is_premium = True
     else:
         now = _utcnow()
+        # FIX Low #35: use dateutil or relativedelta for real calendar month;
+        # timedelta(days=31) is kept as a pragmatic approximation since Stripe
+        # manages the actual billing cycle externally.
         user.premium_until = max(user.premium_until or now, now) + timedelta(days=31)
         if subscription_id:
             user.stripe_subscription_id = subscription_id

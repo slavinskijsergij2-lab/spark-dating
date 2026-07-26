@@ -1,4 +1,5 @@
 import os
+import secrets
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -9,15 +10,20 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models.models import ErrorLog, Match, Message, Profile, ProfilePhoto, User
 from app.templates import templates
+from app.auth import invalidate_user_cache
 
 router = APIRouter(prefix="/admin")
 
 _ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 
+# Pagination constant for admin panel
+_ADMIN_PAGE_SIZE = 100
+
 
 def _check_admin(request: Request) -> None:
     key = request.cookies.get("admin_key") or request.query_params.get("key", "")
-    if not _ADMIN_KEY or key != _ADMIN_KEY:
+    # FIX High #4: constant-time comparison to prevent admin key timing attack.
+    if not _ADMIN_KEY or not secrets.compare_digest(key, _ADMIN_KEY):
         raise HTTPException(403, "Forbidden")
 
 
@@ -41,38 +47,50 @@ button:hover{opacity:.9}</style></head>
 
 @router.post("/login", include_in_schema=False)
 async def admin_login(key: str = Form(...)):
-    if not _ADMIN_KEY or key != _ADMIN_KEY:
+    # FIX High #4: constant-time comparison on login too.
+    if not _ADMIN_KEY or not secrets.compare_digest(key, _ADMIN_KEY):
         return RedirectResponse("/admin/login", status_code=302)
     resp = RedirectResponse("/admin", status_code=302)
-    resp.set_cookie("admin_key", key, httponly=True, samesite="lax", max_age=86400 * 7)
+    resp.set_cookie("admin_key", key, httponly=True, samesite="strict", max_age=86400 * 7)
     return resp
 
 
 @router.get("", response_class=HTMLResponse, include_in_schema=False)
-async def admin_panel(request: Request, db: AsyncSession = Depends(get_db)):
+async def admin_panel(
+    request: Request,
+    page: int = Query(default=1, ge=1),
+    db: AsyncSession = Depends(get_db),
+):
     _check_admin(request)
 
+    # FIX Medium #19: add LIMIT/OFFSET pagination to avoid loading all users into memory.
+    offset = (page - 1) * _ADMIN_PAGE_SIZE
     result = await db.execute(
         select(User)
         .options(selectinload(User.profile).selectinload(Profile.photos))
         .where(User.is_active == True)
         .order_by(User.created_at.desc())
+        .limit(_ADMIN_PAGE_SIZE)
+        .offset(offset)
     )
     users = result.scalars().all()
+
+    total_active = (await db.execute(
+        select(func.count(User.id)).where(User.is_active == True)
+    )).scalar() or 0
 
     result2 = await db.execute(
         select(User)
         .options(selectinload(User.profile))
         .where(User.is_active == False)
         .order_by(User.created_at.desc())
+        .limit(_ADMIN_PAGE_SIZE)
     )
     banned = result2.scalars().all()
 
-    # Stats
     total_matches = (await db.execute(select(func.count(Match.id)))).scalar() or 0
     total_messages = (await db.execute(select(func.count(Message.id)))).scalar() or 0
 
-    # Last 20 errors
     err_result = await db.execute(
         select(ErrorLog).order_by(desc(ErrorLog.ts)).limit(20)
     )
@@ -84,6 +102,10 @@ async def admin_panel(request: Request, db: AsyncSession = Depends(get_db)):
         "total_matches": total_matches,
         "total_messages": total_messages,
         "error_logs": error_logs,
+        "page": page,
+        "total_active": total_active,
+        "page_size": _ADMIN_PAGE_SIZE,
+        "has_next": total_active > page * _ADMIN_PAGE_SIZE,
     })
 
 
@@ -93,6 +115,8 @@ async def admin_delete_gallery_photo(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
+    # FIX High #3: admin POST endpoints now verify the admin cookie via _check_admin.
+    # The cookie is httponly+samesite=strict so CSRF via a third-party page is blocked.
     _check_admin(request)
     result = await db.execute(select(ProfilePhoto).where(ProfilePhoto.id == photo_id))
     photo = result.scalar_one_or_none()
@@ -133,6 +157,7 @@ async def admin_ban_user(
     if user:
         user.is_active = False
         await db.commit()
+        invalidate_user_cache(user_id)
     return RedirectResponse("/admin", status_code=302)
 
 
@@ -149,5 +174,3 @@ async def admin_unban_user(
         user.is_active = True
         await db.commit()
     return RedirectResponse("/admin", status_code=302)
-
-

@@ -16,8 +16,10 @@ from app.models.models import User
 
 # In-memory user cache: user_id → (user_obj, cached_at)
 # Avoids 1-2 DB round trips (each ~150ms) on every authenticated request.
+# FIX High #9: bounded to _USER_CACHE_MAX entries to prevent unbounded memory growth.
 _USER_CACHE: dict[int, tuple] = {}
-_USER_CACHE_TTL = 30  # seconds
+_USER_CACHE_TTL = 30       # seconds before a cached entry is considered stale
+_USER_CACHE_MAX = 5_000    # maximum number of entries; evict oldest when full
 
 
 def _cache_get(user_id: int):
@@ -28,11 +30,24 @@ def _cache_get(user_id: int):
 
 
 def _cache_set(user: User):
+    if len(_USER_CACHE) >= _USER_CACHE_MAX:
+        # Evict the 10 % of oldest entries to amortise the cost of cleanup.
+        cutoff = _time.monotonic() - _USER_CACHE_TTL
+        stale = [k for k, v in _USER_CACHE.items() if v[1] < cutoff]
+        if stale:
+            for k in stale:
+                _USER_CACHE.pop(k, None)
+        else:
+            # No stale entries — evict the oldest 10 % by insertion order.
+            evict_count = max(1, _USER_CACHE_MAX // 10)
+            for k in list(_USER_CACHE)[:evict_count]:
+                _USER_CACHE.pop(k, None)
     _USER_CACHE[user.id] = (user, _time.monotonic())
 
 
 def invalidate_user_cache(user_id: int):
     _USER_CACHE.pop(user_id, None)
+
 
 _SECRET_KEY = os.getenv("SECRET_KEY", "")
 if not _SECRET_KEY:
@@ -64,7 +79,12 @@ def hash_password(password: str) -> str:
 def verify_password(plain: str, hashed: str) -> bool:
     try:
         return _bcrypt.checkpw(plain.encode(), hashed.encode())
-    except Exception:
+    except _bcrypt.exceptions.InvalidHashError:
+        logging.warning("verify_password: invalid hash format encountered")
+        return False
+    except Exception as exc:
+        # FIX Low #27: log the actual exception so auth bugs are visible in logs.
+        logging.error("verify_password: unexpected error: %s", exc)
         return False
 
 
