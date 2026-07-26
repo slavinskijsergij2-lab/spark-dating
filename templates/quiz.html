@@ -18,7 +18,7 @@
 {% block content %}
 <div id="quiz-root"></div>
 
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 (function() {
   var questions = {{ questions | tojson | safe }};
   var answeredIds = new Set({{ answered_ids | tojson | safe }});

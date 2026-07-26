@@ -42,7 +42,7 @@
 </div>
 {% endif %}
 
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 function doUnblock(btn, userId) {
   btn.disabled = true;
   fetch('/user/' + userId + '/unblock', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}})

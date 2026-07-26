@@ -30,7 +30,7 @@ if _sentry_dsn:
 
 logging.info("startup: imports begin")
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -40,6 +40,7 @@ logging.info("startup: fastapi+sqlalchemy imported")
 
 from app.database import Base, engine
 from app.i18n import get_lang, get_translations, is_rtl
+from app.auth import get_current_user as _get_current_user
 from app.routers import auth, profile, swipe, matches
 from app.routers import geo as geo_router
 from app.utils.time import utcnow as _utcnow
@@ -276,14 +277,21 @@ async def request_logging_middleware(request: Request, call_next):
     return response
 # ─────────────────────────────────────────────────────────────────────────────
 
-# /photos is always mounted.
 # On Railway with a Volume: set PHOTO_DIR=/data/photos — files survive redeploys.
 # In local dev (or Railway without a Volume): falls back to static/photos/ inside the container.
 _PHOTO_DIR = os.getenv("PHOTO_DIR", "static/photos")
 Path(_PHOTO_DIR).mkdir(parents=True, exist_ok=True)
-app.mount("/photos", StaticFiles(directory=_PHOTO_DIR), name="photos")
+# FIX Medium #26: photos are user data — serve them only to authenticated users.
+# The StaticFiles mount had no auth check; replaced with a protected endpoint below.
 
 
+@app.get("/photos/{filename:path}")
+async def serve_photo(filename: str, _user=Depends(_get_current_user)):
+    safe_name = Path(filename).name  # strip any directory traversal
+    safe_path = Path(_PHOTO_DIR) / safe_name
+    if not safe_path.is_file():
+        raise HTTPException(404, "Not found")
+    return FileResponse(safe_path)
 
 
 async def _periodic_cleanup() -> None:
@@ -384,38 +392,60 @@ async def _reactivation_email_loop() -> None:
                     )
                 )
                 rows = result.all()
-
                 sent = 0
-                for user, profile in rows:
-                    match_result = await session.execute(
-                        select(func.count()).select_from(Match).where(
-                            or_(Match.user1_id == user.id, Match.user2_id == user.id)
+
+                if rows:
+                    user_ids = [u.id for u, _p in rows]
+                    last_seens = {u.id: u.last_seen for u, _p in rows}
+
+                    # FIX Medium #20: replace N+1 per-user queries with 2 bulk queries.
+                    # Bulk match counts (each user can appear as user1 or user2)
+                    match_counts_raw = await session.execute(
+                        _text("""
+                            SELECT uid, COUNT(*) AS cnt FROM (
+                                SELECT user1_id AS uid FROM matches WHERE user1_id = ANY(:ids)
+                                UNION ALL
+                                SELECT user2_id AS uid FROM matches WHERE user2_id = ANY(:ids)
+                            ) sub GROUP BY uid
+                        """),
+                        {"ids": user_ids},
+                    )
+                    match_counts: dict[int, int] = {row.uid: row.cnt for row in match_counts_raw}
+
+                    # Bulk like counts with per-user cutoffs via CASE WHEN
+                    cutoff_cases = " ".join(
+                        f"WHEN liked_id = {uid} THEN :ls_{uid}" for uid in user_ids
+                    )
+                    cutoff_params = {f"ls_{uid}": last_seens[uid] for uid in user_ids}
+                    like_counts_raw = await session.execute(
+                        _text(f"""
+                            SELECT liked_id, COUNT(*) AS cnt FROM likes
+                            WHERE liked_id = ANY(:ids)
+                              AND is_like = TRUE
+                              AND created_at >= CASE {cutoff_cases} END
+                            GROUP BY liked_id
+                        """),
+                        {"ids": user_ids, **cutoff_params},
+                    )
+                    like_counts: dict[int, int] = {row.liked_id: row.cnt for row in like_counts_raw}
+
+                    for user, profile in rows:
+                        match_count = match_counts.get(user.id, 0)
+                        new_likes = like_counts.get(user.id, 0)
+
+                        if match_count == 0 and new_likes == 0:
+                            continue
+
+                        ok = await asyncio.to_thread(
+                            send_reactivation_email,
+                            user.email,
+                            profile.name,
+                            match_count,
+                            new_likes,
+                            user.language or "ru",
                         )
-                    )
-                    match_count = match_result.scalar_one()
-
-                    like_result = await session.execute(
-                        select(func.count()).select_from(Like).where(
-                            Like.liked_id == user.id,
-                            Like.is_like == True,
-                            Like.created_at >= user.last_seen,
-                        )
-                    )
-                    new_likes = like_result.scalar_one()
-
-                    if match_count == 0 and new_likes == 0:
-                        continue
-
-                    ok = await asyncio.to_thread(
-                        send_reactivation_email,
-                        user.email,
-                        profile.name,
-                        match_count,
-                        new_likes,
-                        user.language or "ru",
-                    )
-                    if ok:
-                        sent += 1
+                        if ok:
+                            sent += 1
 
             logging.info("reactivation_emails: sent %d/%d", sent, len(rows))
         except Exception as _e:
@@ -462,6 +492,11 @@ async def security_middleware(request: Request, call_next):
     csrf_token = request.cookies.get(_CSRF_COOKIE) or secrets.token_urlsafe(32)
     request.state.csrf_token = csrf_token
 
+    # FIX Medium #21: generate a per-request nonce so inline <script> blocks are
+    # whitelisted without the blanket 'unsafe-inline' keyword in script-src.
+    csp_nonce = secrets.token_urlsafe(16)
+    request.state.csp_nonce = csp_nonce
+
     response = await call_next(request)
 
     # Set cookie on first visit (httponly=False — JS needs to read it for AJAX)
@@ -475,7 +510,7 @@ async def security_middleware(request: Request, call_next):
     # Security headers
     csp = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; "
+        f"script-src 'self' 'nonce-{csp_nonce}' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob:; "
         "connect-src 'self'; "

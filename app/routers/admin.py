@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.models import ErrorLog, Match, Message, Profile, ProfilePhoto, User
+from app.rate_limit import rate_limit
 from app.templates import templates
 from app.auth import invalidate_user_cache
 
@@ -45,7 +46,7 @@ button:hover{opacity:.9}</style></head>
 """)
 
 
-@router.post("/login", include_in_schema=False)
+@router.post("/login", include_in_schema=False, dependencies=[Depends(rate_limit(5, 60))])
 async def admin_login(key: str = Form(...)):
     # FIX High #4: constant-time comparison on login too.
     if not _ADMIN_KEY or not secrets.compare_digest(key, _ADMIN_KEY):

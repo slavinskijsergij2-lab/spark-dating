@@ -307,7 +307,7 @@
 
 </div>
 
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 (function() {
   var cardId    = {{ candidate.id }};
   var superLeft = {{ super_likes_left }};
@@ -691,7 +691,7 @@
   </div>
 </div>
 
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 function showLimitModal() {
   var modal = document.getElementById('limit-modal');
   var sheet = document.getElementById('limit-modal-sheet');
@@ -716,7 +716,7 @@ window.addEventListener('DOMContentLoaded', showLimitModal);
 </script>
 
 <!-- ── City autocomplete widget ─────────────────────────────────────── -->
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 (function() {
   var input    = document.getElementById('city-autocomplete');
   var dropdown = document.getElementById('city-dropdown');

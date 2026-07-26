@@ -20,6 +20,19 @@ _EXT_MAP: dict[str, str] = {
     "audio/wav":  "wav",
 }
 
+# FIX Medium #10: magic-byte signatures for allowed audio formats.
+# The MIME type from the HTTP header is user-controlled; verify the actual bytes.
+def is_valid_audio(raw: bytes) -> bool:
+    """Return True if *raw* starts with a known audio magic-byte sequence."""
+    if len(raw) < 8:
+        return False
+    return (
+        raw[:4] in {b"\x1a\x45\xdf\xa3", b"OggS", b"RIFF"}  # WebM, OGG, WAV
+        or raw[:3] == b"ID3"                                   # MP3 with ID3 tag
+        or raw[:2] in {b"\xff\xfb", b"\xff\xf3", b"\xff\xf2", b"\xff\xe3"}  # MP3 sync
+        or raw[4:8] == b"ftyp"                                 # M4A/MP4
+    )
+
 
 def _audio_dir_path() -> Path | None:
     d = os.getenv("PHOTO_DIR")
@@ -31,11 +44,13 @@ def _audio_dir_path() -> Path | None:
 
 
 def save_audio_bytes(raw: bytes, mime: str = "audio/webm") -> str:
-    """Persist *raw* audio bytes.
+    """Persist *raw* audio bytes; raises ValueError if bytes fail magic-byte check.
 
     Returns ``/photos/voice_<uuid>.<ext>`` if ``PHOTO_DIR`` is set,
     otherwise a ``data:<mime>;base64,…`` URL for local dev.
     """
+    if not is_valid_audio(raw):
+        raise ValueError("Uploaded file does not appear to be a valid audio file")
     if mime not in ALLOWED_AUDIO_MIMES:
         mime = "audio/webm"
     ext = _EXT_MAP.get(mime, "webm")

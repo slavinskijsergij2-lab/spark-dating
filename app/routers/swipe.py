@@ -1,6 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy import and_, case, delete, func, not_, or_, select
+from sqlalchemy import and_, case, delete, func, not_, or_, select, text as _sql_text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -395,6 +395,12 @@ async def do_swipe(
     matched = False
     _match_id: int | None = None
     _cached_daily_super: int | None = None  # lazily populated to avoid double DB query
+
+    # FIX Medium #15: acquire a per-user advisory lock so concurrent swipe requests
+    # are serialized — eliminates the TOCTOU race on daily like limits.
+    if not user.is_premium_active and action == "like":
+        await db.execute(_sql_text("SELECT pg_advisory_xact_lock(:uid)"), {"uid": user.id})
+
     result = await db.execute(
         select(Like).where(Like.liker_id == user.id, Like.liked_id == target_id)
     )

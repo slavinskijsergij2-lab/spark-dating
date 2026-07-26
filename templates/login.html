@@ -55,7 +55,7 @@
           <span id="login-btn-loading" style="display:none">{{ t.login_loading }}</span>
         </button>
       </form>
-      <script>
+      <script nonce="{{ request.state.csp_nonce }}">
       function setLoginLoading() {
         var btn = document.getElementById('login-btn');
         var t = document.getElementById('login-btn-text');

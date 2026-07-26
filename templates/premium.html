@@ -217,7 +217,7 @@
   </div>
 </a>
 
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 function setBtnState(btn, state) {
   ['[data-default]','[data-loading]','[data-done]','[data-active]'].forEach(function(sel) {
     var el = btn.querySelector(sel);

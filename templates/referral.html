@@ -89,7 +89,7 @@
 </div>
 {% endif %}
 
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 var _refLink = {{ referral_link | tojson | safe }};
 var _shareTitle = {{ t.get('referral_share_title', 'Spark — знакомства') | tojson | safe }};
 var _shareText = {{ t.get('referral_share_text', 'Присоединяйся к Spark!') | tojson | safe }};

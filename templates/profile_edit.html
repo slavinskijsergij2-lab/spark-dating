@@ -3,7 +3,7 @@
 {% block content %}
 
 {% if saved_flash is defined and saved_flash %}
-<script>window.scrollTo({top:0,behavior:'smooth'});</script>
+<script nonce="{{ request.state.csp_nonce }}">window.scrollTo({top:0,behavior:'smooth'});</script>
 <div id="saved-banner"
      class="fixed top-0 left-0 right-0 z-50 bg-green-500 text-white text-center py-3 px-4 font-semibold shadow-lg flex items-center justify-center gap-2 text-base"
      style="animation: slideDown 0.3s ease;">
@@ -12,7 +12,7 @@
 <style>
   @keyframes slideDown { from { transform: translateY(-100%); } to { transform: translateY(0); } }
 </style>
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
   setTimeout(function() {
     var b = document.getElementById('saved-banner');
     if (b) b.style.transition = 'opacity 0.5s', b.style.opacity = '0', setTimeout(function(){ b.remove(); }, 500);
@@ -20,7 +20,7 @@
 </script>
 {% endif %}
 
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 function fixAndPreviewPhoto(input, previewId, placeholderId, autoSubmit) {
   var file = input.files[0];
   if (!file) return;
@@ -411,7 +411,7 @@ function fixAndPreviewPhoto(input, previewId, placeholderId, autoSubmit) {
   </div>
 </div>
 
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 (function() {
   var _intention = {{ cur_intention | tojson | safe }};
   var _anon = {{ 'true' if cur_anon else 'false' }};
@@ -495,7 +495,7 @@ function fixAndPreviewPhoto(input, previewId, placeholderId, autoSubmit) {
 </script>
 
 <!-- City autocomplete for profile edit -->
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 (function() {
   var input    = document.getElementById('pe-city-input');
   var dropdown = document.getElementById('pe-city-dropdown');

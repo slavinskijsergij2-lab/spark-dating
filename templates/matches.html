@@ -44,7 +44,7 @@
 
 {% block content %}
 
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 function likeBack(id, btn) {
   btn.disabled = true;
   var orig = btn.innerHTML;
@@ -388,7 +388,7 @@ document.addEventListener('DOMContentLoaded', function() { loadStories(); });
     {% endfor %}
   </div>
 
-  <script>
+  <script nonce="{{ request.state.csp_nonce }}">
   document.querySelectorAll('.msg-time[data-ts]').forEach(function(el) {
     var d = new Date(el.dataset.ts.endsWith('Z') ? el.dataset.ts : el.dataset.ts + 'Z');
     var now = new Date();

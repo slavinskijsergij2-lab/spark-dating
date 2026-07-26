@@ -46,7 +46,7 @@
   </div>
 </div>
 
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 function toggleResendSection() {
   var s = document.getElementById('resend-section');
   if (s) s.style.display = s.style.display === 'none' ? '' : 'none';

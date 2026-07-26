@@ -53,7 +53,7 @@
 </div>
 {% endif %}
 
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 function unarchive(matchId, btn) {
   btn.disabled = true;
   var card = btn.closest('.relative');

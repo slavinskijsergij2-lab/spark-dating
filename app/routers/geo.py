@@ -4,11 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.geo import GermanLocation
+from app.rate_limit import rate_limit
 
 router = APIRouter(prefix="/geo", tags=["geo"])
 
 
-@router.get("/autocomplete")
+@router.get("/autocomplete", dependencies=[Depends(rate_limit(60, 60))])
 async def autocomplete(
     q: str = Query(..., min_length=2, max_length=50),
     db: AsyncSession = Depends(get_db),

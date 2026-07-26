@@ -612,7 +612,10 @@ async def send_voice(
 
     from app.utils.audio import save_audio_bytes
     mime = audio.content_type or "audio/webm"
-    content = save_audio_bytes(raw, mime)
+    try:
+        content = save_audio_bytes(raw, mime)
+    except ValueError:
+        return JSONResponse({"error": "Invalid audio file"}, status_code=400)
 
     msg = Message(match_id=match_id, sender_id=user.id, content=content, is_voice=True)
     db.add(msg)

@@ -64,7 +64,7 @@
   </div>
 </div>
 
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 function selectRegLang(btn) {
   document.getElementById('reg-lang-input').value = btn.dataset.lang;
   document.querySelectorAll('.reg-lang-btn').forEach(function(b) {

@@ -398,7 +398,7 @@
   <img id="lightbox-img" src="" alt="" />
 </div>
 
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 (function() {
   var ROOT    = document.getElementById('chat-root');
   var MATCH   = parseInt(ROOT.dataset.matchId, 10);

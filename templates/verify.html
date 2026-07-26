@@ -56,7 +56,7 @@
       </button>
     </form>
   </div>
-  <script>
+  <script nonce="{{ request.state.csp_nonce }}">
   function setVerifyPreview(input) {
     var f = input.files[0];
     if (!f) return;
