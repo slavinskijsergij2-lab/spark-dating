@@ -8,6 +8,42 @@
   <h1 class="text-xl font-bold text-gray-800">🚫 {{ t.get('blocked_title', 'Заблокированные') }}</h1>
 </div>
 
+{% if my_reports %}
+<div class="mb-6">
+  <h2 class="text-base font-bold text-gray-700 mb-3">📋 {{ t.get('my_reports_title', 'Мои жалобы') }}</h2>
+  <div class="flex flex-col gap-2">
+  {% for rep, reported_user in my_reports %}
+  <div class="bg-white rounded-xl p-3 border border-gray-100 shadow-sm flex items-center gap-3">
+    <div class="w-10 h-10 rounded-full overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
+      {% if reported_user and reported_user.profile and reported_user.profile.photo %}
+      <img src="{{ reported_user.profile.photo }}" class="w-full h-full object-cover">
+      {% else %}
+      <span class="text-xl">👤</span>
+      {% endif %}
+    </div>
+    <div class="flex-1 min-w-0">
+      <p class="text-sm font-semibold text-gray-700 truncate">
+        {{ reported_user.profile.name if reported_user and reported_user.profile else t.get('blocked_user_fallback', 'Пользователь') }}
+      </p>
+      <p class="text-xs text-gray-400">{{ rep.created_at.strftime('%d.%m.%Y') }} · {{ rep.reason }}</p>
+      {% if rep.admin_note %}
+      <p class="text-xs text-blue-600 mt-0.5">💬 {{ rep.admin_note }}</p>
+      {% endif %}
+    </div>
+    <span class="flex-shrink-0 text-xs font-bold px-2 py-1 rounded-full
+      {% if rep.status == 'reviewed' %}bg-green-100 text-green-700
+      {% elif rep.status == 'dismissed' %}bg-gray-100 text-gray-500
+      {% else %}bg-orange-100 text-orange-600{% endif %}">
+      {% if rep.status == 'reviewed' %}✓ {{ t.get('report_reviewed', 'Рассмотрено') }}
+      {% elif rep.status == 'dismissed' %}✕ {{ t.get('report_dismissed', 'Отклонено') }}
+      {% else %}⏳ {{ t.get('report_pending', 'На рассмотрении') }}{% endif %}
+    </span>
+  </div>
+  {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {% if not items %}
 <div class="text-center py-16">
   <div class="text-5xl mb-4">🤝</div>

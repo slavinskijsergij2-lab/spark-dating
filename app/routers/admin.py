@@ -8,10 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.models.models import ErrorLog, Match, Message, Profile, ProfilePhoto, User
+from app.models.models import ErrorLog, Match, Message, Profile, ProfilePhoto, Report, User
 from app.rate_limit import rate_limit
 from app.templates import templates
 from app.auth import invalidate_user_cache
+from app.utils.time import utcnow as _utcnow
 
 router = APIRouter(prefix="/admin")
 
@@ -97,12 +98,33 @@ async def admin_panel(
     )
     error_logs = err_result.scalars().all()
 
+    # Pending reports (with reporter and reported user info)
+    reports_result = await db.execute(
+        select(Report)
+        .where(Report.status == "pending")
+        .order_by(Report.created_at.desc())
+        .limit(50)
+    )
+    pending_reports = reports_result.scalars().all()
+
+    reporter_ids = {r.reporter_id for r in pending_reports}
+    reported_ids = {r.reported_id for r in pending_reports}
+    all_report_user_ids = reporter_ids | reported_ids
+    report_users: dict[int, User] = {}
+    if all_report_user_ids:
+        ru_result = await db.execute(
+            select(User).options(selectinload(User.profile)).where(User.id.in_(all_report_user_ids))
+        )
+        report_users = {u.id: u for u in ru_result.scalars().all()}
+
     return templates.TemplateResponse(request, "admin.html", {
         "users": users,
         "banned": banned,
         "total_matches": total_matches,
         "total_messages": total_messages,
         "error_logs": error_logs,
+        "pending_reports": pending_reports,
+        "report_users": report_users,
         "page": page,
         "total_active": total_active,
         "page_size": _ADMIN_PAGE_SIZE,
@@ -175,3 +197,34 @@ async def admin_unban_user(
         user.is_active = True
         await db.commit()
     return RedirectResponse("/admin", status_code=302)
+
+
+@router.post("/report/review/{report_id}", include_in_schema=False)
+async def admin_review_report(
+    report_id: int,
+    request: Request,
+    action: str = Form(...),  # "reviewed" | "dismissed" | "ban"
+    note: str = Form(default=""),
+    db: AsyncSession = Depends(get_db),
+):
+    _check_admin(request)
+    if action not in ("reviewed", "dismissed", "ban"):
+        return RedirectResponse("/admin#reports", status_code=302)
+
+    result = await db.execute(select(Report).where(Report.id == report_id))
+    report = result.scalar_one_or_none()
+    if report:
+        report.status = "reviewed" if action in ("reviewed", "ban") else "dismissed"
+        report.admin_note = note.strip()[:300] if note.strip() else None
+        report.reviewed_at = _utcnow()
+        await db.commit()
+
+        if action == "ban":
+            result2 = await db.execute(select(User).where(User.id == report.reported_id))
+            reported_user = result2.scalar_one_or_none()
+            if reported_user:
+                reported_user.is_active = False
+                await db.commit()
+                invalidate_user_cache(report.reported_id)
+
+    return RedirectResponse("/admin#reports", status_code=302)

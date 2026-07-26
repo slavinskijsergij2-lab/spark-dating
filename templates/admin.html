@@ -22,6 +22,9 @@
   </div>
   <nav class="ml-auto flex gap-2">
     <a href="#users" class="text-sm text-gray-500 hover:text-pink-600">Пользователи</a>
+    <a href="#reports" class="text-sm text-gray-500 hover:text-orange-500">
+      Жалобы{% if pending_reports %} <span class="bg-orange-500 text-white text-xs px-1.5 py-0.5 rounded-full">{{ pending_reports|length }}</span>{% endif %}
+    </a>
     <a href="#errors" class="text-sm text-gray-500 hover:text-red-500">Ошибки</a>
   </nav>
 </header>
@@ -139,6 +142,87 @@
     </div>
   </section>
   {% endif %}
+
+  <!-- Reports section -->
+  <section id="reports">
+    <h2 class="text-lg font-semibold text-gray-700 mb-4">
+      Жалобы на рассмотрении
+      {% if pending_reports %}
+      <span class="ml-2 bg-orange-500 text-white text-sm font-bold px-2 py-0.5 rounded-full">{{ pending_reports|length }}</span>
+      {% endif %}
+    </h2>
+    {% if not pending_reports %}
+    <p class="text-gray-400 text-sm">Нет новых жалоб. ✅</p>
+    {% else %}
+    <div class="space-y-4">
+    {% for r in pending_reports %}
+    {% set reporter = report_users.get(r.reporter_id) %}
+    {% set reported = report_users.get(r.reported_id) %}
+    <div class="bg-white rounded-2xl shadow p-4">
+      <div class="flex items-start gap-4 flex-wrap">
+        <!-- Reported user photo -->
+        <div class="flex flex-col items-center gap-1 min-w-[80px]">
+          {% if reported and reported.profile and reported.profile.photo %}
+          <img src="{{ reported.profile.photo }}" class="w-16 h-16 rounded-xl object-cover border-2 border-red-200">
+          {% else %}
+          <div class="w-16 h-16 rounded-xl bg-red-100 flex items-center justify-center text-2xl">🚫</div>
+          {% endif %}
+          <span class="text-xs text-red-500 font-bold">Нарушитель</span>
+        </div>
+
+        <!-- Report info -->
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap mb-1">
+            <span class="font-semibold text-gray-800">
+              {{ reported.profile.name if reported and reported.profile else '—' }}
+            </span>
+            <span class="text-xs text-gray-400">(ID {{ r.reported_id }})</span>
+            <span class="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">{{ r.reason }}</span>
+            <span class="text-xs text-gray-400">{{ r.created_at.strftime('%d.%m.%Y %H:%M') if r.created_at else '' }}</span>
+          </div>
+          {% if r.comment %}
+          <p class="text-sm text-gray-600 bg-gray-50 rounded-lg px-3 py-2 mb-2">{{ r.comment }}</p>
+          {% endif %}
+          <p class="text-xs text-gray-400">
+            Жалоба от:
+            <span class="font-medium text-gray-600">{{ reporter.profile.name if reporter and reporter.profile else '—' }}</span>
+            ({{ reporter.email if reporter else '—' }})
+          </p>
+        </div>
+
+        <!-- Admin actions -->
+        <div class="flex flex-col gap-2 min-w-[160px]">
+          <form method="POST" action="/admin/report/review/{{ r.id }}">
+            <input type="hidden" name="action" value="reviewed">
+            <input type="text" name="note" placeholder="Заметка (опц.)" maxlength="300"
+                   class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1 mb-1 focus:outline-none focus:border-pink-400">
+            <button type="submit"
+                    class="w-full bg-green-500 hover:bg-green-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition">
+              ✓ Рассмотрено
+            </button>
+          </form>
+          <form method="POST" action="/admin/report/review/{{ r.id }}">
+            <input type="hidden" name="action" value="ban">
+            <input type="hidden" name="note" value="Забанен по жалобе">
+            <button type="submit" onclick="return confirm('Забанить пользователя {{ reported.profile.name if reported and reported.profile else r.reported_id }}?')"
+                    class="w-full bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition">
+              🚫 Рассмотрено + Бан
+            </button>
+          </form>
+          <form method="POST" action="/admin/report/review/{{ r.id }}">
+            <input type="hidden" name="action" value="dismissed">
+            <button type="submit"
+                    class="w-full bg-gray-200 hover:bg-gray-300 text-gray-600 text-xs font-bold px-3 py-1.5 rounded-lg transition">
+              ✕ Отклонить
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+    </div>
+    {% endif %}
+  </section>
 
   <!-- Error logs -->
   <section id="errors">

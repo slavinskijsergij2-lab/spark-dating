@@ -250,6 +250,9 @@ class Report(Base):
     reason = Column(String(50), nullable=False)
     comment = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=_utcnow)
+    status = Column(String(20), nullable=False, default="pending")   # pending | reviewed | dismissed
+    admin_note = Column(String(300), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
 
     __table_args__ = (UniqueConstraint("reporter_id", "reported_id", name="uq_report"),)
 

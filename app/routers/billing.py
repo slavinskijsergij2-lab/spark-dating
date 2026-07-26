@@ -129,6 +129,33 @@ async def billing_cancel():
     return RedirectResponse("/premium", status_code=302)
 
 
+@router.post("/portal", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(10, 60))])
+async def billing_portal(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Redirect to Stripe Customer Portal (cancel subscription, view invoices)."""
+    if not _STRIPE_SK:
+        raise HTTPException(400, "Payments not configured")
+    if not user.stripe_customer_id:
+        raise HTTPException(400, "No billing account found")
+
+    import stripe as _stripe
+    _stripe.api_key = _STRIPE_SK
+    base_url = str(request.base_url).rstrip("/")
+
+    try:
+        portal_session = await asyncio.to_thread(
+            _stripe.billing_portal.Session.create,
+            customer=user.stripe_customer_id,
+            return_url=f"{base_url}/premium",
+        )
+        return JSONResponse({"url": portal_session.url})
+    except Exception as e:
+        logging.warning("billing_portal: %s", e)
+        raise HTTPException(400, "Could not open billing portal")
+
+
 @router.post("/webhook", include_in_schema=False)
 async def stripe_webhook(request: Request):
     if not _STRIPE_SK or not _STRIPE_WH:

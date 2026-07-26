@@ -12,15 +12,34 @@
     <div class="w-10 h-10 rounded-full gradient-pink flex items-center justify-center text-xl">⭐</div>
     <div>
       <p class="font-bold text-gray-800">{{ t.get('premium_active', 'Premium активен') }}</p>
+      {% if user.is_premium %}
+      <p class="text-xs text-green-500 font-semibold">{{ t.get('premium_lifetime', 'Навсегда') }}</p>
+      {% elif user.premium_until %}
+      <p class="text-xs text-gray-400">
+        {{ t.get('premium_until', 'Действует до') }}
+        <span class="font-semibold text-gray-600">{{ user.premium_until.strftime('%d.%m.%Y') }}</span>
+      </p>
+      {% else %}
       <p class="text-xs text-gray-400">{{ t.get('premium_active_sub', 'Все функции разблокированы') }}</p>
+      {% endif %}
     </div>
   </div>
+  {% if user.stripe_customer_id and user.stripe_subscription_id %}
+  <button id="prem-portal-btn"
+          onclick="openBillingPortal(this)"
+          class="w-full border-2 border-pink-200 text-pink-600 py-2.5 rounded-full text-sm font-semibold hover:bg-pink-50 transition disabled:opacity-50 mb-2">
+    <span data-default>💳 {{ t.get('billing_manage', 'Управление подпиской и история платежей') }}</span>
+    <span data-loading style="display:none">...</span>
+  </button>
+  <p class="text-xs text-gray-400 text-center mb-2">{{ t.get('billing_portal_hint', 'Изменить, отменить подписку или скачать квитанции') }}</p>
+  {% else %}
   <button id="prem-deactivate-btn"
           onclick="deactivatePremium(this)"
           class="w-full border-2 border-gray-200 text-gray-500 py-2.5 rounded-full text-sm font-medium hover:border-red-200 hover:text-red-400 transition disabled:opacity-50">
-    <span data-default>{{ t.get('premium_cancel', 'Отменить подписку') }}</span>
+    <span data-default>{{ t.get('premium_cancel', 'Деактивировать Premium') }}</span>
     <span data-loading style="display:none">...</span>
   </button>
+  {% endif %}
   {% else %}
   <p class="text-sm text-gray-500 mb-4">{{ t.get('premium_free', 'Сейчас у вас бесплатный план') }}</p>
 
@@ -257,6 +276,18 @@ function deactivatePremium(btn) {
   fetch('/premium/deactivate', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}})
     .then(function(r){ return r.json(); })
     .then(function(d){ if (d.success) window.location.reload(); })
+    .catch(function() { btn.disabled = false; setBtnState(btn, 'default'); });
+}
+
+function openBillingPortal(btn) {
+  btn.disabled = true;
+  setBtnState(btn, 'loading');
+  fetch('/billing/portal', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d.url) { window.location.href = d.url; }
+      else { btn.disabled = false; setBtnState(btn, 'default'); alert(d.detail || 'Ошибка. Попробуйте позже.'); }
+    })
     .catch(function() { btn.disabled = false; setBtnState(btn, 'default'); });
 }
 

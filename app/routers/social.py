@@ -95,6 +95,8 @@ async def report_user(
 @router.get("/settings/blocks", response_class=HTMLResponse, dependencies=[Depends(rate_limit(30, 60))])
 async def blocked_list(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     lang = get_lang(request, user)
+
+    # Blocked users
     result = await db.execute(
         select(Block).where(Block.blocker_id == user.id).order_by(Block.created_at.desc())
     )
@@ -108,9 +110,26 @@ async def blocked_list(request: Request, user: User = Depends(get_current_user),
     else:
         blocked_users = {}
     items = [(b, blocked_users.get(b.blocked_id)) for b in block_records if blocked_users.get(b.blocked_id)]
+
+    # User's own reports with status
+    rep_result = await db.execute(
+        select(Report).where(Report.reporter_id == user.id).order_by(Report.created_at.desc()).limit(20)
+    )
+    my_report_list = rep_result.scalars().all()
+    reported_ids = [r.reported_id for r in my_report_list]
+    if reported_ids:
+        ru_result = await db.execute(
+            select(User).options(joinedload(User.profile)).where(User.id.in_(reported_ids))
+        )
+        reported_users = {u.id: u for u in ru_result.scalars().unique().all()}
+    else:
+        reported_users = {}
+    my_reports = [(r, reported_users.get(r.reported_id)) for r in my_report_list]
+
     return templates.TemplateResponse(request, "settings_blocks.html", {
         "user": user,
         "items": items,
+        "my_reports": my_reports,
         "t": get_translations(lang),
         "rtl": is_rtl(lang),
         "lang": lang,
