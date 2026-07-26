@@ -1,239 +1,355 @@
 {% extends "base.html" %}
 {% block title %}Premium — Spark{% endblock %}
+
+{% block head %}
+<style>
+  .prem-hero {
+    background: linear-gradient(135deg, #f472b6 0%, #ec4899 40%, #a855f7 100%);
+    border-radius: 24px;
+    padding: 32px 24px 28px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+  .prem-hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.07'%3E%3Ccircle cx='30' cy='30' r='4'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  }
+  .prem-hero-stars {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+  }
+  .star {
+    position: absolute;
+    color: rgba(255,255,255,0.5);
+    font-size: 12px;
+    animation: twinkle 3s ease-in-out infinite;
+  }
+  @keyframes twinkle {
+    0%,100% { opacity: 0.2; transform: scale(1); }
+    50%      { opacity: 1;   transform: scale(1.3); }
+  }
+  .plan-card {
+    border-radius: 20px;
+    padding: 20px;
+    position: relative;
+    transition: transform .2s, box-shadow .2s;
+  }
+  .plan-card:active { transform: scale(.98); }
+  .plan-monthly {
+    background: white;
+    border: 2.5px solid #ec4899;
+    box-shadow: 0 8px 32px rgba(236,72,153,0.18);
+  }
+  .plan-lifetime {
+    background: white;
+    border: 2px solid #a855f7;
+  }
+  .feat-table { border-radius: 16px; overflow: hidden; }
+  .feat-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 8px;
+    align-items: center;
+    padding: 11px 14px;
+    font-size: 13px;
+    border-bottom: 1px solid #fdf2f8;
+  }
+  .feat-row:last-child { border-bottom: none; }
+  .feat-row-header {
+    background: linear-gradient(135deg, #fdf2f8, #f5f3ff);
+    padding: 10px 14px;
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+  }
+  .feat-col-header { text-align: center; min-width: 52px; }
+  .check-free  { color: #d1d5db; font-size: 16px; text-align: center; }
+  .check-prem  { color: #ec4899; font-size: 16px; text-align: center; font-weight: 900; }
+  .badge-popular {
+    position: absolute;
+    top: -12px; left: 50%; transform: translateX(-50%);
+    background: linear-gradient(135deg, #f472b6, #ec4899);
+    color: white; font-size: 11px; font-weight: 800;
+    padding: 4px 14px; border-radius: 999px;
+    white-space: nowrap; box-shadow: 0 4px 12px rgba(236,72,153,.35);
+  }
+  .badge-save {
+    position: absolute;
+    top: -12px; right: 16px;
+    background: linear-gradient(135deg, #a855f7, #7c3aed);
+    color: white; font-size: 11px; font-weight: 800;
+    padding: 4px 10px; border-radius: 999px;
+  }
+  .trust-row {
+    display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
+    margin-top: 10px;
+  }
+  .trust-badge {
+    display: flex; align-items: center; gap: 4px;
+    font-size: 11px; color: #9ca3af;
+  }
+  /* Dark mode */
+  html.dark .plan-monthly { background: #1c1730 !important; border-color: #ec4899; }
+  html.dark .plan-lifetime { background: #1c1730 !important; }
+  html.dark .feat-row { border-bottom-color: #2d2645; color: #e2e8f0; }
+  html.dark .feat-row-header { background: linear-gradient(135deg, rgba(236,72,153,.1), rgba(168,85,247,.1)); color: #7a8fa5; }
+  html.dark .check-free { color: #3b3260; }
+</style>
+{% endblock %}
+
 {% block content %}
 
-<h1 class="text-2xl font-bold text-gray-800 mb-2">⭐ Premium</h1>
-<p class="text-gray-500 text-sm mb-6">{{ t.get('premium_subtitle', 'Разблокируй все возможности Spark') }}</p>
-
-<!-- Current status -->
-<div class="bg-white rounded-2xl card-shadow p-5 mb-4">
-  {% if user.is_premium_active %}
-  <div class="flex items-center gap-3 mb-3">
-    <div class="w-10 h-10 rounded-full gradient-pink flex items-center justify-center text-xl">⭐</div>
-    <div>
-      <p class="font-bold text-gray-800">{{ t.get('premium_active', 'Premium активен') }}</p>
-      {% if user.is_premium %}
-      <p class="text-xs text-green-500 font-semibold">{{ t.get('premium_lifetime', 'Навсегда') }}</p>
-      {% elif user.premium_until %}
-      <p class="text-xs text-gray-400">
-        {{ t.get('premium_until', 'Действует до') }}
-        <span class="font-semibold text-gray-600">{{ user.premium_until.strftime('%d.%m.%Y') }}</span>
-      </p>
-      {% else %}
-      <p class="text-xs text-gray-400">{{ t.get('premium_active_sub', 'Все функции разблокированы') }}</p>
-      {% endif %}
-    </div>
+{% if user.is_premium_active %}
+<!-- ══ УЖЕ PREMIUM ══ -->
+<div class="prem-hero">
+  <div class="prem-hero-stars">
+    <span class="star" style="top:12%;left:8%;animation-delay:0s">✦</span>
+    <span class="star" style="top:20%;right:12%;animation-delay:.7s">★</span>
+    <span class="star" style="top:65%;left:15%;animation-delay:1.4s">✦</span>
+    <span class="star" style="top:55%;right:8%;animation-delay:.3s">✦</span>
+    <span class="star" style="bottom:15%;left:40%;animation-delay:1s">★</span>
   </div>
-  {% if user.stripe_customer_id and user.stripe_subscription_id %}
-  <button id="prem-portal-btn"
-          onclick="openBillingPortal(this)"
-          class="w-full border-2 border-pink-200 text-pink-600 py-2.5 rounded-full text-sm font-semibold hover:bg-pink-50 transition disabled:opacity-50 mb-2">
-    <span data-default>💳 {{ t.get('billing_manage', 'Управление подпиской и история платежей') }}</span>
-    <span data-loading style="display:none">...</span>
-  </button>
-  <p class="text-xs text-gray-400 text-center mb-2">{{ t.get('billing_portal_hint', 'Изменить, отменить подписку или скачать квитанции') }}</p>
-  {% else %}
-  <button id="prem-deactivate-btn"
-          onclick="deactivatePremium(this)"
-          class="w-full border-2 border-gray-200 text-gray-500 py-2.5 rounded-full text-sm font-medium hover:border-red-200 hover:text-red-400 transition disabled:opacity-50">
-    <span data-default>{{ t.get('premium_cancel', 'Деактивировать Premium') }}</span>
-    <span data-loading style="display:none">...</span>
-  </button>
+  <div style="font-size:52px;margin-bottom:8px;filter:drop-shadow(0 4px 16px rgba(255,255,255,.4))">⭐</div>
+  <h1 style="color:white;font-size:22px;font-weight:900;margin-bottom:4px;">Premium активен!</h1>
+  {% if user.is_premium %}
+  <p style="color:rgba(255,255,255,.85);font-size:13px;">Навсегда — все функции разблокированы</p>
+  {% elif user.premium_until %}
+  <p style="color:rgba(255,255,255,.85);font-size:13px;">Действует до {{ user.premium_until.strftime('%d.%m.%Y') }}</p>
   {% endif %}
-  {% else %}
-  <p class="text-sm text-gray-500 mb-4">{{ t.get('premium_free', 'Сейчас у вас бесплатный план') }}</p>
+</div>
 
-  {% if stripe_enabled %}
-  <!-- Stripe pricing cards -->
-  <div class="flex flex-col gap-3 mb-4">
-    {% if stripe_price_monthly %}
-    <div class="border-2 border-pink-200 rounded-2xl p-4 relative">
-      <div class="absolute -top-3 left-4 bg-pink-500 text-white text-xs font-bold px-3 py-1 rounded-full">{{ t.get('plan_popular', 'Популярный') }}</div>
-      <div class="flex items-center justify-between mb-2 mt-1">
-        <div>
-          <p class="font-bold text-gray-800">{{ t.get('plan_monthly', 'Ежемесячно') }}</p>
-          <p class="text-xs text-gray-400">{{ t.get('plan_monthly_sub', 'Отмена в любой момент') }}</p>
-        </div>
-        <div class="text-right">
-          <p class="text-xl font-bold text-pink-500">€4.99</p>
-          <p class="text-xs text-gray-400">/ мес</p>
-        </div>
-      </div>
-      <button onclick="startCheckout('monthly', this)"
-              class="w-full gradient-pink text-white py-2.5 rounded-full font-bold text-sm shadow hover:opacity-90 transition disabled:opacity-50">
-        <span data-default>💳 {{ t.get('btn_subscribe', 'Оформить подписку') }}</span>
-        <span data-loading style="display:none" class="opacity-70">...</span>
-      </button>
-    </div>
-    {% endif %}
-    {% if stripe_price_lifetime %}
-    <div class="border-2 border-purple-200 rounded-2xl p-4">
-      <div class="flex items-center justify-between mb-2">
-        <div>
-          <p class="font-bold text-gray-800">{{ t.get('plan_lifetime', 'Навсегда') }}</p>
-          <p class="text-xs text-gray-400">{{ t.get('plan_lifetime_sub', 'Один платёж, премиум навсегда') }}</p>
-        </div>
-        <div class="text-right">
-          <p class="text-xl font-bold text-purple-500">€19.99</p>
-          <p class="text-xs text-gray-400">раз</p>
-        </div>
-      </div>
-      <button onclick="startCheckout('lifetime', this)"
-              class="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-2.5 rounded-full font-bold text-sm shadow hover:opacity-90 transition disabled:opacity-50">
-        <span data-default>✨ {{ t.get('btn_lifetime', 'Купить навсегда') }}</span>
-        <span data-loading style="display:none" class="opacity-70">...</span>
-      </button>
-    </div>
-    {% endif %}
+{% if user.stripe_customer_id and user.stripe_subscription_id %}
+<button id="prem-portal-btn" onclick="openBillingPortal(this)"
+        class="w-full bg-white border-2 border-pink-200 text-pink-600 py-3 rounded-2xl text-sm font-semibold hover:bg-pink-50 transition disabled:opacity-50 mb-3 card-shadow">
+  <span data-default>💳 {{ t.get('billing_manage', 'Управление подпиской и история платежей') }}</span>
+  <span data-loading style="display:none">...</span>
+</button>
+<p class="text-xs text-gray-400 text-center mb-4">{{ t.get('billing_portal_hint', 'Изменить, отменить подписку или скачать квитанции') }}</p>
+{% else %}
+<button id="prem-deactivate-btn" onclick="deactivatePremium(this)"
+        class="w-full bg-white border-2 border-gray-200 text-gray-500 py-3 rounded-2xl text-sm font-medium hover:border-red-200 hover:text-red-400 transition disabled:opacity-50 mb-4">
+  <span data-default>{{ t.get('premium_cancel', 'Деактивировать Premium') }}</span>
+  <span data-loading style="display:none">...</span>
+</button>
+{% endif %}
+
+{% else %}
+<!-- ══ НЕ PREMIUM — ПРОДАЮЩИЙ ЭКРАН ══ -->
+
+<!-- Hero -->
+<div class="prem-hero">
+  <div class="prem-hero-stars">
+    <span class="star" style="top:12%;left:8%;animation-delay:0s">✦</span>
+    <span class="star" style="top:18%;right:10%;animation-delay:.6s">★</span>
+    <span class="star" style="top:60%;left:12%;animation-delay:1.2s">✦</span>
+    <span class="star" style="top:50%;right:6%;animation-delay:.4s">✦</span>
+    <span class="star" style="bottom:18%;left:45%;animation-delay:.9s">★</span>
   </div>
-  {% endif %}
+  <div style="font-size:48px;margin-bottom:10px;filter:drop-shadow(0 4px 16px rgba(255,255,255,.3))">💎</div>
+  <h1 style="color:white;font-size:24px;font-weight:900;margin-bottom:6px;line-height:1.2;">
+    {{ t.get('premium_hero_title', 'Найди своего человека быстрее') }}
+  </h1>
+  <p style="color:rgba(255,255,255,.8);font-size:13px;max-width:280px;margin:0 auto;">
+    {{ t.get('premium_hero_sub', 'Все инструменты для настоящего знакомства — без ограничений') }}
+  </p>
+</div>
 
-  {% if requires_code %}
-  <div class="mt-3">
-    <p class="text-xs text-gray-400 mb-2 text-center">{{ t.get('or_activate_code', 'Или введите код активации') }}</p>
-    <input id="prem-code"
-           type="text"
-           oninput="updateActivateBtn()"
-           placeholder="{{ t.get('premium_code_placeholder', 'Введите код активации') }}"
-           class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm mb-3 focus:outline-none focus:border-pink-400 transition">
-    <p id="prem-error" style="display:none" class="text-red-500 text-xs mb-2"></p>
-    <button id="prem-activate-btn"
-            onclick="activatePremium(this)"
-            disabled
-            class="w-full gradient-pink text-white py-3 rounded-full font-bold text-base shadow hover:opacity-90 transition disabled:opacity-50">
-      <span data-default>🚀 {{ t.get('premium_activate', 'Активировать Premium') }}</span>
+{% if stripe_enabled %}
+<!-- ══ ТАРИФЫ ══ -->
+<div class="flex flex-col gap-6 mb-6">
+
+  {% if stripe_price_monthly %}
+  <div class="plan-card plan-monthly" style="margin-top: 14px;">
+    <div class="badge-popular">🔥 {{ t.get('plan_popular', 'Популярный выбор') }}</div>
+    <div class="flex items-end justify-between mb-4 mt-1">
+      <div>
+        <p class="font-extrabold text-gray-800 text-lg">{{ t.get('plan_monthly', 'Ежемесячно') }}</p>
+        <p class="text-xs text-gray-400 mt-0.5">{{ t.get('plan_monthly_sub', 'Отмена в любой момент') }}</p>
+      </div>
+      <div class="text-right">
+        <p class="text-3xl font-black text-pink-500 leading-none">€4.99</p>
+        <p class="text-xs text-gray-400 mt-0.5">/ {{ t.get('per_month', 'месяц') }}</p>
+      </div>
+    </div>
+    <button onclick="startCheckout('monthly', this)"
+            class="w-full gradient-pink text-white py-3.5 rounded-2xl font-extrabold text-base shadow-lg hover:opacity-90 active:scale-[.97] transition disabled:opacity-50">
+      <span data-default>💳 {{ t.get('btn_subscribe', 'Оформить подписку') }}</span>
       <span data-loading style="display:none" class="opacity-70">...</span>
     </button>
   </div>
-  {% elif not stripe_enabled %}
-  <button id="prem-activate-btn"
-          onclick="activatePremium(this)"
+  {% endif %}
+
+  {% if stripe_price_lifetime %}
+  <div class="plan-card plan-lifetime" style="margin-top: 14px;">
+    <div class="badge-save">💜 {{ t.get('plan_save', 'Выгоднее на 66%') }}</div>
+    <div class="flex items-end justify-between mb-4 mt-1">
+      <div>
+        <p class="font-extrabold text-gray-800 text-lg">{{ t.get('plan_lifetime', 'Навсегда') }}</p>
+        <p class="text-xs text-gray-400 mt-0.5">{{ t.get('plan_lifetime_sub', 'Один платёж — Premium навсегда') }}</p>
+      </div>
+      <div class="text-right">
+        <p class="text-3xl font-black text-purple-500 leading-none">€19.99</p>
+        <p class="text-xs text-gray-400 mt-0.5">{{ t.get('one_time', 'разово') }}</p>
+      </div>
+    </div>
+    <button onclick="startCheckout('lifetime', this)"
+            class="w-full text-white py-3.5 rounded-2xl font-extrabold text-base shadow-lg hover:opacity-90 active:scale-[.97] transition disabled:opacity-50"
+            style="background: linear-gradient(135deg, #a855f7, #ec4899);">
+      <span data-default>✨ {{ t.get('btn_lifetime', 'Купить навсегда') }}</span>
+      <span data-loading style="display:none" class="opacity-70">...</span>
+    </button>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Trust signals -->
+<div class="trust-row mb-6">
+  <span class="trust-badge">🔒 {{ t.get('trust_secure', 'Безопасная оплата') }}</span>
+  <span class="trust-badge">↩️ {{ t.get('trust_cancel', 'Отмена в любой момент') }}</span>
+  <span class="trust-badge">💳 Stripe</span>
+</div>
+{% endif %}
+
+{% if requires_code %}
+<div class="bg-white rounded-2xl p-5 card-shadow mb-4">
+  <p class="text-xs text-gray-400 mb-2 text-center">{{ t.get('or_activate_code', 'Или введите код активации') }}</p>
+  <input id="prem-code" type="text" oninput="updateActivateBtn()"
+         placeholder="{{ t.get('premium_code_placeholder', 'Введите код активации') }}"
+         class="w-full border-2 border-gray-200 rounded-xl px-4 py-2.5 text-sm mb-3 focus:outline-none focus:border-pink-400 transition">
+  <p id="prem-error" style="display:none" class="text-red-500 text-xs mb-2"></p>
+  <button id="prem-activate-btn" onclick="activatePremium(this)" disabled
           class="w-full gradient-pink text-white py-3 rounded-full font-bold text-base shadow hover:opacity-90 transition disabled:opacity-50">
     <span data-default>🚀 {{ t.get('premium_activate', 'Активировать Premium') }}</span>
     <span data-loading style="display:none" class="opacity-70">...</span>
   </button>
-  {% endif %}
-  {% endif %}
 </div>
+{% elif not stripe_enabled %}
+<div class="bg-white rounded-2xl p-5 card-shadow mb-4">
+  <button id="prem-activate-btn" onclick="activatePremium(this)"
+          class="w-full gradient-pink text-white py-3 rounded-full font-bold text-base shadow hover:opacity-90 transition">
+    <span data-default>🚀 {{ t.get('premium_activate', 'Активировать Premium') }}</span>
+    <span data-loading style="display:none" class="opacity-70">...</span>
+  </button>
+</div>
+{% endif %}
 
-<!-- Benefits -->
-<div class="bg-white rounded-2xl card-shadow p-5 mb-4">
-  <p class="font-semibold text-gray-700 mb-4">{{ t.get('premium_benefits', 'Что включено в Premium') }}</p>
-  <div class="flex flex-col gap-3">
-    {% set benefits = [
-      ('💘', t.get('pb_likes', 'Кто лайкнул тебя — видно сразу'), '/likes/received'),
-      ('💚', t.get('pb_unlimited', 'Безлимитные лайки (у бесплатных — 20/день)'), None),
-      ('↩️', t.get('pb_undo', 'Отмена последнего свайпа'), None),
-      ('👀', t.get('who_viewed_title', 'Кто смотрел твой профиль'), '/profile/who-viewed'),
-      ('⚡', t.get('pb_boost', 'Буст профиля 3 часа (у бесплатных — 30 мин)'), None),
-      ('⭐', t.get('pb_superlikes', 'Суперлайки без лимита'), None),
-      ('💘', t.get('premium_benefit_badge', 'Premium-значок на профиле'), None),
-      ('🙈', t.get('pb_invisible', 'Просмотр профилей без отметки «был онлайн»'), None),
+{% endif %}
+
+<!-- ══ ТАБЛИЦА СРАВНЕНИЯ ══ -->
+<div class="bg-white rounded-2xl card-shadow mb-4 overflow-hidden">
+  <div style="padding: 16px 16px 4px;">
+    <p class="font-extrabold text-gray-800 text-base">{{ t.get('compare_title', 'Бесплатно vs Premium') }}</p>
+  </div>
+  <div class="feat-table">
+    <div class="feat-row-header">
+      <span>{{ t.get('feature', 'Функция') }}</span>
+      <span class="feat-col-header">Free</span>
+      <span class="feat-col-header" style="color:#ec4899;">⭐</span>
+    </div>
+    {% set rows = [
+      (t.get('feat_likes_day',    'Лайков в день'),           '20',   '∞'),
+      (t.get('feat_see_likers',   'Кто тебя лайкнул'),        '🔒',   '✓'),
+      (t.get('feat_undo',         'Отмена свайпа'),            '🔒',   '✓'),
+      (t.get('feat_superlikes',   'Суперлайки'),               '5/день','∞'),
+      (t.get('feat_boost',        'Буст профиля'),             '30 мин','3 ч'),
+      (t.get('feat_who_viewed',   'Кто смотрел профиль'),      '🔒',   '✓'),
+      (t.get('feat_badge',        'Premium-значок'),           '—',    '✓'),
+      (t.get('feat_invisible',    'Невидимый просмотр'),       '—',    '✓'),
     ] %}
-    {% for emoji, label, link in benefits %}
-    <div class="flex items-center gap-3 {% if not user.is_premium_active %}opacity-60{% endif %}">
-      <span class="text-xl w-7 text-center">{{ emoji }}</span>
-      {% if link and user.is_premium_active %}
-      <a href="{{ link }}" class="text-sm text-pink-600 hover:underline flex-1">{{ label }}</a>
-      {% else %}
-      <span class="text-sm text-gray-700 flex-1">{{ label }}</span>
-      {% endif %}
-      {% if user.is_premium_active %}
-      <span class="text-green-500 text-xs font-bold">✓</span>
-      {% else %}
-      <span class="text-gray-300 text-xs">🔒</span>
-      {% endif %}
+    {% for label, free_val, prem_val in rows %}
+    <div class="feat-row">
+      <span class="text-gray-700">{{ label }}</span>
+      <span class="check-free text-center" style="min-width:52px;font-size:12px;font-weight:600;">{{ free_val }}</span>
+      <span class="check-prem text-center" style="min-width:52px;font-size:{{ '16px' if prem_val == '✓' else '12px' }};font-weight:{{ '900' if prem_val == '✓' else '700' }};">{{ prem_val }}</span>
     </div>
     {% endfor %}
   </div>
 </div>
 
-<!-- Кто лайкнул меня — карточка (только для Premium) -->
+<!-- ══ КТО ЛАЙКНУЛ МЕНЯ ══ -->
 {% if user.is_premium_active %}
 <a href="/likes/received"
-   class="block bg-gradient-to-r from-pink-50 to-red-50 border border-pink-200 rounded-2xl p-5 mb-4 hover:shadow-lg transition">
-  <div class="flex items-center justify-between">
-    <div class="flex items-center gap-3">
-      <span class="text-2xl">💘</span>
-      <div>
-        <p class="font-semibold text-gray-800">{{ t.get('pb_likes', 'Кто лайкнул тебя') }}</p>
-        <p class="text-xs text-gray-500">{{ t.get('pb_likes_sub', 'Свайпни в ответ — получи мэтч') }}</p>
-      </div>
+   class="flex items-center justify-between bg-gradient-to-r from-pink-50 to-rose-50 border border-pink-200 rounded-2xl p-5 mb-4 hover:shadow-lg transition">
+  <div class="flex items-center gap-3">
+    <span class="text-2xl">💘</span>
+    <div>
+      <p class="font-semibold text-gray-800">{{ t.get('pb_likes', 'Кто лайкнул тебя') }}</p>
+      <p class="text-xs text-gray-500">{{ t.get('pb_likes_sub', 'Свайпни в ответ — получи мэтч') }}</p>
     </div>
-    <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-    </svg>
   </div>
+  <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+  </svg>
 </a>
 {% endif %}
 
-<!-- Boost section -->
+<!-- ══ БУСТ ══ -->
 <div class="bg-white rounded-2xl card-shadow p-5 mb-4">
   <div class="flex items-center gap-3 mb-3">
-    <span class="text-2xl">⚡</span>
+    <div class="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center text-xl">⚡</div>
     <div>
       <p class="font-semibold text-gray-800">{{ t.get('boost_title', 'Буст профиля') }}</p>
       <p class="text-xs text-gray-400">
-        {% if user.is_premium_active %}
-        {{ t.get('boost_sub_premium', '3 часа для Premium / 30 минут для остальных') }}
-        {% else %}
-        {{ t.get('boost_sub_free', '30 минут — ваш профиль будет первым в очереди') }}
-        {% endif %}
+        {% if user.is_premium_active %}{{ t.get('boost_sub_premium', '3 часа — твой профиль первым в очереди') }}
+        {% else %}{{ t.get('boost_sub_free', '30 минут — твой профиль первым в очереди') }}{% endif %}
       </p>
     </div>
   </div>
-
   {% if boost_active %}
   <div class="bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 text-green-700 text-sm font-medium">
     ⚡ {{ t.get('boost_active', 'Буст активен') }} — {{ t.get('boost_remaining', 'осталось') }} {{ boost_remaining }} {{ t.get('boost_minutes', 'мин') }}
   </div>
   {% else %}
-  <button id="boost-page-btn"
-          onclick="doPageBoost(this)"
+  <button id="boost-page-btn" onclick="doPageBoost(this)"
           class="w-full gradient-pink text-white py-2.5 rounded-full font-semibold text-sm shadow hover:opacity-90 transition disabled:opacity-50">
     <span data-default>⚡ {{ t.get('boost_btn', 'Активировать буст') }}</span>
     <span data-loading style="display:none" class="opacity-70">...</span>
-    <span data-done style="display:none" class="text-white" id="boost-done-text"></span>
+    <span data-done style="display:none" id="boost-done-text"></span>
     <span data-active style="display:none" id="boost-active-text"></span>
   </button>
   {% endif %}
 </div>
 
-<!-- Who viewed me -->
+<!-- ══ КТО СМОТРЕЛ ══ -->
 <a href="/profile/who-viewed"
-   class="block bg-white rounded-2xl card-shadow p-5 mb-4 hover:shadow-lg transition">
-  <div class="flex items-center justify-between">
-    <div class="flex items-center gap-3">
-      <span class="text-2xl">👀</span>
-      <div>
-        <p class="font-semibold text-gray-800">{{ t.get('who_viewed_title', 'Кто смотрел профиль') }}</p>
-        <p class="text-xs text-gray-400">
-          {% if user.is_premium_active %}{{ t.get('who_viewed_premium', 'Полный список доступен') }}
-          {% else %}{{ t.get('who_viewed_locked', 'Только для Premium') }}{% endif %}
-        </p>
-      </div>
+   class="flex items-center justify-between bg-white rounded-2xl card-shadow p-5 mb-4 hover:shadow-lg transition">
+  <div class="flex items-center gap-3">
+    <div class="w-10 h-10 rounded-full bg-purple-50 flex items-center justify-center text-xl">👀</div>
+    <div>
+      <p class="font-semibold text-gray-800">{{ t.get('who_viewed_title', 'Кто смотрел профиль') }}</p>
+      <p class="text-xs text-gray-400">
+        {% if user.is_premium_active %}{{ t.get('who_viewed_premium', 'Полный список доступен') }}
+        {% else %}{{ t.get('who_viewed_locked', 'Только для Premium') }}{% endif %}
+      </p>
     </div>
-    <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-    </svg>
   </div>
+  <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+  </svg>
 </a>
 
-<!-- Referral card -->
+<!-- ══ РЕФЕРАЛ ══ -->
 <a href="/referral"
-   class="block bg-gradient-to-r from-pink-50 to-purple-50 border border-pink-200 rounded-2xl p-5 mb-4 hover:shadow-lg transition">
-  <div class="flex items-center justify-between">
-    <div class="flex items-center gap-3">
-      <span class="text-2xl">🎁</span>
-      <div>
-        <p class="font-semibold text-gray-800">{{ t.get('referral_title', 'Пригласи друзей') }}</p>
-        <p class="text-xs text-gray-500">{{ t.get('referral_subtitle', 'За каждого друга — 3 дня Premium') }}</p>
-      </div>
+   class="flex items-center justify-between bg-gradient-to-r from-pink-50 to-purple-50 border border-pink-200 rounded-2xl p-5 mb-4 hover:shadow-lg transition">
+  <div class="flex items-center gap-3">
+    <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center text-xl shadow-sm">🎁</div>
+    <div>
+      <p class="font-semibold text-gray-800">{{ t.get('referral_title', 'Пригласи друзей') }}</p>
+      <p class="text-xs text-gray-500">{{ t.get('referral_subtitle', 'За каждого друга — 3 дня Premium') }}</p>
     </div>
-    <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-    </svg>
   </div>
+  <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+  </svg>
 </a>
 
 <script nonce="{{ request.state.csp_nonce }}">
@@ -252,9 +368,9 @@ function startCheckout(plan, btn) {
   var loadEl = btn.querySelector('[data-loading]');
   if (defEl) defEl.style.display = 'none';
   if (loadEl) loadEl.style.display = '';
-  fetch('/billing/checkout/' + plan, {method: 'POST', headers: {'x-csrf-token': getCsrfToken()}})
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
+  fetch('/billing/checkout/' + plan, {method:'POST', headers:{'x-csrf-token': getCsrfToken()}})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
       if (d.url) { window.location.href = d.url; }
       else {
         btn.disabled = false;
@@ -305,8 +421,8 @@ function activatePremium(btn) {
   btn.disabled = true;
   setBtnState(btn, 'loading');
   fetch('/premium/activate', {
-    method: 'POST',
-    headers: {'x-csrf-token': getCsrfToken(), 'content-type': 'application/json'},
+    method:'POST',
+    headers:{'x-csrf-token': getCsrfToken(), 'content-type': 'application/json'},
     body: JSON.stringify({code: code})
   })
   .then(function(r){ return r.json(); })
