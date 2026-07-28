@@ -397,9 +397,14 @@
     if (!el) { cb(); return; }
     el.classList.add(cls);
     setTimeout(function(){
-      el.classList.remove(cls);
+      // Card is now fully off-screen (transition=250ms, we waited 280ms).
+      // Run callback (update content), then snap card back instantly without animation.
       cb();
-    }, 220);
+      el.style.transition = 'none';
+      el.classList.remove(cls);
+      el.offsetHeight; // force reflow so transition:none takes effect before restoring
+      el.style.transition = '';
+    }, 280);
   }
 
   window.doSwipe = function(action) {
@@ -519,7 +524,7 @@
       _clearHearts();
       var d = _matchNextData; _matchNextData = null;
       if (d && d.next) { updateCard(d.next); setBusy(false); }
-      else { hideCard(); }
+      else { hideCard(); setBusy(false); }
     }, 350);
   };
 
