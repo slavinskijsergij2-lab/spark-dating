@@ -2,6 +2,20 @@
 {% block title %}{{ t.edit_profile }} — Spark{% endblock %}
 {% block content %}
 
+{% if verified_flash is defined and verified_flash %}
+<div id="verified-banner"
+     class="fixed top-0 left-0 right-0 z-50 bg-blue-500 text-white text-center py-3 px-4 font-semibold shadow-lg flex items-center justify-center gap-2 text-base"
+     style="animation: slideDown 0.3s ease;">
+  ✓ {{ t.get('verify_done', 'Профиль верифицирован!') }}
+</div>
+<script nonce="{{ request.state.csp_nonce }}">
+  setTimeout(function() {
+    var b = document.getElementById('verified-banner');
+    if (b) b.style.transition = 'opacity 0.5s', b.style.opacity = '0', setTimeout(function(){ b.remove(); }, 500);
+  }, 3000);
+</script>
+{% endif %}
+
 {% if saved_flash is defined and saved_flash %}
 <script nonce="{{ request.state.csp_nonce }}">window.scrollTo({top:0,behavior:'smooth'});</script>
 <div id="saved-banner"
@@ -180,6 +194,12 @@ function fixAndPreviewPhoto(input, previewId, placeholderId, autoSubmit) {
           <span data-done style="display:none" id="boost-edit-done-text"></span>
           <span data-active style="display:none" id="boost-edit-active-text"></span>
         </button>
+
+        {% if user.is_verified %}
+        <span class="text-xs bg-blue-100 text-blue-600 font-bold px-3 py-1 rounded-full">✓ {{ t.get('verified','Верифицирован') }}</span>
+        {% else %}
+        <a href="/verify" class="text-xs border border-blue-300 text-blue-500 px-3 py-1 rounded-full hover:bg-blue-50 transition">🪪 {{ t.get('verify_profile','Верификация') }}</a>
+        {% endif %}
       </div>
     </div>
 
@@ -392,7 +412,7 @@ function fixAndPreviewPhoto(input, previewId, placeholderId, autoSubmit) {
       Введите <strong>DELETE</strong> для подтверждения.
     </p>
     <form method="POST" action="/account/delete">
-      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <input type="hidden" name="csrftoken" value="{{ request.state.csrf_token }}">
       <input type="text" name="confirm" placeholder="DELETE"
              class="w-full border border-gray-200 rounded-xl px-4 py-2.5 mb-4 text-sm focus:outline-none focus:border-red-400"
              autocomplete="off">

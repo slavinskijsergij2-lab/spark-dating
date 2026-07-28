@@ -23,9 +23,12 @@
     <p class="text-gray-400 text-sm mt-2">{{ t.verify_instruction }}</p>
   </div>
 
-  {% if error is defined and error %}
+  {% set url_error = request.query_params.get('error', '') %}
+  {% if url_error or (error is defined and error) %}
   <div class="bg-red-50 border border-red-200 text-red-600 rounded-xl px-4 py-3 mb-4">
-    {{ error }}
+    {% if url_error == 'no_photo' %}{{ t.get('verify_err_no_photo', 'Выберите фото для загрузки') }}
+    {% elif url_error == 'photo_error' %}{{ t.get('verify_err_photo', 'Ошибка загрузки фото. Попробуй ещё раз.') }}
+    {% else %}{{ error if error is defined else '' }}{% endif %}
   </div>
   {% endif %}
 

@@ -327,6 +327,59 @@ async def delete_account(
     return resp
 
 
+# ── Photo verification ────────────────────────────────────────────────────────
+
+_VERIFY_GESTURES = [
+    "✌️ Два пальца вверх",
+    "🤙 Позвони мне",
+    "👍 Большой палец вверх",
+    "🤞 Скрещенные пальцы",
+    "🖐️ Открытая ладонь",
+    "🤘 Рок-жест",
+    "👋 Помаши рукой",
+    "🤟 Знак «Я тебя люблю»",
+]
+
+
+@router.get("/verify", response_class=HTMLResponse, dependencies=[Depends(rate_limit(20, 60))])
+async def verify_page(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    import random
+    lang = get_lang(request, user)
+    gesture = user.verify_gesture or random.choice(_VERIFY_GESTURES)
+    if not user.verify_gesture:
+        user.verify_gesture = gesture
+        await db.commit()
+    return templates.TemplateResponse(request, "verify.html", {
+        "user": user,
+        "gesture": gesture,
+        "t": get_translations(lang),
+        "rtl": is_rtl(lang),
+        "lang": lang,
+    })
+
+
+@router.post("/verify", dependencies=[Depends(validate_csrf_form), Depends(rate_limit(5, 300))])
+async def verify_submit(
+    photo: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not photo or not photo.filename:
+        return RedirectResponse("/verify?error=no_photo", status_code=302)
+    try:
+        await save_photo(photo)
+    except Exception:
+        return RedirectResponse("/verify?error=photo_error", status_code=302)
+    user.is_verified = True
+    await db.commit()
+    invalidate_user_cache(user.id)
+    return RedirectResponse("/profile/edit?verified=1", status_code=302)
+
+
 # ── Change password ───────────────────────────────────────────────────────────
 
 @router.get("/settings/password", response_class=HTMLResponse, dependencies=[Depends(rate_limit(20, 60))])
