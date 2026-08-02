@@ -141,6 +141,25 @@
   .city-option-land { font-size: 11px; color: #9ca3af; }
 
   [x-cloak] { display: none !important; }
+
+  /* ── Photo gallery ── */
+  #card-img { transition: opacity .12s ease; }
+  .photo-dots {
+    position: absolute; bottom: 54px; left: 0; right: 0;
+    display: flex; justify-content: center; gap: 4px; z-index: 5;
+    pointer-events: none;
+  }
+  .photo-dot {
+    height: 4px; border-radius: 2px; background: rgba(255,255,255,.5);
+    transition: all .2s; width: 16px; flex-shrink: 0;
+  }
+  .photo-dot.active { background: white; width: 28px; }
+  .photo-tap-l, .photo-tap-r {
+    position: absolute; top: 0; bottom: 64px; width: 38%; z-index: 6;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .photo-tap-l { left: 0; }
+  .photo-tap-r { right: 0; }
 </style>
 {% endblock %}
 
@@ -153,47 +172,58 @@
 
 {% if not candidate %}
 <!-- ══ ПУСТОЙ СВАЙП ══ -->
-<div class="flex flex-col items-center justify-center text-center py-10 px-6">
-  <!-- Анимированная иллюстрация -->
-  <div class="relative w-36 h-36 mb-6">
-    <div class="absolute inset-0 rounded-full bg-gradient-to-br from-pink-100 to-purple-100 animate-pulse"></div>
-    <div class="absolute inset-0 flex items-center justify-center">
-      <span style="font-size:72px;filter:drop-shadow(0 4px 12px rgba(236,72,153,.3));animation:heartbeat 2.4s ease-in-out infinite">💘</span>
-    </div>
-  </div>
-  <h2 class="text-2xl font-extrabold text-gray-800 mb-2">{{ t.get('no_more_title','Все просмотрены!') }}</h2>
-  <p class="text-gray-400 text-sm mb-7 max-w-xs leading-relaxed">{{ t.get('no_more_desc','Новые люди появятся позже. Пока можно улучшить профиль — хорошее фото увеличивает шансы в 3 раза.') }}</p>
-
-  <!-- Советы -->
-  <div class="w-full max-w-xs space-y-2 mb-7 text-left">
-    <div class="flex items-center gap-3 bg-pink-50 rounded-2xl px-4 py-3">
-      <span class="text-xl flex-shrink-0">📸</span>
-      <span class="text-sm text-gray-600">{{ t.get('tip_photo','Добавь больше фото в профиль') }}</span>
-      <a href="/profile/edit" class="ml-auto text-xs text-pink-500 font-semibold flex-shrink-0">→</a>
-    </div>
-    <div class="flex items-center gap-3 bg-purple-50 rounded-2xl px-4 py-3">
-      <span class="text-xl flex-shrink-0">✍️</span>
-      <span class="text-sm text-gray-600">{{ t.get('tip_bio','Заполни «О себе» — пустой профиль лайкают реже') }}</span>
-      <a href="/profile/edit" class="ml-auto text-xs text-purple-500 font-semibold flex-shrink-0">→</a>
-    </div>
-    <div class="flex items-center gap-3 bg-amber-50 rounded-2xl px-4 py-3">
-      <span class="text-xl flex-shrink-0">🕐</span>
-      <span class="text-sm text-gray-600">{{ t.get('tip_later','Зайди позже — новые люди регистрируются каждый день') }}</span>
-    </div>
-  </div>
-
-  <div class="flex flex-col gap-3 w-full max-w-xs">
-    <a href="/swipe" class="gradient-pink text-white py-3 rounded-full font-bold shadow-lg hover:opacity-90 transition text-sm">
-      🔄 {{ t.get('filter_reset','Сбросить фильтры') }}
-    </a>
-    <a href="/profile/edit" class="border-2 border-pink-200 text-pink-500 py-3 rounded-full font-semibold text-sm hover:bg-pink-50 transition">
-      ✏️ {{ t.get('edit_profile','Улучшить профиль') }}
-    </a>
-  </div>
-</div>
 <style>
   @keyframes heartbeat { 0%,100%{transform:scale(1)} 14%{transform:scale(1.15)} 28%{transform:scale(1)} 42%{transform:scale(1.1)} 70%{transform:scale(1)} }
+  @keyframes orbit { from{transform:rotate(0deg) translateX(54px) rotate(0deg)} to{transform:rotate(360deg) translateX(54px) rotate(-360deg)} }
 </style>
+<div class="flex flex-col items-center justify-center text-center py-8 px-6">
+  <!-- Иллюстрация с орбитой -->
+  <div class="relative mb-6" style="width:140px;height:140px;">
+    <div style="position:absolute;inset:0;border-radius:50%;background:linear-gradient(135deg,#fce7f3,#ede9fe);"></div>
+    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+      <span style="font-size:68px;animation:heartbeat 2.4s ease-in-out infinite;filter:drop-shadow(0 4px 16px rgba(236,72,153,.35))">💘</span>
+    </div>
+    <span style="position:absolute;top:10px;left:50%;font-size:18px;animation:orbit 3.5s linear infinite;transform-origin:0 0;">✨</span>
+    <span style="position:absolute;top:10px;left:50%;font-size:14px;animation:orbit 5s linear infinite reverse;transform-origin:0 0;">💫</span>
+  </div>
+
+  <h2 class="text-2xl font-extrabold text-gray-800 mb-2">{{ t.get('no_more_title','Все просмотрены!') }}</h2>
+  <p class="text-gray-500 text-sm mb-6 max-w-xs leading-relaxed">{{ t.get('no_more_desc','Новые люди появятся совсем скоро. А пока — прокачай профиль!') }}</p>
+
+  <!-- Советы в стиле карточек -->
+  <div class="w-full max-w-xs space-y-2 mb-6 text-left">
+    <a href="/profile/edit" style="display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,#fce7f3,#fdf2f8);border-radius:18px;padding:14px 16px;text-decoration:none;border:1px solid rgba(236,72,153,.1);">
+      <span style="font-size:24px;flex-shrink:0;">📸</span>
+      <div>
+        <div style="font-size:13px;font-weight:700;color:#374151;">{{ t.get('tip_photo','Добавь больше фото') }}</div>
+        <div style="font-size:11px;color:#9ca3af;margin-top:1px;">Хорошее фото × 3 лайка</div>
+      </div>
+      <span style="margin-left:auto;color:#ec4899;font-size:18px;">→</span>
+    </a>
+    <a href="/profile/edit" style="display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,#ede9fe,#f5f3ff);border-radius:18px;padding:14px 16px;text-decoration:none;border:1px solid rgba(139,92,246,.1);">
+      <span style="font-size:24px;flex-shrink:0;">✍️</span>
+      <div>
+        <div style="font-size:13px;font-weight:700;color:#374151;">{{ t.get('tip_bio','Напиши о себе') }}</div>
+        <div style="font-size:11px;color:#9ca3af;margin-top:1px;">Профили с биографией в топе</div>
+      </div>
+      <span style="margin-left:auto;color:#8b5cf6;font-size:18px;">→</span>
+    </a>
+    <div style="display:flex;align-items:center;gap:12px;background:#fffbeb;border-radius:18px;padding:14px 16px;border:1px solid rgba(245,158,11,.1);">
+      <span style="font-size:24px;flex-shrink:0;">⏰</span>
+      <div>
+        <div style="font-size:13px;font-weight:700;color:#374151;">{{ t.get('tip_later','Зайди позже') }}</div>
+        <div style="font-size:11px;color:#9ca3af;margin-top:1px;">Новые люди каждый день</div>
+      </div>
+    </div>
+  </div>
+
+  <a href="/swipe" style="display:block;width:100%;max-width:280px;background:linear-gradient(135deg,#f472b6,#ec4899);color:white;padding:14px;border-radius:999px;font-size:15px;font-weight:800;text-decoration:none;box-shadow:0 6px 24px rgba(236,72,153,.35);margin-bottom:10px;">
+    🔄 {{ t.get('filter_reset','Сбросить фильтры') }}
+  </a>
+  <a href="/likes/received" style="display:block;width:100%;max-width:280px;background:white;border:2px solid #fce7f3;color:#ec4899;padding:13px;border-radius:999px;font-size:14px;font-weight:700;text-decoration:none;text-align:center;">
+    💘 Посмотреть кто лайкнул
+  </a>
+</div>
 
 {% else %}
 <!-- ══ КАРТОЧКА ══ -->
@@ -246,7 +276,7 @@
     <div class="drag-label drag-label-like" id="drag-like">ЛАЙК</div>
     <div class="drag-label drag-label-nope" id="drag-nope">НOPE</div>
     <!-- Фото -->
-    <div class="card-photo">
+    <div class="card-photo" id="card-photo-area">
       <span>👤</span>
       {# Серверный рендер фото — показывается сразу без JS #}
       {% if first_photo %}
@@ -255,6 +285,11 @@
       {% else %}
       <img id="card-img" src="" style="display:none;" />
       {% endif %}
+      <!-- Tap zones для переключения фото -->
+      <div class="photo-tap-l" onclick="photoNav(-1)"></div>
+      <div class="photo-tap-r" onclick="photoNav(1)"></div>
+      <!-- Dots индикатор -->
+      <div class="photo-dots" id="photo-dots"></div>
       <div class="photo-gradient"></div>
       <div class="card-name">
         <span id="card-name">{{ profile.name }}, {{ profile.age }}</span>
@@ -330,6 +365,31 @@
   var likesLeft = {{ likes_left if likes_left is not none else 'null' }};
   var canUndo   = {{ 'true' if can_undo else 'false' }};
   var swiping   = false;
+
+  // Photo gallery
+  var _photos = {{ (([first_photo] if first_photo else []) + (extra_photos | map(attribute='url') | list)) | tojson | safe }};
+  var _photoIdx = 0;
+
+  function renderDots() {
+    var el = document.getElementById('photo-dots');
+    if (!el) return;
+    if (_photos.length <= 1) { el.innerHTML = ''; return; }
+    el.innerHTML = _photos.map(function(_, i) {
+      return '<div class="photo-dot' + (i === _photoIdx ? ' active' : '') + '"></div>';
+    }).join('');
+  }
+
+  window.photoNav = function(dir) {
+    if (_photos.length <= 1) return;
+    _photoIdx = (_photoIdx + dir + _photos.length) % _photos.length;
+    var img = document.getElementById('card-img');
+    if (!img) return;
+    img.style.opacity = '0';
+    img.style.display = '';
+    var newSrc = _photos[_photoIdx];
+    setTimeout(function() { img.src = newSrc; img.style.opacity = '1'; }, 90);
+    renderDots();
+  };
   var _userPhoto = {{ (user.profile.photo if user.profile and user.profile.photo else '') | tojson | safe }};
   // Geo filter: read location_id from current URL so it survives swipe POST calls
   var _geoParam = (function() {
@@ -402,7 +462,9 @@
 
   function updateCard(n) {
     cardId = n.id;
-    var photo  = n.photos && n.photos[0] ? n.photos[0] : '';
+    _photos = n.photos || [];
+    _photoIdx = 0;
+    var photo  = _photos[0] || '';
     var img    = document.getElementById('card-img');
     var name   = document.getElementById('card-name');
     var city   = document.getElementById('card-city');
@@ -411,7 +473,7 @@
     var link   = document.getElementById('card-profile-link');
     var btnNo  = document.getElementById('btn-no');
     var btnYes = document.getElementById('btn-yes');
-    if (img)    { img.src = photo; img.style.display = photo ? '' : 'none'; }
+    if (img)    { img.src = photo; img.style.display = photo ? '' : 'none'; img.style.opacity = '1'; }
     if (name)   name.textContent = n.name + ', ' + n.age;
     if (city)   { city.textContent = n.city ? '📍 ' + n.city : ''; city.style.display = n.city ? '' : 'none'; }
     if (bio)    { bio.textContent = n.bio || ''; bio.style.display = n.bio ? '' : 'none'; }
@@ -419,6 +481,7 @@
     if (link)   link.href = '/profile/' + n.id;
     if (btnNo)  btnNo.href = '/swipe/' + n.id + '/dislike';
     if (btnYes) btnYes.href = '/swipe/' + n.id + '/like';
+    renderDots();
   }
 
   function hideCard() {
@@ -679,6 +742,28 @@
     el.addEventListener('pointercancel', _onPointerCancel);
   })();
 
+  // Init photo dots on first load
+  renderDots();
+
+  // ── Desktop 3-D tilt effect ─────────────────────────────────────────────────
+  (function() {
+    if (!window.matchMedia('(hover:hover)').matches) return;
+    var tEl = document.getElementById('card-el');
+    if (!tEl) return;
+    tEl.addEventListener('mousemove', function(e) {
+      if (swiping || _drag) return;
+      var r = tEl.getBoundingClientRect();
+      var x = (e.clientX - r.left - r.width  / 2) / (r.width  / 2);
+      var y = (e.clientY - r.top  - r.height / 2) / (r.height / 2);
+      tEl.style.transform = 'perspective(700px) rotateX(' + (-y * 5) + 'deg) rotateY(' + (x * 7) + 'deg) scale(1.015)';
+      tEl.style.transition = 'transform .05s';
+    });
+    tEl.addEventListener('mouseleave', function() {
+      if (swiping || _drag) return;
+      tEl.style.transform = '';
+      tEl.style.transition = 'transform .35s ease';
+    });
+  })();
 
   window.addEventListener('pageshow', function(e){ if (e.persisted) window.location.reload(); });
 

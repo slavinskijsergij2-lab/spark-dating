@@ -319,8 +319,8 @@ async def _self_monitor() -> None:
     # FIX Low #29: don't hardcode the production URL — use the Railway-injected
     # public URL env var so staging/preview environments monitor themselves.
     own_url = os.getenv(
-        "RAILWAY_PUBLIC_DOMAIN",
-        "spark-dating-production.up.railway.app",
+        "SITE_URL",
+        os.getenv("RAILWAY_PUBLIC_DOMAIN", "spark-dating.club"),
     )
     if not own_url.startswith("http"):
         own_url = f"https://{own_url}"
@@ -510,10 +510,11 @@ async def security_middleware(request: Request, call_next):
     # Security headers
     csp = (
         "default-src 'self'; "
-        f"script-src 'self' 'nonce-{csp_nonce}' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; "
-        "style-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data: blob:; "
-        "connect-src 'self'; "
+        "connect-src 'self' https://ip-api.com; "
         "frame-ancestors 'none';"
     )
     response.headers.setdefault("Content-Security-Policy", csp)
@@ -552,6 +553,49 @@ app.include_router(push_router.router)
 app.include_router(admin_router.router)
 app.include_router(billing_router.router)
 app.include_router(geo_router.router)
+
+
+@app.get("/debug/swipe-info")
+async def debug_swipe_info(
+    request: Request,
+    user=Depends(_get_current_user),
+):
+    """Temporary debug endpoint — shows swipe state for current user."""
+    from app.database import AsyncSessionLocal
+    async with AsyncSessionLocal() as s:
+        r1 = await s.execute(_text("SELECT count(*) FROM users WHERE is_active = true"))
+        total_active = r1.scalar()
+        r2 = await s.execute(_text("SELECT count(*) FROM likes WHERE liker_id = :uid"), {"uid": user.id})
+        total_my_likes = r2.scalar()
+        r3 = await s.execute(_text(
+            "SELECT liked_id, is_like FROM likes WHERE liker_id = :uid ORDER BY id DESC LIMIT 10"
+        ), {"uid": user.id})
+        my_likes = r3.fetchall()
+        r4 = await s.execute(_text(
+            "SELECT u.id, p.name, p.gender, p.looking_for, p.age "
+            "FROM users u JOIN profiles p ON p.user_id = u.id "
+            "WHERE u.is_active = true AND u.id != :uid LIMIT 20"
+        ), {"uid": user.id})
+        candidates = r4.fetchall()
+        r5 = await s.execute(_text("SELECT name, gender, looking_for FROM profiles WHERE user_id = :uid"), {"uid": user.id})
+        my_profile = r5.fetchone()
+
+    lines = [
+        f"<b>My user id:</b> {user.id}<br>",
+        f"<b>My name:</b> {my_profile.name if my_profile else 'no profile'}<br>",
+        f"<b>My gender:</b> {my_profile.gender if my_profile else '-'}<br>",
+        f"<b>My looking_for:</b> {my_profile.looking_for if my_profile else '-'}<br>",
+        f"<b>Total active users:</b> {total_active}<br>",
+        f"<b>My total swipes:</b> {total_my_likes}<br>",
+        "<br><b>My last 10 swipes:</b><br>",
+    ]
+    for like_row in my_likes:
+        lines.append(f"&nbsp;&nbsp;liked_id={like_row.liked_id} is_like={like_row.is_like}<br>")
+    lines.append("<br><b>All other active users:</b><br>")
+    for c in candidates:
+        lines.append(f"&nbsp;&nbsp;id={c.id} name={c.name} gender={c.gender} looking_for={c.looking_for} age={c.age}<br>")
+
+    return HTMLResponse("<html><body style='font-family:monospace;padding:20px'>" + "".join(lines) + "</body></html>")
 
 
 @app.exception_handler(HTTPException)
@@ -680,17 +724,37 @@ async def health():
 
 
 @app.get("/metrics")
-def app_metrics(token: str = Query(default="")):
+async def app_metrics(token: str = Query(default="")):
     required = os.getenv("METRICS_TOKEN", "")
     # FIX High #5: constant-time comparison to prevent token brute-force via timing.
     if not required or not secrets.compare_digest(token, required):
         raise HTTPException(403, "Forbidden")
+    from app.database import AsyncSessionLocal
+    users_total = users_active = users_week = users_today = matches_total = messages_total = 0
+    try:
+        async with AsyncSessionLocal() as _s:
+            users_total  = (await _s.execute(_text("SELECT COUNT(*) FROM users"))).scalar() or 0
+            users_active = (await _s.execute(_text("SELECT COUNT(*) FROM users WHERE is_active = true"))).scalar() or 0
+            users_week   = (await _s.execute(_text("SELECT COUNT(*) FROM users WHERE created_at > NOW() - INTERVAL '7 days'"))).scalar() or 0
+            users_today  = (await _s.execute(_text("SELECT COUNT(*) FROM users WHERE created_at > NOW() - INTERVAL '1 day'"))).scalar() or 0
+            matches_total  = (await _s.execute(_text("SELECT COUNT(*) FROM matches"))).scalar() or 0
+            messages_total = (await _s.execute(_text("SELECT COUNT(*) FROM messages"))).scalar() or 0
+    except Exception:
+        pass
     with _m_lock:
         return JSONResponse({
             "uptime_seconds": int(time.time() - _m["started_at"]),
             "requests_total": _m["requests_total"],
             "errors_5xx": _m["errors_5xx"],
             "status_counts": dict(_m["status_counts"]),
+            "users": {
+                "total": users_total,
+                "active": users_active,
+                "registered_last_7d": users_week,
+                "registered_last_24h": users_today,
+            },
+            "matches_total": matches_total,
+            "messages_total": messages_total,
         })
 
 
@@ -779,15 +843,50 @@ async def welcome(request: Request):
     return templates.TemplateResponse(request, "welcome.html", {})
 
 
+@app.get("/api/geo")
+async def api_geo(request: Request):
+    """Return city/country/lat/lon for the requester's IP."""
+    from app.utils.ip_geo import get_geo_from_ip
+    ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (
+        request.client.host if request.client else ""
+    )
+    data = await get_geo_from_ip(ip)
+    return JSONResponse(data)
+
+
+@app.post("/api/reverse-geo")
+async def api_reverse_geo(request: Request, _user=Depends(_get_current_user)):
+    """Convert GPS lat/lon to city name (requires auth to prevent abuse)."""
+    from app.utils.ip_geo import reverse_geocode
+    from app.rate_limit import rate_limit as _rl
+    try:
+        body = await request.json()
+        lat, lon = float(body["lat"]), float(body["lon"])
+    except Exception:
+        raise HTTPException(400, "lat and lon required")
+    city = await reverse_geocode(lat, lon)
+    return JSONResponse({"city": city})
+
+
 @app.get("/", response_class=HTMLResponse)
 @app.head("/")
-def index(request: Request):
+async def index(request: Request):
     token = request.cookies.get("access_token")
     if token:
         return RedirectResponse("/swipe", status_code=302)
     lang = get_lang(request)
+    users_count = matches_count = 0
+    try:
+        from app.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as _s:
+            users_count  = (await _s.execute(_text("SELECT COUNT(*) FROM users WHERE is_active=true"))).scalar() or 0
+            matches_count = (await _s.execute(_text("SELECT COUNT(*) FROM matches"))).scalar() or 0
+    except Exception:
+        pass
     return templates.TemplateResponse(request, "index.html", {
         "t": get_translations(lang),
         "rtl": is_rtl(lang),
         "lang": lang,
+        "users_count": users_count,
+        "matches_count": matches_count,
     })
