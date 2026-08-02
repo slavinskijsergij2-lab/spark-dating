@@ -4,11 +4,12 @@
 {% block head %}
 <style>
   .swipe-card {
+    will-change: transform;
     border-radius: 24px;
     overflow: hidden;
     background: white;
     box-shadow: 0 8px 40px rgba(0,0,0,.15);
-    transition: transform .25s ease, opacity .25s ease;
+    transition: transform .18s ease, opacity .18s ease;
     touch-action: none;
     user-select: none;
     -webkit-user-select: none;
@@ -75,20 +76,22 @@
     width: 70px; height: 70px; border-radius: 50%; border: none; cursor: pointer;
     background: white; box-shadow: 0 4px 20px rgba(239,68,68,.25);
     font-size: 28px; display: flex; align-items: center; justify-content: center;
-    transition: transform .15s, box-shadow .15s;
+    transition: transform .08s, box-shadow .08s;
     -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
   }
-  .btn-no:active { transform: scale(.88); }
+  .btn-no:active { transform: scale(.82); box-shadow: 0 2px 10px rgba(239,68,68,.2); }
 
   .btn-yes {
     width: 78px; height: 78px; border-radius: 50%; border: none; cursor: pointer;
     background: linear-gradient(135deg, #f472b6, #ec4899);
     box-shadow: 0 6px 24px rgba(236,72,153,.4);
     font-size: 32px; display: flex; align-items: center; justify-content: center;
-    transition: transform .15s, box-shadow .15s;
+    transition: transform .08s, box-shadow .08s;
     -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
   }
-  .btn-yes:active { transform: scale(.88); }
+  .btn-yes:active { transform: scale(.82); box-shadow: 0 2px 12px rgba(236,72,153,.3); }
 
   .btn-super {
     width: 54px; height: 54px; border-radius: 50%; border: none; cursor: pointer;
@@ -228,6 +231,11 @@
     <button class="city-clear" id="city-clear-btn" title="Сбросить">✕</button>
     <div class="city-dropdown" id="city-dropdown"></div>
   </div>
+  <!-- GPS кнопка -->
+  <button id="swipe-gps-btn" type="button" onclick="detectSwipeCity()"
+          title="{{ t.get('detect_location','Определить моё местоположение') }}"
+          style="position:absolute;right:0;top:0;background:none;border:none;cursor:pointer;
+                 font-size:18px;padding:8px;color:#ec4899;line-height:1;">📍</button>
   {% if location_id %}
   <!-- Подсказка о расширении поиска (показывает fallback) -->
   <div id="geo-hint" class="text-xs text-center text-pink-400 mb-2" style="display:none;"></div>
@@ -269,18 +277,26 @@
     </div>
   </div>
 
+  <!-- Toast уведомление о результате свайпа -->
+  <div id="swipe-toast" style="
+    position:fixed; top:72px; left:50%; transform:translateX(-50%) translateY(8px);
+    background:rgba(0,0,0,0.75); color:white; font-size:15px; font-weight:700;
+    padding:8px 20px; border-radius:999px; z-index:9000;
+    opacity:0; transition:opacity .2s, transform .2s; pointer-events:none;
+  "></div>
+
   <!-- Ошибка -->
   <div id="swipe-err" style="display:none;"
-       class="text-center text-sm text-red-500 bg-red-50 rounded-xl py-2 px-4 mt-4"></div>
+       class="text-center text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl py-3 px-4 mt-4 font-medium"></div>
 
-  <!-- Кнопки -->
+  <!-- Кнопки (форма-фоллбек работает без JS) -->
   <div class="flex items-center justify-center gap-4 mt-4">
     {% if can_undo %}
-    <button onclick="doUndo(this)" id="btn-undo" class="w-10 h-10 rounded-full bg-white shadow border border-gray-200 text-lg flex items-center justify-center hover:border-yellow-300 hover:shadow-md transition" title="{{ t.get('undo_swipe','Отменить свайп') }}">↩️</button>
+    <button onclick="doUndo(this)" id="btn-undo" type="button" class="w-10 h-10 rounded-full bg-white shadow border border-gray-200 text-lg flex items-center justify-center hover:border-yellow-300 hover:shadow-md transition" title="{{ t.get('undo_swipe','Отменить свайп') }}">↩️</button>
     {% endif %}
-    <button onclick="doSwipe('dislike')" id="btn-no"  class="btn-no"  title="{{ t.get('swipe_hint_left','Нет') }}">✖️</button>
-    <button onclick="doSuperLike()"      id="btn-star" class="btn-super" title="⭐ {{ super_likes_left }}">⭐</button>
-    <button onclick="doSwipe('like')"    id="btn-yes" class="btn-yes" title="{{ t.get('swipe_hint_right','Да') }}">💚</button>
+    <a href="/swipe/{{ candidate.id }}/dislike" id="btn-no" class="btn-no" title="{{ t.get('swipe_hint_left','Нет') }}" style="text-decoration:none;" onclick="doSwipe('dislike'); return false;">✖️</a>
+    <button onclick="doSuperLike()" id="btn-star" type="button" class="btn-super" title="⭐ {{ super_likes_left }}">⭐</button>
+    <a href="/swipe/{{ candidate.id }}/like" id="btn-yes" class="btn-yes" title="{{ t.get('swipe_hint_right','Да') }}" style="text-decoration:none;" onclick="doSwipe('like'); return false;">💚</a>
   </div>
 
   <!-- Подсказка -->
@@ -330,17 +346,37 @@
   function showErr(msg) {
     var el = document.getElementById('swipe-err');
     if (!el) return;
-    el.textContent = msg;
+    el.innerHTML = msg + ' <button onclick="this.parentElement.style.display=\'none\'" style="margin-left:8px;font-weight:bold;cursor:pointer;">✕</button>';
     el.style.display = 'block';
-    setTimeout(function(){ el.style.display = 'none'; }, 3000);
+    clearTimeout(el._t);
+    el._t = setTimeout(function(){ el.style.display = 'none'; }, 8000);
   }
 
+  function showToast(msg) {
+    var t = document.getElementById('swipe-toast');
+    if (!t) return;
+    t.textContent = msg;
+    t.style.opacity = '1';
+    t.style.transform = 'translateY(0)';
+    clearTimeout(t._t);
+    t._t = setTimeout(function(){
+      t.style.opacity = '0';
+      t.style.transform = 'translateY(8px)';
+    }, 1500);
+  }
+
+  var _safetyTimer = null;
   function setBusy(val) {
+    clearTimeout(_safetyTimer);
     swiping = val;
-    ['btn-no','btn-yes','btn-star','btn-undo'].forEach(function(id){
+    // Only disable real buttons (not <a> links which handle like/dislike)
+    ['btn-star','btn-undo'].forEach(function(id){
       var b = document.getElementById(id);
       if (b) b.disabled = val;
     });
+    if (val) {
+      _safetyTimer = setTimeout(function(){ if (swiping) setBusy(false); }, 8000);
+    }
   }
 
   function updateLikesBar(left) {
@@ -373,12 +409,16 @@
     var bio    = document.getElementById('card-bio');
     var dot    = document.getElementById('card-online-dot');
     var link   = document.getElementById('card-profile-link');
-    if (img)  { img.src = photo; img.style.display = photo ? '' : 'none'; }
-    if (name) name.textContent = n.name + ', ' + n.age;
-    if (city) { city.textContent = n.city ? '📍 ' + n.city : ''; city.style.display = n.city ? '' : 'none'; }
-    if (bio)  { bio.textContent = n.bio || ''; bio.style.display = n.bio ? '' : 'none'; }
-    if (dot)  dot.style.display = n.is_online ? '' : 'none';
-    if (link) link.href = '/profile/' + n.id;
+    var btnNo  = document.getElementById('btn-no');
+    var btnYes = document.getElementById('btn-yes');
+    if (img)    { img.src = photo; img.style.display = photo ? '' : 'none'; }
+    if (name)   name.textContent = n.name + ', ' + n.age;
+    if (city)   { city.textContent = n.city ? '📍 ' + n.city : ''; city.style.display = n.city ? '' : 'none'; }
+    if (bio)    { bio.textContent = n.bio || ''; bio.style.display = n.bio ? '' : 'none'; }
+    if (dot)    dot.style.display = n.is_online ? '' : 'none';
+    if (link)   link.href = '/profile/' + n.id;
+    if (btnNo)  btnNo.href = '/swipe/' + n.id + '/dislike';
+    if (btnYes) btnYes.href = '/swipe/' + n.id + '/like';
   }
 
   function hideCard() {
@@ -391,6 +431,16 @@
       '<a href="/swipe" class="gradient-pink text-white px-8 py-3 rounded-full font-bold shadow-lg hover:opacity-90 transition">🔄 {{ t.get("filter_reset","Сбросить фильтры") }}</a>' +
       '</div>';
   }
+
+  window.animateAndGo = function(e, cls, url) {
+    if (swiping) { e.preventDefault(); return; }
+    e.preventDefault();
+    setBusy(true);
+    var el = document.getElementById('card-el');
+    if (el) { el.style.transform = ''; el.classList.add(cls); }
+    // Navigate after 30ms — browser loads next page while animation plays
+    setTimeout(function() { window.location.href = url; }, 30);
+  };
 
   function flyCard(cls, cb) {
     var el = document.getElementById('card-el');
@@ -410,43 +460,48 @@
   window.doSwipe = function(action) {
     if (swiping) return;
     setBusy(true);
-    flyCard(action === 'like' ? 'fly-right' : 'fly-left', function() {
-      var ac = new AbortController();
-      var tid = setTimeout(function(){ ac.abort(); }, 10000);
-      fetch('/swipe/' + cardId + '?action=' + action + _geoParam, {
-        method: 'POST',
-        headers: { 'x-csrf-token': getCsrf() },
-        signal: ac.signal
-      })
-      .then(function(r){
-        clearTimeout(tid);
-        if (r.status === 401) { window.location.href = '/login'; return null; }
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      })
-      .then(function(data){
-        if (!data) return;
-        if (data.error === 'daily_limit') {
-          setBusy(false);
-          updateLikesBar(0);
-          showLimitModal();
-          return;
-        }
-        if (data.matched) { showMatchScreen(data); return; }
-        if (data.super_likes_left !== undefined) {
-          superLeft = data.super_likes_left;
-          var badge = document.getElementById('super-left-badge');
-          if (badge) { badge.textContent = '⭐ ' + superLeft; badge.style.display = superLeft > 0 ? '' : 'none'; }
-        }
-        if (data.likes_left !== undefined && data.likes_left !== null) { updateLikesBar(data.likes_left); }
-        if (data.next) { updateCard(data.next); }
-        else { hideCard(); return; }
-        setBusy(false);
-      })
-      .catch(function(e){
-        showErr('{{ t.get("swipe_err","Ошибка соединения") }}');
-        setBusy(false);
-      });
+    var _cardNow = document.getElementById('card-el');
+    if (_cardNow) _cardNow.style.transform = '';
+
+    // Fetch starts IMMEDIATELY — runs in parallel with the animation (not after it)
+    var ac = new AbortController();
+    var tid = setTimeout(function(){ ac.abort(); }, 10000);
+    var fetchP = fetch('/swipe/' + cardId + '?action=' + action + _geoParam, {
+      method: 'POST',
+      headers: { 'x-csrf-token': getCsrf() },
+      signal: ac.signal
+    }).then(function(r){
+      clearTimeout(tid);
+      if (r.status === 401) { window.location.href = '/login'; return null; }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    });
+
+    var animP = new Promise(function(resolve){
+      flyCard(action === 'like' ? 'fly-right' : 'fly-left', resolve);
+    });
+
+    Promise.all([fetchP, animP]).then(function(res){
+      var data = res[0];
+      if (!data) return;
+      if (data.error === 'daily_limit') {
+        setBusy(false); updateLikesBar(0); showLimitModal(); return;
+      }
+      if (data.matched) { showMatchScreen(data); return; }
+      if (data.super_likes_left !== undefined) {
+        superLeft = data.super_likes_left;
+        var badge = document.getElementById('super-left-badge');
+        if (badge) { badge.textContent = '⭐ ' + superLeft; badge.style.display = superLeft > 0 ? '' : 'none'; }
+      }
+      if (data.likes_left !== undefined && data.likes_left !== null) { updateLikesBar(data.likes_left); }
+      showToast(action === 'like' ? '💚 Лайк!' : '👎 Пропущен');
+      if (data.next) { updateCard(data.next); setBusy(false); }
+      else { setTimeout(function(){ hideCard(); setBusy(false); }, 800); }
+    }).catch(function(e){
+      clearTimeout(tid);
+      var msg = e && e.message ? ('{{ t.get("swipe_err","Ошибка") }}: ' + e.message) : '{{ t.get("swipe_err","Ошибка соединения") }}';
+      showErr(msg);
+      setBusy(false);
     });
   };
 
@@ -454,41 +509,45 @@
     if (swiping || superLeft <= 0) return;
     superLeft--;
     setBusy(true);
-    flyCard('fly-right', function() {
-      var ac = new AbortController();
-      var tid = setTimeout(function(){ ac.abort(); }, 10000);
-      fetch('/swipe/' + cardId + '?action=like&is_super=1' + _geoParam, {
-        method: 'POST',
-        headers: { 'x-csrf-token': getCsrf() },
-        signal: ac.signal
-      })
-      .then(function(r){
-        clearTimeout(tid);
-        if (r.status === 401) { window.location.href = '/login'; return null; }
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      })
-      .then(function(data){
-        if (!data) return;
-        if (data.matched) { showMatchScreen(data); return; }
-        if (data.super_likes_left !== undefined) {
-          superLeft = data.super_likes_left;
-          var badge = document.getElementById('super-left-badge');
-          if (badge) { badge.textContent = '⭐ ' + superLeft; badge.style.display = superLeft > 0 ? '' : 'none'; }
-        }
-        if (data.next) { updateCard(data.next); }
-        else { hideCard(); return; }
-        setBusy(false);
-      })
-      .catch(function(e){
-        superLeft++;
-        showErr('{{ t.get("swipe_err","Ошибка соединения") }}');
-        setBusy(false);
-      });
+    var _cardNow2 = document.getElementById('card-el');
+    if (_cardNow2) _cardNow2.style.transform = '';
+
+    var ac2 = new AbortController();
+    var tid2 = setTimeout(function(){ ac2.abort(); }, 10000);
+    var fetchP2 = fetch('/swipe/' + cardId + '?action=like&is_super=1' + _geoParam, {
+      method: 'POST',
+      headers: { 'x-csrf-token': getCsrf() },
+      signal: ac2.signal
+    }).then(function(r){
+      clearTimeout(tid2);
+      if (r.status === 401) { window.location.href = '/login'; return null; }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    });
+
+    var animP2 = new Promise(function(resolve){
+      flyCard('fly-right', resolve);
+    });
+
+    Promise.all([fetchP2, animP2]).then(function(res){
+      var data = res[0];
+      if (!data) return;
+      if (data.matched) { showMatchScreen(data); return; }
+      if (data.super_likes_left !== undefined) {
+        superLeft = data.super_likes_left;
+        var badge = document.getElementById('super-left-badge');
+        if (badge) { badge.textContent = '⭐ ' + superLeft; badge.style.display = superLeft > 0 ? '' : 'none'; }
+      }
+      showToast('⭐ Супер лайк!');
+      if (data.next) { updateCard(data.next); setBusy(false); }
+      else { setTimeout(function(){ hideCard(); setBusy(false); }, 800); }
+    }).catch(function(e){
+      clearTimeout(tid2);
+      superLeft++;
+      showErr('{{ t.get("swipe_err","Ошибка соединения") }}');
+      setBusy(false);
     });
   };
-
-  window.addEventListener('pageshow', function(e){ if (e.persisted) window.location.reload(); });
 
   // ── Матч-экран ─────────────────────────────────────────────────────────────
   var _matchNextData = null;
@@ -620,7 +679,11 @@
     el.addEventListener('pointercancel', _onPointerCancel);
   })();
 
+
   window.addEventListener('pageshow', function(e){ if (e.persisted) window.location.reload(); });
+
+  // Debug helper: log state so Chrome DevTools shows what's happening
+  window._swipeDebug = function() { return { swiping: swiping, cardId: cardId, likesLeft: likesLeft }; };
 })();
 </script>
 
@@ -803,6 +866,49 @@ window.addEventListener('DOMContentLoaded', showLimitModal);
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 })();
+</script>
+
+<script nonce="{{ request.state.csp_nonce }}">
+function detectSwipeCity() {
+  var btn = document.getElementById('swipe-gps-btn');
+  var cityInput = document.getElementById('city-autocomplete');
+  if (btn) btn.textContent = '⏳';
+
+  function applyCity(city) {
+    if (btn) btn.textContent = '📍';
+    if (!city) return;
+    if (cityInput) cityInput.value = city;
+    // Navigate with city filter
+    var url = new URL(window.location.href);
+    url.searchParams.set('city', city);
+    url.searchParams.delete('location_id');
+    window.location.href = url.toString();
+  }
+
+  function tryGPS() {
+    if (!navigator.geolocation) { tryIP(); return; }
+    navigator.geolocation.getCurrentPosition(function(pos) {
+      var csrf = document.cookie.split('; ').find(function(c){ return c.startsWith('csrftoken='); });
+      csrf = csrf ? csrf.slice('csrftoken='.length) : '';
+      fetch('/api/reverse-geo', {
+        method: 'POST',
+        headers: {'content-type': 'application/json', 'x-csrf-token': csrf},
+        body: JSON.stringify({lat: pos.coords.latitude, lon: pos.coords.longitude})
+      }).then(function(r){ return r.json(); })
+        .then(function(d){ applyCity(d.city || ''); })
+        .catch(function(){ tryIP(); });
+    }, function() { tryIP(); }, {timeout: 8000});
+  }
+
+  function tryIP() {
+    fetch('/api/geo')
+      .then(function(r){ return r.json(); })
+      .then(function(d){ applyCity(d.city || ''); })
+      .catch(function(){ if (btn) btn.textContent = '📍'; });
+  }
+
+  tryGPS();
+}
 </script>
 
 {% endif %}
