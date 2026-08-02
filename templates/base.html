@@ -329,56 +329,6 @@
     </button>
   </div>
 
-  <!-- ── Features bottom sheet (shown after registration) ── -->
-  <div id="feat-backdrop"
-       style="display:none;position:fixed;inset:0;z-index:9980;background:rgba(0,0,0,0.55);backdrop-filter:blur(4px);"
-       onclick="closeFeatSheet()"></div>
-
-  <div id="feat-sheet"
-       style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9981;
-              max-width:520px;margin:0 auto;
-              background:white;border-radius:28px 28px 0 0;
-              transform:translateY(100%);transition:transform .42s cubic-bezier(.32,.72,0,1);
-              max-height:90vh;overflow-y:auto;overscroll-behavior:contain;">
-
-    <!-- Handle -->
-    <div style="display:flex;justify-content:center;padding:14px 0 4px;">
-      <div style="width:40px;height:4px;border-radius:4px;background:#e5e7eb;"></div>
-    </div>
-
-    <!-- Gradient header -->
-    <div style="margin:0 16px 20px;border-radius:20px;padding:22px 20px;
-                background:linear-gradient(135deg,#be185d 0%,#ec4899 50%,#a855f7 100%);
-                text-align:center;position:relative;overflow:hidden;">
-      <!-- Sparkle circles -->
-      <div style="position:absolute;top:-30px;right:-30px;width:100px;height:100px;border-radius:50%;background:rgba(255,255,255,.1);"></div>
-      <div style="position:absolute;bottom:-20px;left:-20px;width:70px;height:70px;border-radius:50%;background:rgba(255,255,255,.08);"></div>
-      <div style="font-size:44px;margin-bottom:8px;filter:drop-shadow(0 4px 12px rgba(0,0,0,.25));">💘</div>
-      <div style="font-size:22px;font-weight:900;color:white;margin-bottom:4px;letter-spacing:-.5px;">Добро пожаловать в Spark!</div>
-      <div style="font-size:13px;color:rgba(255,255,255,.85);font-weight:500;">Вот что тебя ждёт 👇</div>
-    </div>
-
-    <!-- Features list -->
-    <div style="padding:0 16px;" id="feat-list">
-      <!-- each row added by JS with stagger animation -->
-    </div>
-
-    <!-- CTA -->
-    <div style="padding:20px 16px 36px;">
-      <a href="/register"
-         style="display:block;background:linear-gradient(135deg,#f472b6,#ec4899);color:white;
-                padding:16px;border-radius:999px;font-size:16px;font-weight:800;text-decoration:none;
-                text-align:center;box-shadow:0 6px 24px rgba(236,72,153,.4);margin-bottom:10px;">
-        ✨ Начать бесплатно
-      </a>
-      <button onclick="closeFeatSheet()"
-              style="display:block;width:100%;background:none;border:none;color:#9ca3af;
-                     font-size:14px;cursor:pointer;padding:8px;">
-        Уже разобрался, спасибо
-      </button>
-    </div>
-  </div>
-
   <!-- Delete account modal (base) -->
   <div id="base-delete-modal" style="display:none"
        class="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
@@ -738,69 +688,6 @@ async function togglePush() {
 }
 
 _initSW();
-
-// ── Features bottom sheet ────────────────────────────────────────────────────
-var _FEATURES = [
-  { icon:'💚', title:'Свайп анкет',        desc:'Листай профили — нравится? Лайкай!' },
-  { icon:'💘', title:'Матчи',              desc:'Взаимный лайк → можно написать' },
-  { icon:'💬', title:'Чат в реальном времени', desc:'Общайся с матчами прямо сейчас' },
-  { icon:'📍', title:'По городу',          desc:'Находи людей рядом с тобой' },
-  { icon:'⭐', title:'Суперлайк',          desc:'Выдели себя — 5 суперлайков в день бесплатно' },
-  { icon:'🔔', title:'Уведомления',        desc:'Не пропустишь ни один матч' },
-];
-
-function openFeatSheet() {
-  var bd = document.getElementById('feat-backdrop');
-  var sh = document.getElementById('feat-sheet');
-  var list = document.getElementById('feat-list');
-  if (!sh) return;
-
-  // Build feature rows
-  list.innerHTML = _FEATURES.map(function(f, i) {
-    return '<div class="feat-row" style="display:flex;align-items:center;gap:14px;padding:13px 0;border-bottom:1px solid #f3f4f6;opacity:0;transform:translateY(16px);transition:opacity .35s ease,transform .35s ease;transition-delay:' + (i * 0.07 + 0.15) + 's;">' +
-      '<div style="width:48px;height:48px;border-radius:16px;background:linear-gradient(135deg,#fce7f3,#ede9fe);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">' + f.icon + '</div>' +
-      '<div><div style="font-size:15px;font-weight:700;color:#111827;">' + f.title + '</div>' +
-      '<div style="font-size:13px;color:#6b7280;margin-top:2px;">' + f.desc + '</div></div>' +
-      '</div>';
-  }).join('');
-
-  bd.style.display = 'block';
-  sh.style.display = 'block';
-  document.body.style.overflow = 'hidden';
-
-  requestAnimationFrame(function() {
-    requestAnimationFrame(function() {
-      sh.style.transform = 'translateY(0)';
-      // Trigger stagger
-      setTimeout(function() {
-        document.querySelectorAll('.feat-row').forEach(function(el) {
-          el.style.opacity = '1';
-          el.style.transform = 'translateY(0)';
-        });
-      }, 80);
-    });
-  });
-}
-
-function closeFeatSheet() {
-  var bd = document.getElementById('feat-backdrop');
-  var sh = document.getElementById('feat-sheet');
-  if (!sh) return;
-  sh.style.transform = 'translateY(100%)';
-  document.body.style.overflow = '';
-  setTimeout(function() { sh.style.display = 'none'; bd.style.display = 'none'; }, 400);
-  try { localStorage.setItem('feat-seen', '1'); } catch(e) {}
-  document.cookie = 'features_show=; max-age=0; path=/; samesite=lax';
-}
-
-// Show after registration (cookie) or first visit to index (localStorage)
-(function() {
-  var hasCookie = document.cookie.split('; ').some(function(c) { return c.startsWith('features_show='); });
-  if (hasCookie) {
-    setTimeout(openFeatSheet, 1200);
-    return;
-  }
-})();
 
 // Nav icon pop animation
 (function() {
