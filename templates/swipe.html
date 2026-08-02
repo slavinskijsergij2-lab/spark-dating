@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ t.get('nav_swipe','Пошук') }} — Spark{% endblock %}
+{% block main_class %}max-w-lg mx-auto px-3 pt-2{% if show_nav %} pb-24{% endif %}{% endblock %}
 
 {% block head %}
 <style>
@@ -42,35 +43,38 @@
     animation: heart-rain linear infinite;
   }
 
-  .card-photo {
-    position: relative;
-    height: min(72vw, 440px);
-    background: linear-gradient(135deg, #fce7f3, #ede9fe);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 96px;
+  /* ── Full-screen card ── */
+  .swipe-card {
+    height: min(calc(100svh - 270px), 600px);
+    min-height: 390px;
+    background: #120a1e;
   }
-  .card-photo img {
-    position: absolute; inset: 0;
-    width: 100%; height: 100%;
-    object-fit: cover;
+  .card-fallback-icon {
+    position: absolute; inset: 0; display: flex;
+    align-items: center; justify-content: center;
+    font-size: 96px; z-index: 0; color: #4b3070;
   }
-  .card-photo .photo-gradient {
-    position: absolute; inset: 0;
-    background: linear-gradient(to top, rgba(0,0,0,.7) 0%, transparent 55%);
-    pointer-events: none;
+  .card-photo-full {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; z-index: 1;
   }
-  .card-photo .card-name {
-    position: absolute; bottom: 14px; left: 16px; right: 16px;
-    color: white; font-size: 24px; font-weight: 800;
-    text-shadow: 0 2px 8px rgba(0,0,0,.5);
-    display: flex; align-items: center; gap: 8px;
+  .card-gradient {
+    position: absolute; bottom: 0; left: 0; right: 0; height: 65%;
+    background: linear-gradient(to top, rgba(0,0,0,.88) 0%, rgba(0,0,0,.5) 40%, transparent 100%);
+    pointer-events: none; z-index: 2;
+  }
+  .card-overlay {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    padding: 14px 16px 18px; z-index: 3;
+  }
+  .card-overlay-name {
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;
   }
   .online-dot {
     width: 10px; height: 10px; border-radius: 50%;
     background: #4ade80; border: 2px solid rgba(255,255,255,.7);
-    flex-shrink: 0;
+    flex-shrink: 0; margin-bottom: 2px;
   }
-  .card-body { padding: 14px 16px 16px; }
 
   .btn-no {
     width: 70px; height: 70px; border-radius: 50%; border: none; cursor: pointer;
@@ -145,17 +149,17 @@
   /* ── Photo gallery ── */
   #card-img { transition: opacity .12s ease; }
   .photo-dots {
-    position: absolute; bottom: 54px; left: 0; right: 0;
+    position: absolute; top: 10px; left: 10px; right: 10px;
     display: flex; justify-content: center; gap: 4px; z-index: 5;
     pointer-events: none;
   }
   .photo-dot {
-    height: 4px; border-radius: 2px; background: rgba(255,255,255,.5);
-    transition: all .2s; width: 16px; flex-shrink: 0;
+    height: 3px; border-radius: 2px; background: rgba(255,255,255,.45);
+    transition: all .2s; flex: 1; max-width: 48px;
   }
-  .photo-dot.active { background: white; width: 28px; }
+  .photo-dot.active { background: white; }
   .photo-tap-l, .photo-tap-r {
-    position: absolute; top: 0; bottom: 64px; width: 38%; z-index: 6;
+    position: absolute; top: 0; bottom: 150px; width: 38%; z-index: 6;
     cursor: pointer; -webkit-tap-highlight-color: transparent;
   }
   .photo-tap-l { left: 0; }
@@ -271,44 +275,60 @@
   <div id="geo-hint" class="text-xs text-center text-pink-400 mb-2" style="display:none;"></div>
   {% endif %}
 
-  <!-- Карточка — рендерится сервером, Alpine обновляет динамически -->
+  <!-- Карточка — полноэкранная, фото занимает всю высоту -->
   <div class="swipe-card" id="card-el" style="position:relative;">
-    <div class="drag-label drag-label-like" id="drag-like">ЛАЙК</div>
-    <div class="drag-label drag-label-nope" id="drag-nope">НOPE</div>
+    <!-- Фоновая иконка (когда нет фото) -->
+    <div class="card-fallback-icon">👤</div>
+
     <!-- Фото -->
-    <div class="card-photo" id="card-photo-area">
-      <span>👤</span>
-      {# Серверный рендер фото — показывается сразу без JS #}
-      {% if first_photo %}
-      <img id="card-img" src="{{ first_photo }}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;"
-           onerror="this.style.display='none'" />
-      {% else %}
-      <img id="card-img" src="" style="display:none;" />
-      {% endif %}
-      <!-- Tap zones для переключения фото -->
-      <div class="photo-tap-l" onclick="photoNav(-1)"></div>
-      <div class="photo-tap-r" onclick="photoNav(1)"></div>
-      <!-- Dots индикатор -->
-      <div class="photo-dots" id="photo-dots"></div>
-      <div class="photo-gradient"></div>
-      <div class="card-name">
-        <span id="card-name">{{ profile.name }}, {{ profile.age }}</span>
+    {% if first_photo %}
+    <img id="card-img" class="card-photo-full" src="{{ first_photo }}"
+         onerror="this.style.display='none'" />
+    {% else %}
+    <img id="card-img" class="card-photo-full" src="" style="display:none;" />
+    {% endif %}
+
+    <!-- Drag labels -->
+    <div class="drag-label drag-label-like" id="drag-like" style="z-index:8;">ЛАЙК</div>
+    <div class="drag-label drag-label-nope" id="drag-nope" style="z-index:8;">НOPE</div>
+
+    <!-- Tap zones для листания фото -->
+    <div class="photo-tap-l" onclick="photoNav(-1)"></div>
+    <div class="photo-tap-r" onclick="photoNav(1)"></div>
+
+    <!-- Dots-индикатор фото -->
+    <div class="photo-dots" id="photo-dots"></div>
+
+    <!-- Тёмный градиент снизу -->
+    <div class="card-gradient"></div>
+
+    <!-- Текст поверх фото -->
+    <div class="card-overlay">
+      <div class="card-overlay-name">
+        <span id="card-name" style="font-size:26px;font-weight:900;color:white;text-shadow:0 2px 12px rgba(0,0,0,.5);line-height:1.15;">{{ profile.name }}, {{ profile.age }}</span>
+        {% if candidate.is_verified %}<span style="font-size:16px;margin-bottom:2px;" title="Верифицирован">✅</span>{% endif %}
         {% if os and os.is_online %}<span class="online-dot"></span>{% endif %}
         <span id="card-online-dot" class="online-dot" style="display:none;"></span>
       </div>
-    </div>
-    <!-- Инфо -->
-    <div class="card-body">
+
       {% if profile.city %}
-      <p id="card-city" class="text-gray-400 text-sm mb-2">📍 {{ profile.city }}</p>
+      <p id="card-city" style="font-size:13px;color:rgba(255,255,255,.8);margin:0 0 7px;font-weight:500;">📍 {{ profile.city }}</p>
       {% else %}
-      <p id="card-city" class="text-gray-400 text-sm mb-2" style="display:none;"></p>
+      <p id="card-city" style="display:none;font-size:13px;color:rgba(255,255,255,.8);margin:0 0 7px;font-weight:500;"></p>
       {% endif %}
+
       {% if profile.bio %}
-      <p id="card-bio" class="text-gray-600 text-sm leading-relaxed line-clamp-3">{{ profile.bio }}</p>
+      <p id="card-bio" style="font-size:13px;color:rgba(255,255,255,.75);line-height:1.45;margin:0 0 10px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">{{ profile.bio }}</p>
       {% else %}
-      <p id="card-bio" class="text-gray-600 text-sm leading-relaxed line-clamp-3" style="display:none;"></p>
+      <p id="card-bio" style="display:none;font-size:13px;color:rgba(255,255,255,.75);line-height:1.45;margin:0 0 10px;"></p>
       {% endif %}
+
+      <!-- Теги интересов -->
+      <div id="card-interests" style="display:flex;flex-wrap:wrap;gap:5px;">
+        {% for interest in init_interests %}
+        <span style="background:rgba(255,255,255,.18);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:3px 10px;font-size:11px;color:white;font-weight:600;">{{ interest }}</span>
+        {% endfor %}
+      </div>
     </div>
   </div>
 
@@ -464,23 +484,30 @@
     cardId = n.id;
     _photos = n.photos || [];
     _photoIdx = 0;
-    var photo  = _photos[0] || '';
-    var img    = document.getElementById('card-img');
-    var name   = document.getElementById('card-name');
-    var city   = document.getElementById('card-city');
-    var bio    = document.getElementById('card-bio');
-    var dot    = document.getElementById('card-online-dot');
-    var link   = document.getElementById('card-profile-link');
-    var btnNo  = document.getElementById('btn-no');
-    var btnYes = document.getElementById('btn-yes');
-    if (img)    { img.src = photo; img.style.display = photo ? '' : 'none'; img.style.opacity = '1'; }
-    if (name)   name.textContent = n.name + ', ' + n.age;
-    if (city)   { city.textContent = n.city ? '📍 ' + n.city : ''; city.style.display = n.city ? '' : 'none'; }
-    if (bio)    { bio.textContent = n.bio || ''; bio.style.display = n.bio ? '' : 'none'; }
-    if (dot)    dot.style.display = n.is_online ? '' : 'none';
-    if (link)   link.href = '/profile/' + n.id;
+    var photo     = _photos[0] || '';
+    var img       = document.getElementById('card-img');
+    var name      = document.getElementById('card-name');
+    var city      = document.getElementById('card-city');
+    var bio       = document.getElementById('card-bio');
+    var dot       = document.getElementById('card-online-dot');
+    var link      = document.getElementById('card-profile-link');
+    var btnNo     = document.getElementById('btn-no');
+    var btnYes    = document.getElementById('btn-yes');
+    var interests = document.getElementById('card-interests');
+    if (img) { img.src = photo; img.style.display = photo ? '' : 'none'; img.style.opacity = '1'; }
+    if (name) name.textContent = n.name + ', ' + n.age;
+    if (city) { city.textContent = n.city ? '📍 ' + n.city : ''; city.style.display = n.city ? '' : 'none'; }
+    if (bio)  { bio.textContent = n.bio || ''; bio.style.display = n.bio ? '' : 'none'; }
+    if (dot)  dot.style.display = n.is_online ? '' : 'none';
+    if (link) link.href = '/profile/' + n.id;
     if (btnNo)  btnNo.href = '/swipe/' + n.id + '/dislike';
     if (btnYes) btnYes.href = '/swipe/' + n.id + '/like';
+    if (interests) {
+      var tags = n.interests_list || [];
+      interests.innerHTML = tags.map(function(tag) {
+        return '<span style="background:rgba(255,255,255,.18);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:3px 10px;font-size:11px;color:white;font-weight:600;">' + tag + '</span>';
+      }).join('');
+    }
     renderDots();
   }
 
