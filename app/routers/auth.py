@@ -287,6 +287,7 @@ async def verify_email_confirm(token: str, request: Request, db: AsyncSession = 
     _set_auth_cookie(redirect, access_token)
     redirect.set_cookie("lang", lang, max_age=60 * 60 * 24 * 365, samesite="lax")
     redirect.set_cookie("pwa_show", "1", max_age=300, samesite="lax", httponly=False)
+    redirect.set_cookie("features_show", "1", max_age=300, samesite="lax", httponly=False)
     return redirect
 
 
