@@ -6,11 +6,14 @@ Compresses with PIL, then either:
 """
 import base64
 import io
+import logging
 import os
 import uuid
 from pathlib import Path
 
 from PIL import Image, ImageOps
+
+_log = logging.getLogger(__name__)
 
 MAX_DIMENSION = (800, 800)
 JPEG_QUALITY = 80
@@ -34,8 +37,8 @@ def remove_photo_file(url: str | None) -> None:
         return
     try:
         (photo_dir / url.split("/")[-1]).unlink(missing_ok=True)
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.warning("remove_photo_file: failed to delete %s: %s", url, exc)
 
 
 def save_image_bytes(raw: bytes, prefix: str = "") -> str:

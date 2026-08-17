@@ -38,7 +38,7 @@ from sqlalchemy import text as _text
 
 logging.info("startup: fastapi+sqlalchemy imported")
 
-from app.database import Base, engine
+from app.database import engine
 from app.i18n import get_lang, get_translations, is_rtl
 from app.auth import get_current_user as _get_current_user
 from app.routers import auth, profile, swipe, matches
@@ -95,10 +95,41 @@ _startup_ok: bool = bool(os.getenv("TESTING"))
 _startup_time: float = time.time()
 
 
+def _check_config_warnings() -> None:
+    """Log actionable warnings for important but missing configuration."""
+    is_prod = bool(os.getenv("RAILWAY_ENVIRONMENT"))
+    if not is_prod:
+        return
+
+    if not os.getenv("SENTRY_DSN"):
+        logging.warning(
+            "CONFIG: SENTRY_DSN is not set — errors in production will NOT be tracked. "
+            "Register at sentry.io and add SENTRY_DSN to Railway environment variables."
+        )
+
+    photo_dir = os.getenv("PHOTO_DIR", "")
+    if not photo_dir or not photo_dir.startswith("/data"):
+        logging.warning(
+            "CONFIG: PHOTO_DIR=%r — photos are stored in the container filesystem "
+            "and will be LOST on every redeploy. "
+            "Create a Railway Volume mounted at /data/photos and set PHOTO_DIR=/data/photos.",
+            photo_dir or "static/photos (default)",
+        )
+
+    resend_from = os.getenv("RESEND_FROM", "")
+    if not resend_from or "resend.dev" in resend_from:
+        logging.warning(
+            "CONFIG: RESEND_FROM uses the test domain (onboarding@resend.dev). "
+            "Emails may land in spam. Add your domain to resend.com and set "
+            "RESEND_FROM='Spark <noreply@spark-dating.club>' in Railway."
+        )
+
+
 async def _run_startup_tasks() -> None:
     """Run all startup tasks in a background thread pool. Never raises."""
     global _startup_done, _startup_ok
     loop = asyncio.get_running_loop()
+    _check_config_warnings()
     logging.info("startup: running migrations")
     migrations_ok = False
     try:
@@ -368,10 +399,10 @@ async def _reactivation_email_loop() -> None:
     while True:
         try:
             from app.database import AsyncSessionLocal
-            from app.models.models import User, Profile, Match, Like
+            from app.models.models import User, Profile
             from app.email_utils import send_reactivation_email
-            from sqlalchemy import select, or_, func
-            from datetime import datetime, timedelta
+            from sqlalchemy import select
+            from datetime import timedelta
 
             # FIX Low #25: use project-standard utcnow() instead of deprecated datetime.utcnow()
             from app.utils.time import utcnow as _utcnow_reactivation
@@ -412,11 +443,12 @@ async def _reactivation_email_loop() -> None:
                     )
                     match_counts: dict[int, int] = {row.uid: row.cnt for row in match_counts_raw}
 
-                    # Bulk like counts with per-user cutoffs via CASE WHEN
+                    # Bulk like counts with per-user cutoffs via CASE WHEN.
+                    # uid values are DB integers — no injection risk; int() enforces that.
                     cutoff_cases = " ".join(
-                        f"WHEN liked_id = {uid} THEN :ls_{uid}" for uid in user_ids
+                        f"WHEN liked_id = {int(uid)} THEN :ls_{int(uid)}" for uid in user_ids  # noqa: S608
                     )
-                    cutoff_params = {f"ls_{uid}": last_seens[uid] for uid in user_ids}
+                    cutoff_params = {f"ls_{int(uid)}": last_seens[uid] for uid in user_ids}
                     like_counts_raw = await session.execute(
                         _text(f"""
                             SELECT liked_id, COUNT(*) AS cnt FROM likes
@@ -424,7 +456,7 @@ async def _reactivation_email_loop() -> None:
                               AND is_like = TRUE
                               AND created_at >= CASE {cutoff_cases} END
                             GROUP BY liked_id
-                        """),
+                        """),  # noqa: S608
                         {"ids": user_ids, **cutoff_params},
                     )
                     like_counts: dict[int, int] = {row.liked_id: row.cnt for row in like_counts_raw}
@@ -514,7 +546,7 @@ async def security_middleware(request: Request, call_next):
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data: blob:; "
-        "connect-src 'self' https://ip-api.com; "
+        "connect-src 'self'; "
         "frame-ancestors 'none';"
     )
     response.headers.setdefault("Content-Security-Policy", csp)
@@ -525,7 +557,7 @@ async def security_middleware(request: Request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    response.headers.setdefault("Permissions-Policy", "geolocation=(self), microphone=(), camera=()")
     response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
     # HSTS only in production (Railway sets RAILWAY_ENVIRONMENT)
     if os.getenv("RAILWAY_ENVIRONMENT"):
@@ -710,6 +742,21 @@ async def health():
     except Exception:
         redis_ok = False
 
+    # Photo volume check
+    photo_dir = os.getenv("PHOTO_DIR", "static/photos")
+    photo_persistent = photo_dir.startswith("/data")
+    try:
+        p = Path(photo_dir)
+        p.mkdir(parents=True, exist_ok=True)
+        test_file = p / ".health_check"
+        test_file.write_text("ok")
+        test_file.unlink()
+        photo_writable = True
+    except Exception:
+        photo_writable = False
+
+    sentry_enabled = bool(os.getenv("SENTRY_DSN"))
+
     all_ok = db_ok and (redis_ok is not False)
     return JSONResponse(
         status_code=200,
@@ -717,6 +764,12 @@ async def health():
             "status": "ok" if all_ok else "degraded",
             "db": db_ok,
             "redis": redis_ok,
+            "photos": {
+                "dir": photo_dir,
+                "persistent": photo_persistent,
+                "writable": photo_writable,
+            },
+            "sentry": sentry_enabled,
             "startup_done": _startup_done,
             "startup_ok": _startup_ok,
         },
@@ -837,8 +890,6 @@ def privacy(request: Request):
 
 @app.get("/welcome", response_class=HTMLResponse)
 async def welcome(request: Request):
-    from app.auth import get_optional_user
-    from app.database import get_db
     # redirect already-profiled users straight to swipe
     return templates.TemplateResponse(request, "welcome.html", {})
 
@@ -858,7 +909,6 @@ async def api_geo(request: Request):
 async def api_reverse_geo(request: Request, _user=Depends(_get_current_user)):
     """Convert GPS lat/lon to city name (requires auth to prevent abuse)."""
     from app.utils.ip_geo import reverse_geocode
-    from app.rate_limit import rate_limit as _rl
     try:
         body = await request.json()
         lat, lon = float(body["lat"]), float(body["lon"])

@@ -159,7 +159,7 @@ def test_send_voice_success(db):
 def test_send_voice_returns_url_or_base64(db):
     """Voice content is either a /photos/ file path (Volume) or base64 data URL."""
     client_a, csrf_a, _, _, mid = _setup_match(db)
-    fake_audio = io.BytesIO(b"\x00\x01\x02\x03")
+    fake_audio = io.BytesIO(b"OggS" + b"\x00" * 10)  # valid OGG magic bytes
 
     r = client_a.post(
         f"/chat/{mid}/voice",
@@ -176,7 +176,8 @@ def test_send_voice_returns_url_or_base64(db):
 def test_send_voice_invalid_mime_is_normalized(db):
     """Unknown MIME type falls back to audio/webm — still succeeds."""
     client_a, csrf_a, _, _, mid = _setup_match(db)
-    fake_audio = io.BytesIO(b"some audio bytes")
+    # Must use valid WebM magic bytes; MIME type is normalized server-side
+    fake_audio = io.BytesIO(b"\x1a\x45\xdf\xa3" + b"\x00" * 10)
 
     r = client_a.post(
         f"/chat/{mid}/voice",
@@ -204,7 +205,7 @@ def test_voice_appears_in_messages_list(db):
 
     client_a.post(
         f"/chat/{mid}/voice",
-        files={"audio": ("v.webm", io.BytesIO(b"audio"), "audio/webm")},
+        files={"audio": ("v.webm", io.BytesIO(b"\x1a\x45\xdf\xa3" + b"\x00" * 10), "audio/webm")},
         headers={"x-csrf-token": csrf_a},
     )
 
@@ -339,7 +340,7 @@ def test_rate_limit_logic_unit():
     """Unit test for rate_limit(): verifies 429 is raised after max_calls exceeded."""
     import asyncio
     import os
-    from fastapi import HTTPException
+    from fastapi import HTTPException, Response
     from unittest.mock import MagicMock
 
     os.environ.pop("TESTING", None)
@@ -349,12 +350,10 @@ def test_rate_limit_logic_unit():
         limiter = rate_limit(3, 60)
         ip = f"unit_test_{secrets.token_hex(8)}"
 
-        from fastapi import Response
-
         req = MagicMock()
         req.url.path = f"/test/{ip}"
         req.client.host = ip
-        req.headers.get.return_value = None  # no X-Forwarded-For
+        req.headers.get.return_value = None
 
         resp = MagicMock(spec=Response)
         resp.headers = {}
@@ -366,6 +365,10 @@ def test_rate_limit_logic_unit():
                 await limiter(req, resp)
             assert exc_info.value.status_code == 429
 
-        asyncio.run(_run())
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(_run())
+        finally:
+            loop.close()
     finally:
         os.environ["TESTING"] = "1"

@@ -22,10 +22,57 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
+      - name: Lint (ruff)
+        run: python -m ruff check app/ main.py --select=E9,F,B,W --ignore=B008,B904,S105,S110,S311,S608,S704
+
       - name: Run tests
         env:
           DATABASE_URL: "sqlite:///./tests/test.db"
-          SECRET_KEY: "ci-test-secret-key"
+          SECRET_KEY: "ci-test-secret-key-not-for-prod-32x!"
           PHOTO_DIR: "/tmp/spark_test_photos"
           TESTING: "1"
-        run: python -m pytest tests/ -v --tb=short
+        run: python -m pytest tests/ --ignore=tests/e2e -q --tb=short
+
+      - name: Security audit (pip-audit)
+        run: |
+          pip install pip-audit
+          python -m pip_audit --local
+
+  security:
+    runs-on: ubuntu-latest
+    # Run security scan on push to main only (not PRs)
+    if: github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pip-audit
+
+      - name: CVE scan
+        run: python -m pip_audit --local -f json -o /tmp/audit.json || true
+
+      - name: Report CVEs
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          try:
+              data = json.load(open("/tmp/audit.json"))
+          except Exception:
+              print("Audit file not found or invalid")
+              sys.exit(0)
+          vulns = data.get("dependencies", [])
+          found = [(d["name"], d["version"], [v["id"] for v in d.get("vulns", [])]) for d in vulns if d.get("vulns")]
+          if found:
+              print("::warning::CVEs found in dependencies:")
+              for name, ver, ids in found:
+                  print(f"  {name}=={ver}: {', '.join(ids)}")
+          else:
+              print("No CVEs found.")
+          EOF

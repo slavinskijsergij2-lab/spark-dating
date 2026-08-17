@@ -1,0 +1,71 @@
+name: Weekly Security Scan
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"   # каждый понедельник в 9:00 UTC
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pip-audit
+
+      - name: Run pip-audit (CVE scan)
+        id: audit
+        run: |
+          python -m pip_audit --local -f json -o /tmp/audit.json 2>&1 || true
+          python3 - <<'PYEOF'
+          import json, os, sys
+
+          try:
+              data = json.load(open("/tmp/audit.json"))
+          except Exception as e:
+              print(f"Could not parse audit output: {e}")
+              sys.exit(0)
+
+          found = [
+              (d["name"], d["version"], d.get("vulns", []))
+              for d in data.get("dependencies", [])
+              if d.get("vulns")
+          ]
+
+          if not found:
+              print("✓ No CVEs found in installed packages.")
+              sys.exit(0)
+
+          lines = ["⚠ CVEs found in dependencies:\n"]
+          for name, ver, vulns in found:
+              for v in vulns:
+                  fix = v.get("fix_versions", [])
+                  fix_str = f" → fix: {', '.join(fix)}" if fix else " (no fix available)"
+                  lines.append(f"  {name}=={ver}: {v['id']}{fix_str}")
+
+          msg = "\n".join(lines)
+          print(msg)
+          # Write to GitHub step summary
+          with open(os.environ.get("GITHUB_STEP_SUMMARY", "/dev/null"), "a") as f:
+              f.write(msg + "\n")
+          # Exit with error so GitHub marks the run as failed and sends email
+          sys.exit(1)
+          PYEOF
+
+      - name: Notify Telegram (optional)
+        if: failure() && env.TELEGRAM_BOT_TOKEN != ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MSG="🚨 *Spark Dating — CVE найдены*%0A%0AЕженедельный скан обнаружил уязвимости в зависимостях.%0A%0AСмотри: https://github.com/${{ github.repository }}/actions"
+          curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}&text=${MSG}&parse_mode=Markdown" > /dev/null

@@ -8,7 +8,7 @@ import os
 import secrets
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./tests/test.db")
-os.environ.setdefault("SECRET_KEY", "test-secret-key-not-for-prod")
+os.environ.setdefault("SECRET_KEY", "test-secret-key-not-for-prod-32x!")
 os.environ["PHOTO_DIR"] = "/tmp/spark_test_photos"
 os.environ["TESTING"] = "1"              # disables rate limiting
 os.environ["PREMIUM_CODES"] = ""         # disable code-gating in tests
