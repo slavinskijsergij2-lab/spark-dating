@@ -78,6 +78,11 @@ async def save_photo(file: UploadFile) -> str:
         raise HTTPException(400, "photo_process_error")
 
 
+@router.get("/profile", response_class=RedirectResponse)
+async def profile_redirect(user: User = Depends(get_current_user)):
+    return RedirectResponse(url=f"/profile/{user.id}", status_code=302)
+
+
 @router.get("/profile/edit", response_class=HTMLResponse, dependencies=[Depends(rate_limit(30, 60))])
 async def edit_profile_page(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Profile).where(Profile.user_id == user.id))
