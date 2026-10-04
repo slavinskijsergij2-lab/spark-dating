@@ -24,6 +24,7 @@ _STRIPE_WH = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 _PRICE_MONTHLY = os.getenv("STRIPE_PRICE_MONTHLY", "")
 _PRICE_LIFETIME = os.getenv("STRIPE_PRICE_LIFETIME", "")
 _STRIPE_PORTAL_CONFIG = os.getenv("STRIPE_PORTAL_CONFIG", "")
+_SITE_URL = os.getenv("SITE_URL", "https://spark-dating.club")
 
 stripe_enabled = bool(_STRIPE_SK and (_PRICE_MONTHLY or _PRICE_LIFETIME))
 
@@ -144,8 +145,8 @@ async def _ensure_portal_config(stripe_module) -> str | None:
             stripe_module.billing_portal.Configuration.create,
             business_profile={
                 "headline": "Spark Dating — управление подпиской",
-                "privacy_policy_url": "https://spark-dating-production.up.railway.app/privacy",
-                "terms_of_service_url": "https://spark-dating-production.up.railway.app/privacy",
+                "privacy_policy_url": f"{_SITE_URL}/privacy",
+                "terms_of_service_url": f"{_SITE_URL}/privacy",
             },
             features={
                 "invoice_history": {"enabled": True},

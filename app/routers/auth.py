@@ -1,7 +1,6 @@
 import os
 import re
 import secrets
-from urllib.parse import quote
 
 _EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,255}\.[^@\s]{1,63}$")
 
@@ -20,7 +19,7 @@ from app.auth import (
 )
 from app.csrf import validate_csrf_form
 from app.database import get_db
-from app.email_utils import is_smtp_configured, send_verification_email, send_password_reset_email
+from app.email_utils import send_verification_email, send_password_reset_email
 from app.i18n import get_lang, get_translations, is_rtl
 from app.models.models import User
 from app.rate_limit import rate_limit
@@ -107,7 +106,7 @@ async def login(
         await db.commit()
 
     if not user.email_verified:
-        return RedirectResponse(f"/login?not_verified=1", status_code=302)
+        return RedirectResponse("/login?not_verified=1", status_code=302)
 
     token = create_access_token(user.id, token_version=user.token_version or 0)
     lang = user.language or "en"

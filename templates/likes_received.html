@@ -91,27 +91,47 @@
       {% if p.bio %}<p class="text-xs text-gray-500 truncate mt-0.5">{{ p.bio[:60] }}</p>{% endif %}
     </div>
     <!-- Action: like back -->
-    <div class="flex flex-col gap-2 flex-shrink-0">
-      <form method="post" action="/swipe/{{ u.id }}?action=like">
-        <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
-        <button type="submit"
-                class="w-10 h-10 rounded-full gradient-pink text-white flex items-center justify-center text-lg shadow hover:opacity-90 transition"
-                title="{{ t.get('like_back', 'Лайкнуть в ответ') }}">
-          💚
-        </button>
-      </form>
-      <form method="post" action="/swipe/{{ u.id }}?action=dislike">
-        <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
-        <button type="submit"
-                class="w-10 h-10 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center text-lg hover:bg-red-50 hover:text-red-400 transition"
-                title="{{ t.get('pass', 'Пропустить') }}">
-          ✖️
-        </button>
-      </form>
+    <div class="flex flex-col gap-2 flex-shrink-0" id="lk-actions-{{ u.id }}">
+      <button onclick="lkSwipe({{ u.id }}, 'like', this)"
+              class="w-10 h-10 rounded-full gradient-pink text-white flex items-center justify-center text-lg shadow hover:opacity-90 transition"
+              title="{{ t.get('like_back', 'Лайкнуть в ответ') }}">
+        💚
+      </button>
+      <button onclick="lkSwipe({{ u.id }}, 'dislike', this)"
+              class="w-10 h-10 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center text-lg hover:bg-red-50 hover:text-red-400 transition"
+              title="{{ t.get('pass', 'Пропустить') }}">
+        ✖️
+      </button>
     </div>
   </div>
   {% endfor %}
 </div>
+
+<script nonce="{{ request.state.csp_nonce }}">
+function lkSwipe(userId, action, btn) {
+  var container = document.getElementById('lk-actions-' + userId);
+  if (container) { container.querySelectorAll('button').forEach(function(b){ b.disabled = true; }); }
+  fetch('/swipe/' + userId + '?action=' + action, {
+    method: 'POST',
+    headers: {'x-csrf-token': getCsrfToken()}
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    var card = btn.closest('.bg-white');
+    if (card) {
+      if (d.matched) {
+        card.innerHTML = '<div class="text-center py-4 text-pink-500 font-bold text-sm">💘 {{ t.get("match_congrats", "Матч!") }}</div>';
+        setTimeout(function(){ card.style.display = 'none'; }, 2000);
+      } else {
+        card.style.display = 'none';
+      }
+    }
+  })
+  .catch(function(){
+    if (container) { container.querySelectorAll('button').forEach(function(b){ b.disabled = false; }); }
+  });
+}
+</script>
 {% endif %}
 
 {% endblock %}

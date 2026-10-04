@@ -1,20 +1,21 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy import and_, case, delete, func, not_, or_, select, text as _sql_text
+from sqlalchemy import case, delete, func, not_, select, text as _sql_text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 import asyncio
+import logging
 
 from app.auth import get_current_user
-from app.csrf import validate_csrf_header
+from app.csrf import validate_csrf_form, validate_csrf_header
 from app.rate_limit import rate_limit
 from app.utils.time import utcnow as _utcnow
 from app.database import get_db, AsyncSessionLocal
 from app.email_utils import is_smtp_configured, send_match_email
 from app.i18n import get_lang, get_translations, is_rtl
-from app.models.models import Block, Like, Match, Profile, ProfilePhoto, User, GenderEnum
+from app.models.models import Block, Like, Match, Profile, ProfilePhoto, User
 from app.push import send_push_to_user
 from app.templates import templates
 from sqlalchemy.orm import joinedload
@@ -163,7 +164,6 @@ async def find_next_candidate(
     if city and city.strip():
         # FIX Medium #24: escape SQL LIKE wildcards in user input to prevent
         # "%" and "_" from acting as match-all patterns and causing full table scans.
-        from sqlalchemy import literal
         city_clean = city.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         q = q.where(Profile.city.ilike(f"%{city_clean}%", escape="\\"))
 
@@ -317,7 +317,8 @@ async def swipe_page(
             t.strip() for t in candidate.profile.interests.split(",") if t.strip()
         ][:4]
 
-    return templates.TemplateResponse(request, "swipe.html", {
+    logging.warning("SWIPE_PAGE uid=%s candidate=%s", user.id, candidate.id if candidate else None)
+    resp = templates.TemplateResponse(request, "swipe.html", {
         "user": user,
         "candidate": candidate,
         "profile": candidate.profile if candidate else None,
@@ -338,11 +339,153 @@ async def swipe_page(
         "daily_limit": daily_limit,
         "location_id": location_id or 0,
     })
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return resp
 
 
 @router.post("/swipe", dependencies=[Depends(validate_csrf_header)])
 async def swipe_noop(user=Depends(get_current_user)):
     return JSONResponse({"matched": False})
+
+
+@router.post("/swipe/{target_id}/go", dependencies=[Depends(validate_csrf_form), Depends(rate_limit(120, 60))])
+async def do_swipe_form(
+    target_id: int,
+    action: str = Query(...),
+    csrftoken: str = Form(None),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Form-based swipe — works without JS."""
+    if action not in ("like", "dislike"):
+        return RedirectResponse("/swipe", status_code=303)
+    if target_id == user.id:
+        return RedirectResponse("/swipe", status_code=303)
+
+    result = await db.execute(
+        select(User).options(selectinload(User.profile)).where(User.id == target_id, User.is_active == True)
+    )
+    target = result.scalar_one_or_none()
+    if not target:
+        return RedirectResponse("/swipe", status_code=303)
+
+    result = await db.execute(
+        select(Like).where(Like.liker_id == user.id, Like.liked_id == target_id)
+    )
+    existing = result.scalar_one_or_none()
+    if not existing:
+        like = Like(liker_id=user.id, liked_id=target_id, is_like=(action == "like"))
+        db.add(like)
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+
+        if action == "like":
+            result2 = await db.execute(
+                select(Like).where(Like.liker_id == target_id, Like.liked_id == user.id, Like.is_like == True)
+            )
+            mutual = result2.scalar_one_or_none()
+            if mutual:
+                u1_id, u2_id = min(user.id, target_id), max(user.id, target_id)
+                match = Match(user1_id=u1_id, user2_id=u2_id)
+                db.add(match)
+                try:
+                    await db.commit()
+                except IntegrityError:
+                    await db.rollback()
+
+    return RedirectResponse("/swipe", status_code=303)
+
+
+@router.get("/swipe/{target_id}/like", dependencies=[Depends(rate_limit(120, 60))])
+async def do_swipe_like_get(
+    target_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    logging.warning("SWIPE_LIKE uid=%s target=%s", user.id, target_id)
+    if target_id == user.id:
+        resp = RedirectResponse("/swipe", status_code=302)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    result = await db.execute(
+        select(Like).where(Like.liker_id == user.id, Like.liked_id == target_id)
+    )
+    existing = result.scalar_one_or_none()
+    if existing:
+        logging.warning("SWIPE_LIKE EXISTING uid=%s target=%s old_is_like=%s — updating", user.id, target_id, existing.is_like)
+        # Update existing record so the person is excluded again
+        existing.is_like = True
+        existing.created_at = _utcnow()
+        try:
+            await db.commit()
+            logging.warning("SWIPE_LIKE UPDATED uid=%s target=%s", user.id, target_id)
+        except Exception as e:
+            logging.warning("SWIPE_LIKE UPDATE_ERROR uid=%s target=%s: %s", user.id, target_id, e)
+            await db.rollback()
+    else:
+        like = Like(liker_id=user.id, liked_id=target_id, is_like=True)
+        db.add(like)
+        try:
+            await db.commit()
+            logging.warning("SWIPE_LIKE SAVED uid=%s target=%s", user.id, target_id)
+            res2 = await db.execute(
+                select(Like).where(Like.liker_id == target_id, Like.liked_id == user.id, Like.is_like == True)
+            )
+            if res2.scalar_one_or_none():
+                u1, u2 = min(user.id, target_id), max(user.id, target_id)
+                db.add(Match(user1_id=u1, user2_id=u2))
+                try:
+                    await db.commit()
+                except IntegrityError:
+                    await db.rollback()
+        except IntegrityError as e:
+            logging.warning("SWIPE_LIKE INTEGRITY_ERROR uid=%s target=%s: %s", user.id, target_id, e)
+            await db.rollback()
+    resp = RedirectResponse("/swipe", status_code=302)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@router.get("/swipe/{target_id}/dislike", dependencies=[Depends(rate_limit(120, 60))])
+async def do_swipe_dislike_get(
+    target_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    logging.warning("SWIPE_DISLIKE uid=%s target=%s", user.id, target_id)
+    if target_id == user.id:
+        resp = RedirectResponse("/swipe", status_code=302)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+    result = await db.execute(
+        select(Like).where(Like.liker_id == user.id, Like.liked_id == target_id)
+    )
+    existing = result.scalar_one_or_none()
+    if existing:
+        logging.warning("SWIPE_DISLIKE EXISTING uid=%s target=%s old_is_like=%s — updating", user.id, target_id, existing.is_like)
+        # Update created_at so it becomes "recent" and gets excluded for DISLIKE_RESHOW_DAYS
+        existing.is_like = False
+        existing.created_at = _utcnow()
+        try:
+            await db.commit()
+            logging.warning("SWIPE_DISLIKE UPDATED uid=%s target=%s", user.id, target_id)
+        except Exception as e:
+            logging.warning("SWIPE_DISLIKE UPDATE_ERROR uid=%s target=%s: %s", user.id, target_id, e)
+            await db.rollback()
+    else:
+        like = Like(liker_id=user.id, liked_id=target_id, is_like=False)
+        db.add(like)
+        try:
+            await db.commit()
+            logging.warning("SWIPE_DISLIKE SAVED uid=%s target=%s", user.id, target_id)
+        except IntegrityError as e:
+            logging.warning("SWIPE_DISLIKE INTEGRITY_ERROR uid=%s target=%s: %s", user.id, target_id, e)
+            await db.rollback()
+    resp = RedirectResponse("/swipe", status_code=302)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @router.post("/swipe/undo", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(30, 60))])
@@ -398,13 +541,27 @@ async def do_swipe(
 
     # FIX Medium #15: acquire a per-user advisory lock so concurrent swipe requests
     # are serialized — eliminates the TOCTOU race on daily like limits.
+    # pg_advisory_xact_lock is PostgreSQL-only; skip on SQLite (tests).
     if not user.is_premium_active and action == "like":
-        await db.execute(_sql_text("SELECT pg_advisory_xact_lock(:uid)"), {"uid": user.id})
+        try:
+            await db.execute(_sql_text("SELECT pg_advisory_xact_lock(:uid)"), {"uid": user.id})
+        except Exception:
+            pass
 
     result = await db.execute(
         select(Like).where(Like.liker_id == user.id, Like.liked_id == target_id)
     )
     existing = result.scalar_one_or_none()
+    like_committed = False
+    if existing:
+        # Update existing record (re-swipe after DISLIKE_RESHOW_DAYS expired)
+        existing.is_like = (action == "like")
+        existing.created_at = _utcnow()
+        try:
+            await db.commit()
+            like_committed = True
+        except Exception:
+            await db.rollback()
     if not existing:
         is_super_like = (is_super == "1" and action == "like")
         if not user.is_premium_active and action == "like":

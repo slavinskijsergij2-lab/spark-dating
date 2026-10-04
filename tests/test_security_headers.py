@@ -58,7 +58,7 @@ def test_csp_allows_tailwind_cdn():
 def test_permissions_policy_disables_sensors():
     r = make_client().get("/")
     pp = r.headers.get("permissions-policy", "")
-    assert "geolocation=()" in pp
+    assert "geolocation=(self)" in pp
     assert "microphone=()" in pp
     assert "camera=()" in pp
 

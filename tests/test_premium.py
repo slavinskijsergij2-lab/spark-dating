@@ -20,16 +20,25 @@ def test_premium_page_requires_auth():
     assert r.status_code == 302
 
 
-def test_premium_activate(db):
+def test_premium_activate(db, monkeypatch):
+    import os
+    monkeypatch.setenv("PREMIUM_CODES", "TEST-CODE-123")
+    # Re-parse the codes in the premium router module
+    import app.routers.premium as _prem
+    _prem._PREMIUM_CODES = {"TEST-CODE-123"}
+
     client, email, csrf = make_auth_client(f"prem_act_{_tag()}")
     uid = _get_user_id(db, email)
 
-    r = client.post("/premium/activate", headers={"x-csrf-token": csrf})
+    r = client.post(
+        "/premium/activate",
+        json={"code": "TEST-CODE-123"},
+        headers={"x-csrf-token": csrf},
+    )
     assert r.status_code == 200
     data = r.json()
     assert data.get("success") is True
 
-    # DB should now reflect premium status
     from app.models.models import User
     user = db.query(User).filter(User.id == uid).first()
     db.refresh(user)

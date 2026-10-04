@@ -1,11 +1,9 @@
 import asyncio
-import io
 import json as _json
 from datetime import timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
-from PIL import Image
 from sqlalchemy import and_, func, or_, select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
@@ -352,7 +350,7 @@ async def matches_page(
     # Users who liked me — pending (not yet matched, not yet swiped by me)
     # All filtering done in SQL to avoid loading unbounded sets into Python
     matched_subq = select(Match.user1_id, Match.user2_id).where(base_where).subquery()
-    already_matched_ids = (
+    _already_matched_ids = (
         select(
             func.coalesce(
                 matched_subq.c.user2_id,
@@ -576,7 +574,6 @@ async def typing_indicator(
             await redis.set(f"typing:{match_id}:{user.id}", "1", ex=5)
     except Exception:
         pass
-    partner_id = match.user2_id if match.user1_id == user.id else match.user1_id
     _ws_manager.push(match_id, {"messages": [], "partner_read_up_to": 0, "typing": True},
                      exclude_user_id=user.id)
     return JSONResponse({"ok": True})

@@ -1,8 +1,6 @@
-import io
 import os
-import random
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import func as _func, select
 from sqlalchemy.exc import IntegrityError
@@ -10,10 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import get_current_user
-from app.csrf import validate_csrf_form, validate_csrf_header
+from app.csrf import validate_csrf_header
 from app.database import get_db
 from app.i18n import get_lang, get_translations, is_rtl
-from app.models.models import Match, PolitenessVote, Profile, QuizAnswer, User
+from app.models.models import Match, PolitenessVote, QuizAnswer, User
 from app.quiz_questions import QUIZ_QUESTIONS, TOTAL_QUESTIONS
 from app.rate_limit import rate_limit
 from app.templates import templates

@@ -560,10 +560,14 @@ async def notifications_settings_save(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    user.notif_matches = notif_matches == "1"
-    user.notif_messages = notif_messages == "1"
-    user.notif_likes = notif_likes == "1"
+    # Merge into session (handles case where user came from in-memory cache)
+    db_user = await db.merge(user)
+    db_user.notif_matches = notif_matches == "1"
+    db_user.notif_messages = notif_messages == "1"
+    db_user.notif_likes = notif_likes == "1"
     await db.commit()
+    from app.auth import invalidate_user_cache
+    invalidate_user_cache(user.id)
     return RedirectResponse("/settings/notifications?saved=1", status_code=302)
 
 

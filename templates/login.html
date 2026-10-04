@@ -36,16 +36,16 @@
 
       <form method="POST" action="/login" onsubmit="setLoginLoading()">
         <div class="mb-4">
-          <label class="block text-sm font-medium text-gray-700 mb-1">{{ t.email }}</label>
-          <input type="email" name="email" required placeholder="your@email.com" autocomplete="email"
+          <label for="login-email" class="block text-sm font-medium text-gray-700 mb-1">{{ t.email }}</label>
+          <input id="login-email" type="email" name="email" required placeholder="your@email.com" autocomplete="email"
                  class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-pink-300 transition" />
         </div>
         <div class="mb-6">
           <div class="flex items-center justify-between mb-1">
-            <label class="block text-sm font-medium text-gray-700">{{ t.password }}</label>
+            <label for="login-password" class="block text-sm font-medium text-gray-700">{{ t.password }}</label>
             <a href="/forgot-password" class="text-xs text-pink-500 hover:underline">{{ t.get('forgot_password_link', 'Забыл пароль?') }}</a>
           </div>
-          <input type="password" name="password" required placeholder="••••••••" autocomplete="current-password"
+          <input id="login-password" type="password" name="password" required placeholder="••••••••" autocomplete="current-password"
                  class="w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-pink-300 transition" />
         </div>
         <input type="hidden" name="csrftoken" value="{{ request.state.csrf_token }}" />

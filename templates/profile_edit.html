@@ -251,7 +251,14 @@ function fixAndPreviewPhoto(input, previewId, placeholderId, autoSubmit) {
 
     <!-- City (autocomplete for Germany / fallback free text) -->
     <div class="mb-4">
-      <label class="block text-sm font-medium text-gray-700 mb-1">{{ t.city_label }}</label>
+      <div class="flex items-center justify-between mb-1">
+        <label class="block text-sm font-medium text-gray-700">{{ t.city_label }}</label>
+        <button type="button" id="geo-detect-btn" onclick="detectLocation()"
+                class="text-xs text-pink-500 flex items-center gap-1 hover:text-pink-700 transition">
+          <span id="geo-detect-icon">📍</span>
+          <span id="geo-detect-label">{{ t.get('detect_location', 'Определить') }}</span>
+        </button>
+      </div>
       <div style="position:relative;">
         <input
           type="text"
@@ -572,6 +579,79 @@ function fixAndPreviewPhoto(input, previewId, placeholderId, autoSubmit) {
 
   function close_() { dropdown.style.display = 'none'; }
   function esc_(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+})();
+</script>
+
+<script nonce="{{ request.state.csp_nonce }}">
+function detectLocation() {
+  var btn = document.getElementById('geo-detect-btn');
+  var icon = document.getElementById('geo-detect-icon');
+  var label = document.getElementById('geo-detect-label');
+  var cityInput = document.getElementById('pe-city-input');
+  var latInput = document.getElementById('pe-geo-lat');
+  var lonInput = document.getElementById('pe-geo-lon');
+
+  icon.textContent = '⏳';
+  label.textContent = '...';
+  if (btn) btn.disabled = true;
+
+  function done(city, lat, lon) {
+    icon.textContent = '✅';
+    label.textContent = city || '{{ t.get("detect_location", "Определить") }}';
+    if (btn) btn.disabled = false;
+    if (city && cityInput) cityInput.value = city;
+    if (lat && latInput) latInput.value = lat;
+    if (lon && lonInput) lonInput.value = lon;
+  }
+
+  function fail() {
+    icon.textContent = '📍';
+    label.textContent = '{{ t.get("detect_location", "Определить") }}';
+    if (btn) btn.disabled = false;
+  }
+
+  function tryGPS() {
+    if (!navigator.geolocation) { tryIP(); return; }
+    navigator.geolocation.getCurrentPosition(function(pos) {
+      var lat = pos.coords.latitude, lon = pos.coords.longitude;
+      var csrf = document.cookie.split('; ').find(function(c){ return c.startsWith('csrftoken='); });
+      csrf = csrf ? csrf.slice('csrftoken='.length) : '';
+      fetch('/api/reverse-geo', {
+        method: 'POST',
+        headers: {'content-type': 'application/json', 'x-csrf-token': csrf},
+        body: JSON.stringify({lat: lat, lon: lon})
+      }).then(function(r){ return r.json(); })
+        .then(function(d){ done(d.city || '', lat, lon); })
+        .catch(function(){ done('', lat, lon); });
+    }, function() { tryIP(); }, {timeout: 8000});
+  }
+
+  function tryIP() {
+    fetch('/api/geo')
+      .then(function(r){ return r.json(); })
+      .then(function(d){ done(d.city || '', d.lat || '', d.lon || ''); })
+      .catch(fail);
+  }
+
+  tryGPS();
+}
+
+// Auto-detect on page load if city is empty
+(function() {
+  var cityInput = document.getElementById('pe-city-input');
+  if (cityInput && !cityInput.value.trim()) {
+    fetch('/api/geo')
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d.city && cityInput && !cityInput.value.trim()) {
+          cityInput.value = d.city;
+          var latInput = document.getElementById('pe-geo-lat');
+          var lonInput = document.getElementById('pe-geo-lon');
+          if (d.lat && latInput) latInput.value = d.lat;
+          if (d.lon && lonInput) lonInput.value = d.lon;
+        }
+      }).catch(function(){});
+  }
 })();
 </script>
 {% endblock %}

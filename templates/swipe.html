@@ -83,6 +83,8 @@
     transition: transform .08s, box-shadow .08s;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
+    will-change: transform;
+    user-select: none; -webkit-user-select: none;
   }
   .btn-no:active { transform: scale(.82); box-shadow: 0 2px 10px rgba(239,68,68,.2); }
 
@@ -94,6 +96,8 @@
     transition: transform .08s, box-shadow .08s;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
+    will-change: transform;
+    user-select: none; -webkit-user-select: none;
   }
   .btn-yes:active { transform: scale(.82); box-shadow: 0 2px 12px rgba(236,72,153,.3); }
 
@@ -101,8 +105,11 @@
     width: 54px; height: 54px; border-radius: 50%; border: none; cursor: pointer;
     background: white; box-shadow: 0 4px 16px rgba(234,179,8,.3);
     font-size: 22px; display: flex; align-items: center; justify-content: center;
-    transition: transform .15s;
+    transition: transform .12s;
     -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    will-change: transform;
+    user-select: none; -webkit-user-select: none;
   }
   .btn-super:active { transform: scale(.88); }
   .btn-super:disabled { opacity: .35; cursor: not-allowed; }
@@ -347,11 +354,11 @@
   <!-- Кнопки (форма-фоллбек работает без JS) -->
   <div class="flex items-center justify-center gap-4 mt-4">
     {% if can_undo %}
-    <button onclick="doUndo(this)" id="btn-undo" type="button" class="w-10 h-10 rounded-full bg-white shadow border border-gray-200 text-lg flex items-center justify-center hover:border-yellow-300 hover:shadow-md transition" title="{{ t.get('undo_swipe','Отменить свайп') }}">↩️</button>
+    <button id="btn-undo" type="button" class="w-10 h-10 rounded-full bg-white shadow border border-gray-200 text-lg flex items-center justify-center hover:border-yellow-300 hover:shadow-md transition" title="{{ t.get('undo_swipe','Отменить свайп') }}">↩️</button>
     {% endif %}
-    <a href="/swipe/{{ candidate.id }}/dislike" id="btn-no" class="btn-no" title="{{ t.get('swipe_hint_left','Нет') }}" style="text-decoration:none;" onclick="doSwipe('dislike'); return false;">✖️</a>
-    <button onclick="doSuperLike()" id="btn-star" type="button" class="btn-super" title="⭐ {{ super_likes_left }}">⭐</button>
-    <a href="/swipe/{{ candidate.id }}/like" id="btn-yes" class="btn-yes" title="{{ t.get('swipe_hint_right','Да') }}" style="text-decoration:none;" onclick="doSwipe('like'); return false;">💚</a>
+    <a href="/swipe/{{ candidate.id }}/dislike" id="btn-no" class="btn-no" title="{{ t.get('swipe_hint_left','Нет') }}" style="text-decoration:none;">✖️</a>
+    <button id="btn-star" type="button" class="btn-super" title="⭐ {{ super_likes_left }}">⭐</button>
+    <a href="/swipe/{{ candidate.id }}/like" id="btn-yes" class="btn-yes" title="{{ t.get('swipe_hint_right','Да') }}" style="text-decoration:none;">💚</a>
   </div>
 
   <!-- Подсказка -->
@@ -385,6 +392,10 @@
   var likesLeft = {{ likes_left if likes_left is not none else 'null' }};
   var canUndo   = {{ 'true' if can_undo else 'false' }};
   var swiping   = false;
+
+  function _escH(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
 
   // Photo gallery
   var _photos = {{ (([first_photo] if first_photo else []) + (extra_photos | map(attribute='url') | list)) | tojson | safe }};
@@ -468,7 +479,7 @@
     if (left === 0) { showLimitModal(); }
   }
 
-  window.doUndo = function(btn) {
+  window.doUndo = function() {
     if (swiping) return;
     setBusy(true);
     fetch('/swipe/undo', {method:'POST', headers:{'x-csrf-token': getCsrf()}})
@@ -505,7 +516,7 @@
     if (interests) {
       var tags = n.interests_list || [];
       interests.innerHTML = tags.map(function(tag) {
-        return '<span style="background:rgba(255,255,255,.18);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:3px 10px;font-size:11px;color:white;font-weight:600;">' + tag + '</span>';
+        return '<span style="background:rgba(255,255,255,.18);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:3px 10px;font-size:11px;color:white;font-weight:600;">' + _escH(tag) + '</span>';
       }).join('');
     }
     renderDots();
@@ -771,6 +782,44 @@
 
   // Init photo dots on first load
   renderDots();
+
+  // ── Button handlers: touchstart for iOS instant response ──────────────────
+  (function() {
+    function bindBtn(id, action) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var _touched = false;
+      // touchstart fires immediately (no delay) — use it on touch devices
+      el.addEventListener('touchstart', function(e) {
+        e.preventDefault();   // blocks the later click event (prevents double-fire)
+        _touched = true;
+        if (action === 'super') { doSuperLike(); } else { doSwipe(action); }
+      }, {passive: false});
+      // click fires on mouse devices (desktop) or as fallback
+      el.addEventListener('click', function(e) {
+        e.preventDefault();
+        if (_touched) { _touched = false; return; } // already handled by touchstart
+        if (action === 'super') { doSuperLike(); } else { doSwipe(action); }
+      });
+    }
+    bindBtn('btn-yes',  'like');
+    bindBtn('btn-no',   'dislike');
+    bindBtn('btn-star', 'super');
+    var undoBtn = document.getElementById('btn-undo');
+    if (undoBtn) {
+      var _undoTouched = false;
+      undoBtn.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        _undoTouched = true;
+        doUndo();
+      }, {passive: false});
+      undoBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        if (_undoTouched) { _undoTouched = false; return; }
+        doUndo();
+      });
+    }
+  })();
 
   // ── Desktop 3-D tilt effect ─────────────────────────────────────────────────
   (function() {

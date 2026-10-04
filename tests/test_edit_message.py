@@ -137,7 +137,7 @@ def test_edit_voice_message_rejected(db):
     client_a, csrf_a, _, _, mid = _setup_match(db)
     voice_r = client_a.post(
         f"/chat/{mid}/voice",
-        files={"audio": ("v.webm", io.BytesIO(b"audio"), "audio/webm")},
+        files={"audio": ("v.webm", io.BytesIO(b"\x1a\x45\xdf\xa3" + b"\x00" * 10), "audio/webm")},
         headers={"x-csrf-token": csrf_a},
     )
     voice_id = voice_r.json()["id"]

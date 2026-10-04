@@ -99,13 +99,24 @@ def test_history_message_fields(db):
 
 # ── Voice → Volume ────────────────────────────────────────────────────────────
 
+_VALID_OGG  = b"OggS" + b"\x00" * 10
+_VALID_WEBM = b"\x1a\x45\xdf\xa3" + b"\x00" * 10
+_MAGIC = {
+    "audio/ogg":  b"OggS" + b"\x00" * 10,
+    "audio/webm": b"\x1a\x45\xdf\xa3" + b"\x00" * 10,
+    "audio/mp4":  b"\x00\x00\x00\x20ftyp" + b"\x00" * 4,
+    "audio/mpeg": b"\xff\xfb" + b"\x00" * 10,
+    "audio/wav":  b"RIFF\x00\x00\x00\x00WAVEfmt ",
+}
+
+
 def test_save_audio_bytes_no_photo_dir(monkeypatch):
     """Without PHOTO_DIR, returns base64 data URL."""
     monkeypatch.delenv("PHOTO_DIR", raising=False)
     from importlib import reload
     import app.utils.audio as au
     reload(au)
-    result = au.save_audio_bytes(b"hello audio", "audio/ogg")
+    result = au.save_audio_bytes(_VALID_OGG, "audio/ogg")
     assert result.startswith("data:audio/ogg;base64,")
 
 
@@ -115,7 +126,7 @@ def test_save_audio_bytes_with_photo_dir(tmp_path, monkeypatch):
     from importlib import reload
     import app.utils.audio as au
     reload(au)
-    result = au.save_audio_bytes(b"hello audio", "audio/webm")
+    result = au.save_audio_bytes(_VALID_WEBM, "audio/webm")
     assert result.startswith("/photos/voice_")
     assert result.endswith(".webm")
     fname = result.split("/")[-1]
@@ -127,7 +138,7 @@ def test_save_audio_bytes_unknown_mime_defaults_to_webm(monkeypatch):
     from importlib import reload
     import app.utils.audio as au
     reload(au)
-    result = au.save_audio_bytes(b"audio", "audio/unknown-format")
+    result = au.save_audio_bytes(_VALID_WEBM, "audio/unknown-format")
     assert "audio/webm" in result
 
 
@@ -138,5 +149,5 @@ def test_save_audio_bytes_all_mimes(monkeypatch, tmp_path):
     reload(au)
     for mime, ext in [("audio/webm","webm"),("audio/ogg","ogg"),
                       ("audio/mp4","m4a"),("audio/mpeg","mp3"),("audio/wav","wav")]:
-        result = au.save_audio_bytes(b"x", mime)
+        result = au.save_audio_bytes(_MAGIC[mime], mime)
         assert result.endswith(f".{ext}"), f"Wrong ext for {mime}: {result}"

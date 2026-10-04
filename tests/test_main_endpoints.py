@@ -166,20 +166,24 @@ def test_errors_returns_list(monkeypatch):
 
 # ── /sentry-debug ─────────────────────────────────────────────────────────────
 
-def test_sentry_debug_raises_500():
+def test_sentry_debug_raises_500(monkeypatch):
     # raise_server_exceptions=False so RuntimeError is caught by global handler
+    import os
+    monkeypatch.setenv("METRICS_TOKEN", "test-sentry-token")
     import main as _main
     from fastapi.testclient import TestClient
     c = TestClient(_main.app, raise_server_exceptions=False)
-    r = c.get("/sentry-debug", follow_redirects=True)
+    r = c.get("/sentry-debug?token=test-sentry-token", follow_redirects=True)
     assert r.status_code == 500
 
 
-def test_sentry_debug_trailing_slash():
+def test_sentry_debug_trailing_slash(monkeypatch):
+    import os
+    monkeypatch.setenv("METRICS_TOKEN", "test-sentry-token")
     import main as _main
     from fastapi.testclient import TestClient
     c = TestClient(_main.app, raise_server_exceptions=False)
-    r = c.get("/sentry-debug/", follow_redirects=True)
+    r = c.get("/sentry-debug/?token=test-sentry-token", follow_redirects=True)
     assert r.status_code == 500
 
 
@@ -211,3 +215,41 @@ def test_head_root_returns_200():
     c = make_client()
     r = c.head("/")
     assert r.status_code in (200, 302)
+
+
+# ── Geo API ───────────────────────────────────────────────────────────────────
+
+def test_api_geo_returns_json():
+    r = make_client().get("/api/geo")
+    assert r.status_code == 200
+    data = r.json()
+    assert isinstance(data, dict)
+
+
+def test_api_geo_local_ip_returns_empty():
+    r = make_client().get("/api/geo")
+    assert r.status_code == 200
+    data = r.json()
+    assert data == {}
+
+
+def test_api_reverse_geo_requires_auth():
+    r = make_client().post("/api/reverse-geo", json={"lat": 52.52, "lon": 13.40})
+    assert r.status_code in (401, 403)
+
+
+def test_api_reverse_geo_missing_params():
+    import secrets
+    client, _, _ = make_auth_client(f"geo_{secrets.token_hex(4)}")
+    r = client.post("/api/reverse-geo", json={})
+    assert r.status_code == 400
+
+
+def test_api_reverse_geo_returns_city():
+    import secrets
+    client, _, _ = make_auth_client(f"geo2_{secrets.token_hex(4)}")
+    r = client.post("/api/reverse-geo", json={"lat": 52.52, "lon": 13.40})
+    assert r.status_code == 200
+    data = r.json()
+    assert "city" in data
+    assert isinstance(data["city"], str)

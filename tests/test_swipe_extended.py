@@ -28,9 +28,11 @@ def _setup_pair(db):
 
 def _make_premium(db, email: str) -> None:
     from app.models.models import User
+    from app.auth import invalidate_user_cache
     user = db.query(User).filter(User.email == email).first()
     user.is_premium = True
     db.commit()
+    invalidate_user_cache(user.id)
 
 
 # ── Super-like ────────────────────────────────────────────────────────────────

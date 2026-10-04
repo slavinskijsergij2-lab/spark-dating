@@ -11,6 +11,24 @@ TRANSLATIONS = {
         "feature_profiles": "Реальные анкеты",
         "feature_chat": "Чат с матчами",
         "feature_safety": "Безопасность",
+        "feature_no_ads": "Без рекламы",
+        "stat_users": "Пользователей",
+        "stat_matches": "Матчей",
+        "stat_free": "Бесплатно",
+        "how_it_works": "Как это работает",
+        "step1_title": "Создай профиль",
+        "step1_desc": "Имя, фото и пару слов о себе",
+        "step2_title": "Свайпай анкеты",
+        "step2_desc": "Лайкай тех, кто понравился",
+        "step3_title": "Общайся с матчами",
+        "step3_desc": "Взаимный лайк — начинайте чат",
+        "reviews_title": "Отзывы пользователей",
+        "review1_text": "Нашла свою половинку за две недели! Очень удобный интерфейс и нет ботов.",
+        "review1_name": "Анастасия, 24",
+        "review2_text": "Лучшее приложение для знакомств. Уже на второй день появились матчи!",
+        "review2_name": "Михаил, 28",
+        "review3_text": "Приятный дизайн, работает быстро. Рекомендую всем, кто ищет серьёзные отношения.",
+        "review3_name": "Дарья, 26",
         "create_account": "Создай свой аккаунт",
         "email": "Email",
         "password": "Пароль",
@@ -2548,8 +2566,8 @@ def get_translations(lang: str) -> dict:
 def get_lang(request, user=None) -> str:
     if user and getattr(user, "language", None) and user.language in VALID_LANGS:
         return user.language
-    lang = request.cookies.get("lang", "en")
-    return lang if lang in VALID_LANGS else "en"
+    lang = request.cookies.get("lang", "ru")
+    return lang if lang in VALID_LANGS else "ru"
 
 
 def is_rtl(lang: str) -> bool:

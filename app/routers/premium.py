@@ -75,7 +75,8 @@ async def activate_premium(
     if not matched:
         return JSONResponse({"error": t.get("premium_code_invalid", "Invalid activation code")}, status_code=400)
 
-    user.is_premium = True
+    db_user = await db.merge(user)
+    db_user.is_premium = True
     await db.commit()
     invalidate_user_cache(user.id)
     return JSONResponse({"success": True})
@@ -83,8 +84,9 @@ async def activate_premium(
 
 @router.post("/premium/deactivate", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(5, 60))])
 async def deactivate_premium(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    user.is_premium = False
-    user.premium_until = None
+    db_user = await db.merge(user)
+    db_user.is_premium = False
+    db_user.premium_until = None
     await db.commit()
     invalidate_user_cache(user.id)
     return JSONResponse({"success": True})
