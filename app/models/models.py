@@ -191,9 +191,12 @@ class Message(Base):
     is_voice = Column(Boolean, default=False, nullable=False)
     is_image = Column(Boolean, default=False, nullable=False)
     edited_at = Column(DateTime, nullable=True)
+    reply_to_id = Column(Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    is_deleted = Column(Boolean, default=False, nullable=False)
 
     match = relationship("Match", back_populates="messages")
     sender = relationship("User", foreign_keys=[sender_id], back_populates="messages_sent")
+    reply_to = relationship("Message", foreign_keys=[reply_to_id], remote_side="Message.id")
 
     __table_args__ = (
         # Covers: WHERE match_id=X AND id>Y ORDER BY created_at  (SSE + polling)

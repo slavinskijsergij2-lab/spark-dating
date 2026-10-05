@@ -3,6 +3,32 @@
 
 {% block head %}
 <style>
+  /* ── Fixed chat layout — не ёрзает при открытии клавиатуры ── */
+  #chat-root {
+    position: fixed;
+    top: 0; left: 50%; transform: translateX(-50%);
+    width: 100%; max-width: 512px;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    background: white;
+    z-index: 40;
+  }
+  #messages-container {
+    flex: 1;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: #fdf2f8;
+    padding: 8px 12px 8px;
+  }
+  #input-bar {
+    flex-shrink: 0;
+    background: white;
+    border-top: 1px solid #f3f4f6;
+    padding: 8px 12px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  /* ── Bubbles ── */
   .bubble-own {
     background: linear-gradient(135deg, #f472b6, #ec4899);
     color: white;
@@ -26,7 +52,13 @@
     line-height: 1.5;
     display: inline-block;
   }
-  #messages-container { background: #fdf2f8; }
+  .bubble-deleted {
+    color: #9ca3af !important;
+    font-style: italic;
+    background: #f9fafb !important;
+    border: 1px dashed #e5e7eb !important;
+    box-shadow: none !important;
+  }
   .msg-row-own    { display: flex; justify-content: flex-end; margin-bottom: 6px; }
   .msg-row-partner{ display: flex; align-items: flex-end; gap: 6px; margin-bottom: 6px; }
   .msg-meta { font-size: 10px; color: #9ca3af; margin-top: 2px; padding: 0 4px; }
@@ -34,25 +66,76 @@
   .date-divider { display:flex; align-items:center; gap:8px; margin: 10px 0; }
   .date-divider span { font-size: 10px; color: #9ca3af; white-space:nowrap; }
   .date-divider::before, .date-divider::after { content:''; flex:1; height:1px; background:#fce7f3; }
-  /* Read ticks */
   .read-tick { font-size: 10px; margin-left: 3px; }
-  .read-tick.sent   { color: #d1d5db; }
-  .read-tick.read   { color: #ec4899; }
-  /* Image messages */
+  .read-tick.sent { color: #d1d5db; }
+  .read-tick.read { color: #ec4899; }
   .bubble-img { border-radius: 14px; overflow: hidden; max-width: 220px; display: block; }
   .bubble-img img { width: 100%; display: block; }
-  /* Edited label */
   .edited-label { font-size: 9px; color: #9ca3af; margin-left: 4px; }
-  /* Edit button */
-  .edit-btn { font-size: 13px; color: #d1d5db; cursor: pointer; margin-left: 4px; }
-  .edit-btn:hover { color: #ec4899; }
-  /* Reactions */
+  /* ── Reply quote inside bubble ── */
+  .reply-quote {
+    border-left: 3px solid rgba(255,255,255,0.6);
+    padding: 4px 8px;
+    margin-bottom: 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    opacity: 0.85;
+    background: rgba(0,0,0,0.08);
+    max-width: 200px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .reply-quote-partner {
+    border-left: 3px solid #ec4899;
+    background: #fdf2f8;
+    color: #374151;
+  }
+  /* ── Reply preview bar above input ── */
+  #reply-bar {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: #fdf2f8;
+    border-top: 1px solid #fce7f3;
+    font-size: 12px;
+    color: #374151;
+  }
+  #reply-bar .reply-text {
+    flex: 1;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: #6b7280;
+  }
+  #reply-bar .reply-label { color: #ec4899; font-weight: 600; font-size: 11px; }
+  /* ── Context menu ── */
+  #ctx-menu {
+    position: fixed;
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+    z-index: 200;
+    overflow: hidden;
+    min-width: 160px;
+    display: none;
+  }
+  .ctx-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; font-size: 14px; color: #374151;
+    cursor: pointer; transition: background .12s;
+  }
+  .ctx-item:hover { background: #fdf2f8; }
+  .ctx-item.danger { color: #ef4444; }
+  .ctx-item.danger:hover { background: #fef2f2; }
+  #ctx-overlay { position: fixed; inset: 0; z-index: 199; display: none; }
+  /* ── Reactions ── */
   .reactions-row { display:flex; flex-wrap:wrap; gap:3px; margin-top:3px; }
   .reaction-badge { font-size:12px; background:#fff; border:1px solid #fce7f3; border-radius:999px;
                     padding:1px 6px; cursor:pointer; transition:all .15s; line-height:1.5; }
   .reaction-badge:hover { background:#fdf2f8; border-color:#ec4899; }
   .reaction-badge.mine { background:#fdf2f8; border-color:#ec4899; }
-  /* Quick-react picker */
   .react-picker { position:absolute; bottom:100%; background:#fff; border:1px solid #fce7f3;
                   border-radius:20px; padding:4px 8px; display:flex; gap:4px; z-index:20;
                   box-shadow:0 4px 12px rgba(236,72,153,.15); }
@@ -60,11 +143,11 @@
                           padding:2px 4px; border-radius:8px; transition:transform .1s; }
   .react-picker button:hover { transform:scale(1.3); background:#fdf2f8; }
   .msg-wrap { position:relative; }
-  /* Lightbox */
+  /* ── Lightbox ── */
   #lightbox { position:fixed; inset:0; background:rgba(0,0,0,.9); z-index:9999;
               display:none; align-items:center; justify-content:center; padding:16px; cursor:zoom-out; }
   #lightbox img { max-width:100%; max-height:100%; object-fit:contain; border-radius:12px; }
-  /* Typing dots */
+  /* ── Typing dots ── */
   .typing-dot { display:inline-block; width:7px; height:7px; background:#d1d5db; border-radius:50%;
                 animation: typing-bounce 1.3s infinite; }
   .typing-dot:nth-child(2) { animation-delay:.2s; }
@@ -79,19 +162,51 @@
     background-size: cover; background-position: center;
   }
   {% endif %}
+  /* ── Search bar ── */
+  #search-bar {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: white;
+    border-bottom: 1px solid #fce7f3;
+  }
+  #search-input {
+    flex: 1;
+    font-size: 13px;
+    border: 1px solid #fce7f3;
+    border-radius: 20px;
+    padding: 6px 12px;
+    outline: none;
+    background: #fdf2f8;
+  }
+  .msg-highlight .bubble-own,
+  .msg-highlight .bubble-partner { outline: 2px solid #ec4899; }
+  /* ── Edit inline ── */
+  .edit-inline { display:none; margin-top:4px; }
+  .edit-inline input {
+    font-size:13px; border:1px solid #f9a8d4; border-radius:12px;
+    padding:6px 10px; outline:none; background:white; min-width:140px; max-width:200px;
+  }
 </style>
 {% endblock %}
 
-{% block main_class %}max-w-lg mx-auto p-0{% endblock %}
+{% block main_class %}p-0 overflow-hidden{% endblock %}
 
 {% block content %}
 {% set os = online_status(partner.last_seen, lang) %}
 
+<!-- Context menu overlay -->
+<div id="ctx-overlay" onclick="closeCtx()"></div>
+<div id="ctx-menu">
+  <div class="ctx-item" id="ctx-reply" onclick="ctxReply()">↩️ Ответить</div>
+  <div class="ctx-item" id="ctx-copy" onclick="ctxCopy()">📋 Копировать</div>
+  <div class="ctx-item danger" id="ctx-delete" onclick="ctxDelete()" style="display:none">🗑 Удалить</div>
+</div>
+
 <div id="chat-root"
      data-match-id="{{ match.id }}"
-     data-user-id="{{ user.id }}"
-     class="flex flex-col bg-white"
-     style="height: calc(100vh - 56px);">
+     data-user-id="{{ user.id }}">
 
   <!-- HEADER -->
   <div class="flex-shrink-0 flex items-center gap-3 px-3 py-2.5 bg-white border-b border-gray-100"
@@ -103,7 +218,7 @@
     </a>
     <a href="/profile/{{ partner.id }}" class="flex items-center gap-2.5 flex-1 min-w-0">
       <div class="relative w-9 h-9 rounded-full overflow-hidden bg-pink-100 flex items-center justify-center ring-2 ring-pink-100 flex-shrink-0
-                  {% if partner.profile and partner.profile.photo %}partner-avatar{% else %}{% endif %}">
+                  {% if partner.profile and partner.profile.photo %}partner-avatar{% endif %}">
         {% if not (partner.profile and partner.profile.photo) %}<span class="text-base">👤</span>{% endif %}
         {% if os and os.is_online %}
         <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-400 rounded-full border-2 border-white"></span>
@@ -116,7 +231,14 @@
         </p>
       </div>
     </a>
-    <!-- Chat menu button -->
+    <!-- Search button -->
+    <button onclick="toggleSearch()"
+            class="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-pink-50 transition flex-shrink-0">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+      </svg>
+    </button>
+    <!-- Chat menu -->
     <div class="relative flex-shrink-0">
       <button id="chat-menu-btn" onclick="toggleChatMenu()"
               class="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 transition">
@@ -124,7 +246,6 @@
           <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
         </svg>
       </button>
-      <!-- Dropdown -->
       <div id="chat-menu" style="display:none"
            class="absolute right-0 top-10 w-44 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden">
         <button onclick="closeChatMenu(); confirmUnmatch()"
@@ -152,7 +273,13 @@
     </div>
   </div>
 
-  <!-- UNMATCH MODAL -->
+  <!-- SEARCH BAR -->
+  <div id="search-bar">
+    <input id="search-input" type="text" placeholder="Поиск в чате..." oninput="doSearch(this.value)" />
+    <button onclick="toggleSearch()" class="text-gray-400 hover:text-pink-500 transition text-lg">✕</button>
+  </div>
+
+  <!-- MODALS -->
   <div id="unmatch-modal" style="display:none;"
        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
     <div class="bg-white rounded-2xl p-6 max-w-xs w-full text-center shadow-2xl">
@@ -170,8 +297,6 @@
       </div>
     </div>
   </div>
-
-  <!-- BLOCK MODAL -->
   <div id="block-modal" style="display:none;"
        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
     <div class="bg-white rounded-2xl p-6 max-w-xs w-full text-center shadow-2xl">
@@ -180,18 +305,12 @@
       <p class="text-gray-500 text-sm mb-5">{{ t.get('block_confirm_desc','Этот пользователь больше не увидит вас и не сможет вам написать.') }}</p>
       <div class="flex gap-3">
         <button onclick="document.getElementById('block-modal').style.display='none'"
-                class="flex-1 border border-gray-200 text-gray-600 py-2.5 rounded-full text-sm font-semibold">
-          {{ t.get('cancel','Отмена') }}
-        </button>
+                class="flex-1 border border-gray-200 text-gray-600 py-2.5 rounded-full text-sm font-semibold">{{ t.get('cancel','Отмена') }}</button>
         <button onclick="confirmBlock(this)"
-                class="flex-1 bg-orange-500 text-white py-2.5 rounded-full text-sm font-semibold">
-          {{ t.get('block_btn','Заблокировать') }}
-        </button>
+                class="flex-1 bg-orange-500 text-white py-2.5 rounded-full text-sm font-semibold">{{ t.get('block_btn','Заблокировать') }}</button>
       </div>
     </div>
   </div>
-
-  <!-- REPORT MODAL -->
   <div id="report-modal" style="display:none;"
        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
     <div class="bg-white rounded-2xl p-6 max-w-xs w-full shadow-2xl">
@@ -199,13 +318,7 @@
       <p class="font-bold text-gray-800 mb-1 text-center">{{ t.get('report_title','Пожаловаться') }}</p>
       <p class="text-gray-500 text-sm mb-4 text-center">{{ t.get('report_desc','Выбери причину') }}</p>
       <div class="space-y-2 mb-5">
-        {% for reason_val, reason_label in [
-          ('spam', t.get('report_spam','Спам или мошенничество')),
-          ('fake', t.get('report_fake','Фейковый профиль')),
-          ('inappropriate', t.get('report_inappropriate','Неприемлемый контент')),
-          ('harassment', t.get('report_harassment','Оскорбления или угрозы')),
-          ('other', t.get('report_other','Другое'))
-        ] %}
+        {% for reason_val, reason_label in [('spam',t.get('report_spam','Спам')),('fake',t.get('report_fake','Фейк')),('inappropriate',t.get('report_inappropriate','Неприемлемый контент')),('harassment',t.get('report_harassment','Оскорбления')),('other',t.get('report_other','Другое'))] %}
         <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-100 cursor-pointer hover:bg-red-50 hover:border-red-200 transition">
           <input type="radio" name="report-reason" value="{{ reason_val }}" class="accent-red-500 flex-shrink-0">
           <span class="text-sm text-gray-700">{{ reason_label }}</span>
@@ -214,21 +327,15 @@
       </div>
       <div class="flex gap-3">
         <button onclick="document.getElementById('report-modal').style.display='none'"
-                class="flex-1 border border-gray-200 text-gray-600 py-2.5 rounded-full text-sm font-semibold">
-          {{ t.get('cancel','Отмена') }}
-        </button>
+                class="flex-1 border border-gray-200 text-gray-600 py-2.5 rounded-full text-sm font-semibold">{{ t.get('cancel','Отмена') }}</button>
         <button onclick="confirmReport(this)"
-                class="flex-1 bg-red-500 text-white py-2.5 rounded-full text-sm font-semibold">
-          {{ t.get('report_btn','Отправить') }}
-        </button>
+                class="flex-1 bg-red-500 text-white py-2.5 rounded-full text-sm font-semibold">{{ t.get('report_btn','Отправить') }}</button>
       </div>
     </div>
   </div>
 
   <!-- MESSAGES -->
-  <div id="messages-container" class="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-0.5">
-
-    <!-- Load more button -->
+  <div id="messages-container">
     <div id="load-more-wrap" class="flex justify-center py-2 {% if not has_more %}hidden{% endif %}">
       <button id="load-more-btn" onclick="loadMoreMessages()"
               class="text-xs text-pink-400 bg-pink-50 hover:bg-pink-100 px-4 py-1.5 rounded-full transition font-medium">
@@ -237,14 +344,13 @@
     </div>
 
     {% if not messages %}
-    <div id="empty-hint" class="flex flex-col items-center justify-center h-full text-center">
+    <div id="empty-hint" class="flex flex-col items-center justify-center h-full text-center py-16">
       <div class="text-5xl mb-3 opacity-60">💬</div>
       <p class="text-gray-400 text-sm">{{ t.start_chat }}</p>
     </div>
     {% endif %}
 
     {% for m in messages %}
-    {# created_at is ISO string e.g. "2026-06-23T15:08:09.983708" #}
     {% set ts = m.created_at or '' %}
     {% set m_date = ts[:10] %}
     {% set m_time = ts[11:16] %}
@@ -252,26 +358,29 @@
     <div class="date-divider"><span>{{ m_date }}</span></div>
     {% endif %}
     {% if m.sender_id == user.id %}
-    <div class="msg-row-own" data-msg-id="{{ m.id }}">
+    <div class="msg-row-own" data-msg-id="{{ m.id }}" data-sender="{{ m.sender_id }}"
+         oncontextmenu="openCtx(event,{{ m.id }},true,'{{ m.content|e }}',{{ 'true' if m.is_deleted else 'false' }}); return false;">
       <div class="flex flex-col items-end">
         <div class="msg-wrap">
-          {% if m.is_image %}
+          {% if m.is_deleted %}
+          <div class="bubble-own bubble-deleted">🚫 Сообщение удалено</div>
+          {% elif m.is_image %}
           <div class="bubble-img"><img src="{{ m.content }}" alt="фото" loading="lazy"
                class="cursor-zoom-in" onclick="openLightbox('{{ m.content }}')" /></div>
           {% elif m.is_voice %}
           <div class="bubble-own"><audio controls src="{{ m.content }}" style="max-width:200px;height:36px;"></audio></div>
           {% else %}
-          <div class="bubble-own" id="msg-text-{{ m.id }}"
-               ondblclick="toggleReactPicker({{ m.id }})">{{ m.content | e }}</div>
+          <div class="bubble-own" id="msg-text-{{ m.id }}">
+            {% if m.reply_to %}<div class="reply-quote">↩ {{ m.reply_to.content[:60] }}</div>{% endif %}
+            {{ m.content | e }}
+          </div>
           {% endif %}
-          <!-- Reaction picker (hidden) -->
           <div class="react-picker" id="rpick-{{ m.id }}" style="display:none; right:0;">
             {% for emoji in ['❤️','😂','😮','😢','👍','🔥'] %}
             <button onclick="sendReaction({{ m.id }},'{{ emoji }}'); hideReactPicker({{ m.id }})">{{ emoji }}</button>
             {% endfor %}
           </div>
         </div>
-        <!-- Reactions -->
         {% if m.reactions %}
         <div class="reactions-row justify-end" id="reactions-{{ m.id }}">
           {% for emoji, cnt in m.reactions.items() %}
@@ -283,42 +392,45 @@
         {% endif %}
         <div class="msg-meta msg-meta-own">
           {{ m_time }}
-          {% if m.edited_at %}<span class="edited-label">{{ t.get('edited','изм.') }}</span>{% endif %}
-          {% if not m.is_image and not m.is_voice %}
-          <span class="edit-btn" onclick="startEdit({{ m.id }})" title="{{ t.get('edit_msg','Редактировать') }}">✏️</span>
+          {% if m.edited_at and not m.is_deleted %}<span class="edited-label">изм.</span>{% endif %}
+          {% if not m.is_image and not m.is_voice and not m.is_deleted %}
+          <span class="edit-btn" onclick="startEdit({{ m.id }})" title="Редактировать" style="font-size:11px;cursor:pointer;margin-left:3px;">✏️</span>
           {% endif %}
           <span class="read-tick {% if m.is_read %}read{% else %}sent{% endif %}">
             {% if m.is_read %}✓✓{% else %}✓{% endif %}
           </span>
         </div>
-        {% if not m.is_image and not m.is_voice %}
-        <div id="edit-form-{{ m.id }}" style="display:none;" class="mt-1 flex gap-1.5 items-center">
+        {% if not m.is_image and not m.is_voice and not m.is_deleted %}
+        <div class="edit-inline" id="edit-form-{{ m.id }}">
           <input id="edit-input-{{ m.id }}" type="text" value="{{ m.content | e }}"
-                 class="text-sm border border-pink-300 rounded-xl px-3 py-1.5 outline-none focus:ring-2 focus:ring-pink-300"
-                 style="min-width:140px; max-width:200px;"
                  onkeydown="if(event.key==='Enter'){submitEdit({{ m.id }});} if(event.key==='Escape'){cancelEdit({{ m.id }});}" />
-          <button onclick="submitEdit({{ m.id }})" class="text-xs bg-pink-500 text-white px-2.5 py-1.5 rounded-xl font-semibold">✓</button>
-          <button onclick="cancelEdit({{ m.id }})" class="text-xs text-gray-400 px-1.5 py-1.5">✕</button>
+          <button onclick="submitEdit({{ m.id }})" class="text-xs bg-pink-500 text-white px-2 py-1 rounded-lg ml-1">✓</button>
+          <button onclick="cancelEdit({{ m.id }})" class="text-xs text-gray-400 px-1 py-1">✕</button>
         </div>
         {% endif %}
       </div>
     </div>
     {% else %}
-    <div class="msg-row-partner" data-msg-id="{{ m.id }}">
+    <div class="msg-row-partner" data-msg-id="{{ m.id }}" data-sender="{{ m.sender_id }}"
+         oncontextmenu="openCtx(event,{{ m.id }},false,'{{ m.content|e }}',{{ 'true' if m.is_deleted else 'false' }}); return false;">
       <div class="w-6 h-6 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center
                   {% if partner.profile and partner.profile.photo %}partner-avatar{% endif %}">
         {% if not (partner.profile and partner.profile.photo) %}<span class="text-xs">👤</span>{% endif %}
       </div>
       <div class="flex flex-col">
         <div class="msg-wrap">
-          {% if m.is_image %}
+          {% if m.is_deleted %}
+          <div class="bubble-partner bubble-deleted">🚫 Сообщение удалено</div>
+          {% elif m.is_image %}
           <div class="bubble-img"><img src="{{ m.content }}" alt="фото" loading="lazy"
                class="cursor-zoom-in" onclick="openLightbox('{{ m.content }}')" /></div>
           {% elif m.is_voice %}
           <div class="bubble-partner"><audio controls src="{{ m.content }}" style="max-width:200px;height:36px;"></audio></div>
           {% else %}
-          <div class="bubble-partner"
-               ondblclick="toggleReactPicker({{ m.id }})">{{ m.content | e }}</div>
+          <div class="bubble-partner">
+            {% if m.reply_to %}<div class="reply-quote reply-quote-partner">↩ {{ m.reply_to.content[:60] }}</div>{% endif %}
+            {{ m.content | e }}
+          </div>
           {% endif %}
           <div class="react-picker" id="rpick-{{ m.id }}" style="display:none; left:0;">
             {% for emoji in ['❤️','😂','😮','😢','👍','🔥'] %}
@@ -335,34 +447,36 @@
         {% else %}
         <div class="reactions-row" id="reactions-{{ m.id }}"></div>
         {% endif %}
-        <div class="msg-meta">{{ m_time }}{% if m.edited_at %}<span class="edited-label">{{ t.get('edited','изм.') }}</span>{% endif %}</div>
+        <div class="msg-meta">{{ m_time }}{% if m.edited_at and not m.is_deleted %}<span class="edited-label">изм.</span>{% endif %}</div>
       </div>
     </div>
     {% endif %}
     {% endfor %}
 
-    <!-- TYPING INDICATOR (inside container so insertBefore works) -->
     <div id="typing-indicator" style="display:none;" class="msg-row-partner px-3 pb-1">
       <div class="w-6 h-6 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center
                   {% if partner.profile and partner.profile.photo %}partner-avatar{% endif %}">
         {% if not (partner.profile and partner.profile.photo) %}<span class="text-xs">👤</span>{% endif %}
       </div>
       <div class="bubble-partner flex gap-1 items-center px-4 py-3">
-        <span class="typing-dot"></span>
-        <span class="typing-dot"></span>
-        <span class="typing-dot"></span>
+        <span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>
       </div>
     </div>
-
   </div>
 
   <!-- ERROR -->
   <div id="send-err" style="display:none;"
        class="flex-shrink-0 text-center text-xs text-red-500 bg-red-50 py-2 px-4 border-t border-red-100"></div>
 
+  <!-- REPLY BAR -->
+  <div id="reply-bar">
+    <span class="reply-label">↩ Ответить:</span>
+    <span class="reply-text" id="reply-bar-text"></span>
+    <button onclick="cancelReply()" class="text-gray-400 hover:text-pink-500 text-lg flex-shrink-0">✕</button>
+  </div>
+
   <!-- INPUT -->
-  <div class="flex-shrink-0 bg-white border-t border-gray-100 px-3 py-2 flex items-end gap-2">
-    <!-- Photo upload button -->
+  <div id="input-bar" class="flex items-end gap-2">
     <input type="file" id="photo-file" accept="image/*" style="display:none" onchange="sendPhoto(this)" />
     <button type="button" onclick="document.getElementById('photo-file').click()"
             id="photo-btn"
@@ -371,18 +485,15 @@
         <path stroke-linecap="round" stroke-linejoin="round" d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13" />
       </svg>
     </button>
-
     <div class="flex-1 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-2.5 focus-within:border-pink-300 transition">
-      <textarea id="msg-input"
-                rows="1"
+      <textarea id="msg-input" rows="1"
                 placeholder="{{ t.message_placeholder or 'Написать...' }}"
                 class="w-full text-sm text-gray-800 placeholder-gray-400 resize-none bg-transparent"
                 style="max-height:7rem; min-height:1.25rem; outline:none; border:none;"
                 oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,112)+'px'; toggleSendBtn()"
                 onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); sendMessage(); }"></textarea>
     </div>
-    <button id="send-btn" onclick="sendMessage()"
-            disabled
+    <button id="send-btn" onclick="sendMessage()" disabled
             class="flex-shrink-0 w-11 h-11 gradient-pink text-white rounded-full flex items-center justify-center shadow-md
                    hover:opacity-90 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed">
       <svg class="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
@@ -393,7 +504,7 @@
 
 </div>
 
-<!-- Image lightbox -->
+<!-- Lightbox -->
 <div id="lightbox" onclick="closeLightbox()">
   <img id="lightbox-img" src="" alt="" />
 </div>
@@ -403,165 +514,275 @@
   var ROOT    = document.getElementById('chat-root');
   var MATCH   = parseInt(ROOT.dataset.matchId, 10);
   var USER    = parseInt(ROOT.dataset.userId, 10);
-  var TODAY   = '{{ t.get("today","Сегодня") }}';
   var container = document.getElementById('messages-container');
   var lastId    = {{ messages[-1].id if messages else 0 }};
   var oldestId  = {{ oldest_id }};
   var hasMore   = {{ 'true' if has_more else 'false' }};
-  var sending = false;
-  var sseRetries = 0;
-  var sse;
-  var ws;
-  var wsRetries = 0;
+  var sending   = false;
+  var sse, ws, wsRetries = 0, sseRetries = 0;
 
-  // ── helpers ───────────────────────────────────────────────────
+  // ── Reply state ───────────────────────────────────────────────
+  var replyToId = null;
+  var replyToText = '';
+
+  // ── Helpers ───────────────────────────────────────────────────
   function getCsrf() {
     var c = document.cookie.split('; ').find(function(r){ return r.startsWith('csrftoken='); });
     return c ? c.slice('csrftoken='.length) : '';
   }
-
   function showErr(msg) {
     var el = document.getElementById('send-err');
     el.textContent = msg;
     el.style.display = 'block';
     setTimeout(function(){ el.style.display = 'none'; }, 4000);
   }
-
   function scrollBottom() {
     if (container) container.scrollTop = container.scrollHeight;
   }
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function fmtTime(iso) {
+    try { return new Date(iso).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); } catch(e){ return ''; }
+  }
 
-  // ── Load older messages (pagination) ─────────────────────────────
+  // ── Search ────────────────────────────────────────────────────
+  var searchOpen = false;
+  window.toggleSearch = function() {
+    var bar = document.getElementById('search-bar');
+    var inp = document.getElementById('search-input');
+    searchOpen = !searchOpen;
+    bar.style.display = searchOpen ? 'flex' : 'none';
+    if (searchOpen) { inp.focus(); } else { doSearch(''); inp.value = ''; }
+  };
+  window.doSearch = function(q) {
+    var rows = container.querySelectorAll('[data-msg-id]');
+    rows.forEach(function(row) {
+      row.classList.remove('msg-highlight');
+      if (!q) return;
+      var bubble = row.querySelector('.bubble-own, .bubble-partner');
+      if (bubble && bubble.textContent.toLowerCase().includes(q.toLowerCase())) {
+        row.classList.add('msg-highlight');
+      }
+    });
+    if (q) {
+      var first = container.querySelector('.msg-highlight');
+      if (first) first.scrollIntoView({behavior:'smooth', block:'center'});
+    }
+  };
+
+  // ── Context menu ──────────────────────────────────────────────
+  var ctxMsgId = null, ctxIsOwn = false, ctxContent = '';
+  window.openCtx = function(e, msgId, isOwn, content, isDeleted) {
+    e.preventDefault();
+    ctxMsgId = msgId; ctxIsOwn = isOwn; ctxContent = content;
+    var menu = document.getElementById('ctx-menu');
+    var del = document.getElementById('ctx-delete');
+    var rep = document.getElementById('ctx-reply');
+    del.style.display = (isOwn && !isDeleted) ? 'flex' : 'none';
+    rep.style.display = isDeleted ? 'none' : 'flex';
+    // Position menu near touch/click
+    var x = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : window.innerWidth/2);
+    var y = e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : window.innerHeight/2);
+    menu.style.left = Math.min(x, window.innerWidth - 180) + 'px';
+    menu.style.top = Math.min(y, window.innerHeight - 150) + 'px';
+    menu.style.display = 'block';
+    document.getElementById('ctx-overlay').style.display = 'block';
+  };
+  window.closeCtx = function() {
+    document.getElementById('ctx-menu').style.display = 'none';
+    document.getElementById('ctx-overlay').style.display = 'none';
+  };
+  window.ctxReply = function() {
+    closeCtx();
+    setReply(ctxMsgId, ctxContent);
+  };
+  window.ctxCopy = function() {
+    closeCtx();
+    if (ctxContent) navigator.clipboard.writeText(ctxContent).catch(function(){});
+  };
+  window.ctxDelete = function() {
+    closeCtx();
+    if (!ctxMsgId) return;
+    fetch('/chat/' + MATCH + '/message/' + ctxMsgId + '/delete', {
+      method: 'POST',
+      headers: {'x-csrf-token': getCsrf()},
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d.ok) markDeleted(ctxMsgId);
+    })
+    .catch(function(){ showErr('Ошибка удаления'); });
+  };
+
+  // ── Long-press for touch devices ──────────────────────────────
+  var _lpTimer = null;
+  document.addEventListener('touchstart', function(e) {
+    var row = e.target.closest('[data-msg-id]');
+    if (!row) return;
+    var msgId = parseInt(row.dataset.msgId, 10);
+    var isOwn = row.classList.contains('msg-row-own');
+    var bubble = row.querySelector('.bubble-own, .bubble-partner');
+    var content = bubble ? bubble.textContent.trim() : '';
+    var isDeleted = !!(bubble && bubble.classList.contains('bubble-deleted'));
+    _lpTimer = setTimeout(function() {
+      var t = e.touches[0];
+      openCtx({clientX: t.clientX, clientY: t.clientY, preventDefault: function(){}},
+               msgId, isOwn, content, isDeleted);
+    }, 500);
+  }, {passive: true});
+  document.addEventListener('touchend', function() {
+    if (_lpTimer) { clearTimeout(_lpTimer); _lpTimer = null; }
+  });
+  document.addEventListener('touchmove', function() {
+    if (_lpTimer) { clearTimeout(_lpTimer); _lpTimer = null; }
+  });
+
+  // ── Reply UI ──────────────────────────────────────────────────
+  function setReply(id, text) {
+    replyToId = id;
+    replyToText = text;
+    var bar = document.getElementById('reply-bar');
+    var barText = document.getElementById('reply-bar-text');
+    barText.textContent = text.substring(0, 80);
+    bar.style.display = 'flex';
+    document.getElementById('msg-input').focus();
+  }
+  window.cancelReply = function() {
+    replyToId = null; replyToText = '';
+    document.getElementById('reply-bar').style.display = 'none';
+  };
+
+  // ── Mark deleted in UI ────────────────────────────────────────
+  function markDeleted(msgId) {
+    var row = container.querySelector('[data-msg-id="' + msgId + '"]');
+    if (!row) return;
+    var isOwn = row.classList.contains('msg-row-own');
+    var wrap = row.querySelector('.msg-wrap');
+    if (wrap) {
+      wrap.innerHTML = '<div class="' + (isOwn ? 'bubble-own' : 'bubble-partner') + ' bubble-deleted">🚫 Сообщение удалено</div>';
+    }
+    var editForm = document.getElementById('edit-form-' + msgId);
+    if (editForm) editForm.remove();
+  }
+
+  // ── Load older messages ───────────────────────────────────────
   window.loadMoreMessages = function() {
     if (!hasMore) return;
     var btn = document.getElementById('load-more-btn');
     if (btn) { btn.disabled = true; btn.textContent = '…'; }
-
     fetch('/chat/' + MATCH + '/history?before_id=' + oldestId, {
-      headers: { 'x-csrf-token': getCsrf() },
+      headers: {'x-csrf-token': getCsrf()},
     })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
+    .then(function(r){ return r.json(); })
+    .then(function(data){
       if (!data.messages) return;
       hasMore = data.has_more;
       var wrap = document.getElementById('load-more-wrap');
       if (!hasMore && wrap) wrap.classList.add('hidden');
       if (btn) { btn.disabled = false; btn.textContent = 'Загрузить ещё'; }
-
-      var scrollBottom = container.scrollHeight - container.scrollTop;
-      var anchor = container.firstElementChild; // load-more-wrap div
-
+      var savedScroll = container.scrollHeight - container.scrollTop;
+      var anchor = document.getElementById('load-more-wrap');
       data.messages.forEach(function(m) {
         var row = buildMessageRow(m);
         if (row) container.insertBefore(row, anchor ? anchor.nextSibling : container.firstChild);
       });
-
       if (data.messages.length) {
         oldestId = data.messages[0].id;
-        // restore scroll position
-        container.scrollTop = container.scrollHeight - scrollBottom;
+        container.scrollTop = container.scrollHeight - savedScroll;
       }
     })
-    .catch(function() {
-      if (btn) { btn.disabled = false; btn.textContent = 'Загрузить ещё'; }
-    });
+    .catch(function() { if (btn) { btn.disabled = false; btn.textContent = 'Загрузить ещё'; } });
   };
+
+  function buildReplyQuote(reply, isOwn) {
+    if (!reply) return '';
+    var cls = isOwn ? 'reply-quote' : 'reply-quote reply-quote-partner';
+    var text = reply.is_image ? '📷 Фото' : escHtml((reply.content||'').substring(0,60));
+    return '<div class="' + cls + '">↩ ' + text + '</div>';
+  }
 
   function buildMessageRow(m) {
     var isOwn = m.sender_id === USER;
     var time = fmtTime(m.created_at);
     var rowEl = document.createElement('div');
-
+    var isDeleted = !!m.is_deleted;
     var bubbleHtml;
-    if (m.is_image) {
+    var bubbleCls = isOwn ? 'bubble-own' : 'bubble-partner';
+    if (isDeleted) {
+      bubbleHtml = '<div class="' + bubbleCls + ' bubble-deleted">🚫 Сообщение удалено</div>';
+    } else if (m.is_image) {
       bubbleHtml = '<div class="bubble-img"><img src="' + escHtml(m.content) + '" alt="фото" loading="lazy"/></div>';
     } else if (m.is_voice) {
-      var cls = isOwn ? 'bubble-own' : 'bubble-partner';
-      bubbleHtml = '<div class="' + cls + '"><audio controls src="' + escHtml(m.content) + '" style="max-width:200px;height:36px;"></audio></div>';
+      bubbleHtml = '<div class="' + bubbleCls + '"><audio controls src="' + escHtml(m.content) + '" style="max-width:200px;height:36px;"></audio></div>';
     } else {
-      var cls2 = isOwn ? 'bubble-own' : 'bubble-partner';
-      bubbleHtml = '<div class="' + cls2 + '">' + escHtml(m.content) + '</div>';
+      var replyQuote = buildReplyQuote(m.reply_to, isOwn);
+      bubbleHtml = '<div class="' + bubbleCls + '">' + replyQuote + escHtml(m.content) + '</div>';
     }
-
     var metaCls = isOwn ? 'msg-meta msg-meta-own' : 'msg-meta';
-    var meta = '<div class="' + metaCls + '">' + escHtml(time) + '</div>';
-
+    var meta = '<div class="' + metaCls + '">' + time + '</div>';
     if (isOwn) {
       rowEl.className = 'msg-row-own';
       rowEl.setAttribute('data-msg-id', m.id);
-      rowEl.innerHTML = '<div class="flex flex-col items-end">' + bubbleHtml + meta + '</div>';
+      rowEl.setAttribute('data-sender', m.sender_id);
+      rowEl.setAttribute('oncontextmenu', 'openCtx(event,' + m.id + ',true,' + JSON.stringify(m.content||'') + ',' + isDeleted + '); return false;');
+      rowEl.innerHTML = '<div class="flex flex-col items-end"><div class="msg-wrap">' + bubbleHtml + '</div><div class="reactions-row justify-end" id="reactions-' + m.id + '"></div>' + meta + '</div>';
     } else {
+      var avatarCls = '{% if partner.profile and partner.profile.photo %}partner-avatar{% endif %}';
       rowEl.className = 'msg-row-partner';
       rowEl.setAttribute('data-msg-id', m.id);
-      var avatarClass = '{% if partner.profile and partner.profile.photo %}partner-avatar{% endif %}';
-      var avatarInner = '{% if not (partner.profile and partner.profile.photo) %}<span class="text-xs">👤</span>{% endif %}';
-      var avatar = '<div class="w-7 h-7 rounded-full bg-pink-100 flex items-center justify-center flex-shrink-0 bg-cover bg-center ' + avatarClass + '">' + avatarInner + '</div>';
-      rowEl.innerHTML = avatar + '<div class="flex flex-col">' + bubbleHtml + meta + '</div>';
+      rowEl.setAttribute('data-sender', m.sender_id);
+      rowEl.setAttribute('oncontextmenu', 'openCtx(event,' + m.id + ',false,' + JSON.stringify(m.content||'') + ',' + isDeleted + '); return false;');
+      rowEl.innerHTML =
+        '<div class="w-6 h-6 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center ' + avatarCls + '"></div>' +
+        '<div class="flex flex-col"><div class="msg-wrap">' + bubbleHtml + '</div><div class="reactions-row" id="reactions-' + m.id + '"></div>' + meta + '</div>';
     }
     return rowEl;
   }
 
-  function fmtTime(iso) {
-    try {
-      var d = new Date(iso);
-      return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-    } catch(e) { return ''; }
-  }
-
-  function fmtDate(iso) {
-    try {
-      var d = new Date(iso);
-      return d.toLocaleDateString([], {day:'numeric', month:'short'});
-    } catch(e) { return ''; }
-  }
-
-  function appendMessage(id, content, senderId, time, isImage, isVoice) {
+  function appendMessage(id, content, senderId, time, isImage, isVoice, replyTo, isDeleted) {
     var empty = document.getElementById('empty-hint');
     if (empty) empty.style.display = 'none';
-
+    var isOwn = senderId === USER;
+    var bubbleCls = isOwn ? 'bubble-own' : 'bubble-partner';
     var row = document.createElement('div');
     var bubble;
-    if (isImage) {
-      bubble = '<div class="bubble-img"><img src="' + escHtml(content) + '" alt="фото" loading="lazy" /></div>';
+    if (isDeleted) {
+      bubble = '<div class="' + bubbleCls + ' bubble-deleted">🚫 Сообщение удалено</div>';
+    } else if (isImage) {
+      bubble = '<div class="bubble-img"><img src="' + escHtml(content) + '" alt="фото" loading="lazy"/></div>';
     } else if (isVoice) {
-      bubble = '<div class="bubble-own"><audio controls src="' + escHtml(content) + '" style="max-width:200px;height:36px;"></audio></div>';
+      bubble = '<div class="' + bubbleCls + '"><audio controls src="' + escHtml(content) + '" style="max-width:200px;height:36px;"></audio></div>';
     } else {
-      bubble = null;
+      var rq = buildReplyQuote(replyTo, isOwn);
+      bubble = '<div class="' + bubbleCls + (isOwn ? '" id="msg-text-' + id + '"' : '"') + '>' + rq + escHtml(content) + '</div>';
     }
-
-    if (senderId === USER) {
+    if (isOwn) {
       row.className = 'msg-row-own';
-      var contentHtml = bubble || ('<div class="bubble-own" id="msg-text-' + id + '">' + escHtml(content) + '</div>');
+      row.setAttribute('oncontextmenu', 'openCtx(event,' + id + ',true,' + JSON.stringify(content||'') + ',' + !!isDeleted + '); return false;');
       row.innerHTML =
         '<div class="flex flex-col items-end">' +
-          contentHtml +
+          '<div class="msg-wrap">' + bubble + '</div>' +
+          '<div class="reactions-row justify-end" id="reactions-' + id + '"></div>' +
           '<div class="msg-meta msg-meta-own">' + time +
-            (!bubble ? ' <span class="edit-btn" onclick="startEdit(' + id + ')" title="Редактировать">✏️</span>' : '') +
+            (!isImage && !isVoice && !isDeleted ? ' <span onclick="startEdit(' + id + ')" style="font-size:11px;cursor:pointer;">✏️</span>' : '') +
             ' <span class="read-tick sent">✓</span>' +
           '</div>' +
         '</div>';
     } else {
-      var avatarClass = '{% if partner.profile and partner.profile.photo %}partner-avatar{% endif %}';
-      var avatarInner = '{% if not (partner.profile and partner.profile.photo) %}<span class="text-xs">👤</span>{% endif %}';
+      var avatarCls = '{% if partner.profile and partner.profile.photo %}partner-avatar{% endif %}';
       row.className = 'msg-row-partner';
-      var partnerBubble;
-      if (isImage) {
-        partnerBubble = '<div class="bubble-img"><img src="' + escHtml(content) + '" alt="фото" loading="lazy" /></div>';
-      } else if (isVoice) {
-        partnerBubble = '<div class="bubble-partner"><audio controls src="' + escHtml(content) + '" style="max-width:200px;height:36px;"></audio></div>';
-      } else {
-        partnerBubble = '<div class="bubble-partner">' + escHtml(content) + '</div>';
-      }
+      row.setAttribute('oncontextmenu', 'openCtx(event,' + id + ',false,' + JSON.stringify(content||'') + ',' + !!isDeleted + '); return false;');
       row.innerHTML =
-        '<div class="w-6 h-6 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center ' + avatarClass + '">' +
-          avatarInner +
-        '</div>' +
+        '<div class="w-6 h-6 rounded-full overflow-hidden bg-pink-100 flex-shrink-0 flex items-center justify-center ' + avatarCls + '"></div>' +
         '<div class="flex flex-col">' +
-          partnerBubble +
+          '<div class="msg-wrap">' + bubble + '</div>' +
+          '<div class="reactions-row" id="reactions-' + id + '"></div>' +
           '<div class="msg-meta">' + time + '</div>' +
         '</div>';
     }
     row.dataset.msgId = id;
+    row.dataset.sender = senderId;
     container.insertBefore(row, document.getElementById('typing-indicator'));
     scrollBottom();
   }
@@ -572,9 +793,7 @@
       if (msgId && msgId <= upToId) {
         var tick = row.querySelector('.read-tick');
         if (tick && !tick.classList.contains('read')) {
-          tick.classList.remove('sent');
-          tick.classList.add('read');
-          tick.textContent = '✓✓';
+          tick.classList.remove('sent'); tick.classList.add('read'); tick.textContent = '✓✓';
         }
       }
     });
@@ -587,28 +806,14 @@
     if (active) scrollBottom();
   }
 
-  function escHtml(s) {
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
-
-  // ── typing emit (debounced, max 1 req / 3s) ─────────────────
+  // ── Typing emit ───────────────────────────────────────────────
   var _typingTimer = null;
   function emitTyping() {
     if (_typingTimer) return;
-    var fd = new FormData();
-    fetch('/chat/' + MATCH + '/typing', {
-      method: 'POST',
-      body: fd,
-      headers: { 'x-csrf-token': getCsrf() },
-    }).catch(function(){});
+    fetch('/chat/' + MATCH + '/typing', { method:'POST', body: new FormData(), headers:{'x-csrf-token': getCsrf()} }).catch(function(){});
     _typingTimer = setTimeout(function(){ _typingTimer = null; }, 3000);
   }
 
-  // ── send button enable/disable ────────────────────────────────
   window.toggleSendBtn = function() {
     var input = document.getElementById('msg-input');
     var btn   = document.getElementById('send-btn');
@@ -616,29 +821,24 @@
     if (input.value.trim()) emitTyping();
   };
 
-  // ── send message ──────────────────────────────────────────────
+  // ── Send message ──────────────────────────────────────────────
   window.sendMessage = function() {
     var input = document.getElementById('msg-input');
     var text  = input.value.trim();
     if (!text || sending) return;
-
     sending = true;
     var btn = document.getElementById('send-btn');
     if (btn) btn.disabled = true;
-    input.value = '';
-    input.style.height = 'auto';
-
+    input.value = ''; input.style.height = 'auto';
     var fd = new FormData();
     fd.append('content', text);
-
+    if (replyToId) fd.append('reply_to_id', replyToId);
+    var savedReplyTo = replyToId ? {id: replyToId, content: replyToText} : null;
+    cancelReply();
     var ac = new AbortController();
     var tid = setTimeout(function(){ ac.abort(); }, 10000);
-
     fetch('/chat/' + MATCH + '/send', {
-      method: 'POST',
-      body: fd,
-      headers: { 'x-csrf-token': getCsrf() },
-      signal: ac.signal,
+      method: 'POST', body: fd, headers: {'x-csrf-token': getCsrf()}, signal: ac.signal,
     })
     .then(function(r) {
       clearTimeout(tid);
@@ -649,109 +849,121 @@
       if (!d) return;
       if (d.id) {
         appendMessage(d.id, d.content, d.sender_id,
-          new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
-          d.is_image, d.is_voice);
+          new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),
+          d.is_image, d.is_voice, savedReplyTo, false);
         lastId = d.id;
       } else {
         input.value = text;
         showErr(d.detail || d.error || 'Ошибка отправки');
       }
     })
-    .catch(function(e) {
-      input.value = text;
-      showErr('Нет соединения');
-    })
-    .finally(function() {
-      sending = false;
-      if (btn) btn.disabled = !input.value.trim();
-    });
+    .catch(function() { input.value = text; showErr('Нет соединения'); })
+    .finally(function() { sending = false; if (btn) btn.disabled = !input.value.trim(); });
   };
 
-  // ── unmatch ───────────────────────────────────────────────────
-  // ── Chat menu ────────────────────────────────────────────────────
-  var _menuOpen = false;
-  window.toggleChatMenu = function() {
-    _menuOpen ? closeChatMenu() : openChatMenu();
+  // ── Send photo ────────────────────────────────────────────────
+  window.sendPhoto = function(input) {
+    if (!input.files || !input.files[0]) return;
+    var file = input.files[0];
+    input.value = '';
+    var btn = document.getElementById('photo-btn');
+    var _svg = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '⏳'; }
+    var fd = new FormData();
+    fd.append('photo', file);
+    fetch('/chat/' + MATCH + '/photo', {
+      method: 'POST', body: fd, headers: {'x-csrf-token': getCsrf()},
+    })
+    .then(function(r){ if (r.status===401){ window.location.href='/login'; return null; } return r.json(); })
+    .then(function(d){
+      if (!d) return;
+      if (d.id) { appendMessage(d.id, d.content, d.sender_id, new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}), true, false, null, false); lastId = d.id; }
+      else showErr(d.error || 'Ошибка загрузки фото');
+    })
+    .catch(function(){ showErr('Нет соединения'); })
+    .finally(function(){ if (btn){ btn.disabled=false; btn.innerHTML=_svg; } });
   };
-  function openChatMenu() {
-    document.getElementById('chat-menu').style.display = 'block';
-    _menuOpen = true;
-    setTimeout(function() {
-      document.addEventListener('click', _menuOutside, {once: true});
-    }, 0);
-  }
-  window.closeChatMenu = function() {
-    document.getElementById('chat-menu').style.display = 'none';
-    _menuOpen = false;
+
+  // ── Edit message ──────────────────────────────────────────────
+  window.startEdit = function(msgId) {
+    var form = document.getElementById('edit-form-' + msgId);
+    if (form) { form.style.display = 'flex'; var inp = document.getElementById('edit-input-' + msgId); if (inp){ inp.focus(); inp.select(); } }
   };
-  function _menuOutside(e) {
-    if (!document.getElementById('chat-menu-btn').contains(e.target)) {
-      closeChatMenu();
+  window.cancelEdit = function(msgId) {
+    var form = document.getElementById('edit-form-' + msgId); if (form) form.style.display = 'none';
+  };
+  window.submitEdit = function(msgId) {
+    var inp = document.getElementById('edit-input-' + msgId); if (!inp) return;
+    var newText = inp.value.trim(); if (!newText) return;
+    inp.disabled = true;
+    fetch('/chat/' + MATCH + '/message/' + msgId + '/edit', {
+      method: 'POST', headers: {'x-csrf-token': getCsrf(), 'Content-Type': 'application/json'},
+      body: JSON.stringify({content: newText}),
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d.id) {
+        var bubble = document.getElementById('msg-text-' + msgId);
+        if (bubble) bubble.textContent = d.content;
+        var form = document.getElementById('edit-form-' + msgId); if (form) form.style.display='none';
+        var row = container.querySelector('[data-msg-id="' + msgId + '"]');
+        if (row) {
+          var meta = row.querySelector('.msg-meta');
+          if (meta && !meta.querySelector('.edited-label')) {
+            var lbl = document.createElement('span'); lbl.className='edited-label'; lbl.textContent=' изм.';
+            meta.insertBefore(lbl, meta.firstChild);
+          }
+        }
+      }
+    })
+    .catch(function(){ showErr('Ошибка'); })
+    .finally(function(){ inp.disabled = false; });
+  };
+
+  // ── Reactions ─────────────────────────────────────────────────
+  window.toggleReactPicker = function(msgId) {
+    var el = document.getElementById('rpick-' + msgId); if (!el) return;
+    var vis = el.style.display !== 'none';
+    document.querySelectorAll('.react-picker').forEach(function(p){ p.style.display='none'; });
+    if (!vis) el.style.display = 'flex';
+  };
+  window.hideReactPicker = function(msgId) {
+    var el = document.getElementById('rpick-' + msgId); if (el) el.style.display='none';
+  };
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.react-picker') && !e.target.closest('.bubble-own') && !e.target.closest('.bubble-partner')) {
+      document.querySelectorAll('.react-picker').forEach(function(p){ p.style.display='none'; });
     }
+  });
+  window.sendReaction = function(msgId, emoji) {
+    fetch('/chat/' + MATCH + '/message/' + msgId + '/react', {
+      method: 'POST', headers: {'x-csrf-token': getCsrf(), 'Content-Type': 'application/json'},
+      body: JSON.stringify({emoji: emoji}),
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(d){ if (d.reactions) updateReactions(msgId, d.reactions); })
+    .catch(function(){});
+  };
+  function updateReactions(msgId, reactions) {
+    var row = document.getElementById('reactions-' + msgId); if (!row) return;
+    row.innerHTML = '';
+    Object.keys(reactions).forEach(function(emoji) {
+      var cnt = reactions[emoji];
+      var btn = document.createElement('span');
+      btn.className = 'reaction-badge';
+      btn.textContent = emoji + (cnt > 1 ? ' ' + cnt : '');
+      btn.onclick = function(){ sendReaction(msgId, emoji); };
+      row.appendChild(btn);
+    });
   }
 
-  // ── Block ─────────────────────────────────────────────────────────
-  window.doBlock = function() {
-    document.getElementById('block-modal').style.display = 'flex';
-  };
-  window.confirmBlock = function(btn) {
-    btn.disabled = true;
-    btn.textContent = '...';
-    fetch('/user/{{ partner.id }}/block', {
-      method: 'POST',
-      headers: {'x-csrf-token': getCsrf()},
-    })
-    .then(function() { window.location.href = '/matches'; })
-    .catch(function() { btn.disabled = false; btn.textContent = '{{ t.get("block_btn","Заблокировать") }}'; });
-  };
-
-  window.doUnblock = function() {
-    fetch('/user/{{ partner.id }}/unblock', {
-      method: 'POST',
-      headers: {'x-csrf-token': getCsrf()},
-    })
-    .then(function() { window.location.reload(); })
-    .catch(function() {});
-  };
-
-  // ── Report ────────────────────────────────────────────────────────
-  window.openReport = function() {
-    document.getElementById('report-modal').style.display = 'flex';
-  };
-  window.confirmReport = function(btn) {
-    var reason = document.querySelector('input[name="report-reason"]:checked');
-    if (!reason) return;
-    btn.disabled = true;
-    btn.textContent = '...';
-    fetch('/user/{{ partner.id }}/report', {
-      method: 'POST',
-      headers: {'x-csrf-token': getCsrf(), 'Content-Type': 'application/json'},
-      body: JSON.stringify({reason: reason.value}),
-    })
-    .then(function() { window.location.href = '/matches'; })
-    .catch(function() { btn.disabled = false; btn.textContent = '{{ t.get("report_btn","Отправить") }}'; });
-  };
-
-  window.confirmUnmatch = function() {
-    document.getElementById('unmatch-modal').style.display = 'flex';
-  };
-
-  window.doUnmatch = function(btn) {
-    btn.disabled = true;
-    fetch('/match/{{ match.id }}/unmatch', {
-      method: 'POST',
-      headers: { 'x-csrf-token': getCsrf() },
-    })
-    .then(function() { window.location.href = '/matches'; })
-    .catch(function() { window.location.href = '/matches'; });
-  };
-
-  // ── Shared update handler (WebSocket + SSE both use this) ─────
+  // ── Shared update handler ─────────────────────────────────────
   function handleUpdate(d) {
+    if (d.deleted_msg_id) { markDeleted(d.deleted_msg_id); return; }
     var msgs = d.messages || [];
     msgs.forEach(function(m) {
       if (!container.querySelector('[data-msg-id="' + m.id + '"]')) {
-        appendMessage(m.id, m.content, m.sender_id, fmtTime(m.created_at), m.is_image, m.is_voice);
+        appendMessage(m.id, m.content, m.sender_id, fmtTime(m.created_at), m.is_image, m.is_voice, m.reply_to, m.is_deleted);
         if (m.id > lastId) lastId = m.id;
       }
     });
@@ -759,207 +971,91 @@
     if (typeof d.typing === 'boolean') setTyping(d.typing);
   }
 
-  // ── WebSocket (primary — instant delivery) ────────────────────
+  // ── WebSocket ─────────────────────────────────────────────────
   function connectWS() {
-    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var proto = location.protocol==='https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(proto + '//' + location.host + '/ws/chat/' + MATCH);
     var ping;
-    ws.onopen = function() {
-      wsRetries = 0;
-      ping = setInterval(function() { if (ws && ws.readyState === 1) ws.send('ping'); }, 25000);
-    };
-    ws.onmessage = function(e) {
-      if (e.data === 'pong') return;
-      try { handleUpdate(JSON.parse(e.data)); } catch(_) {}
-    };
+    ws.onopen = function() { wsRetries = 0; ping = setInterval(function(){ if (ws && ws.readyState===1) ws.send('ping'); }, 25000); };
+    ws.onmessage = function(e) { if (e.data==='pong') return; try { handleUpdate(JSON.parse(e.data)); } catch(_){} };
     ws.onclose = function(e) {
-      clearInterval(ping);
-      ws = null;
-      if (e.code === 4001 || e.code === 4003) { connectSSE(); return; }
+      clearInterval(ping); ws = null;
+      if (e.code===4001||e.code===4003){ connectSSE(); return; }
       wsRetries++;
-      if (wsRetries > 5) { connectSSE(); return; }
-      setTimeout(connectWS, Math.min(1000 * wsRetries, 8000));
+      if (wsRetries>5){ connectSSE(); return; }
+      setTimeout(connectWS, Math.min(1000*wsRetries, 8000));
     };
-    ws.onerror = function() {};
+    ws.onerror = function(){};
   }
 
-  // ── SSE (fallback when WebSocket unavailable) ─────────────────
+  // ── SSE fallback ──────────────────────────────────────────────
   function connectSSE() {
     sse = new EventSource('/chat/' + MATCH + '/stream?after_id=' + lastId);
-    sse.onmessage = function(e) {
-      try { handleUpdate(JSON.parse(e.data)); } catch(_) {}
-    };
-    sse.addEventListener('reconnect', function() {
-      sse.close(); setTimeout(connectSSE, 500);
-    });
+    sse.onmessage = function(e){ try { handleUpdate(JSON.parse(e.data)); } catch(_){} };
+    sse.addEventListener('reconnect', function(){ sse.close(); setTimeout(connectSSE, 500); });
     sse.onerror = function() {
-      sse.close(); sse = null;
-      sseRetries++;
-      if (sseRetries > 8) return;
-      setTimeout(connectSSE, Math.min(3000 * sseRetries, 30000));
+      sse.close(); sse = null; sseRetries++;
+      if (sseRetries>8) return;
+      setTimeout(connectSSE, Math.min(3000*sseRetries, 30000));
     };
   }
 
-  // ── Photo send ───────────────────────────────────────────────────
-  window.sendPhoto = function(input) {
-    if (!input.files || !input.files[0]) return;
-    var file = input.files[0];
-    input.value = '';
-    var btn = document.getElementById('photo-btn');
-    var _svgIcon = btn ? btn.innerHTML : '';
-    if (btn) { btn.disabled = true; btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 animate-spin"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>'; }
+  // ── Chat menu ─────────────────────────────────────────────────
+  var _menuOpen = false;
+  window.toggleChatMenu = function() { _menuOpen ? closeChatMenu() : openChatMenu(); };
+  function openChatMenu() {
+    document.getElementById('chat-menu').style.display = 'block'; _menuOpen = true;
+    setTimeout(function(){ document.addEventListener('click', _menuOutside, {once:true}); }, 0);
+  }
+  window.closeChatMenu = function() { document.getElementById('chat-menu').style.display='none'; _menuOpen=false; };
+  function _menuOutside(e) { if (!document.getElementById('chat-menu-btn').contains(e.target)) closeChatMenu(); }
 
-    var fd = new FormData();
-    fd.append('photo', file);
-    fetch('/chat/' + MATCH + '/photo', {
-      method: 'POST',
-      body: fd,
-      headers: { 'x-csrf-token': getCsrf() },
-    })
-    .then(function(r) {
-      if (r.status === 401) { window.location.href = '/login'; return null; }
-      return r.json();
-    })
-    .then(function(d) {
-      if (!d) return;
-      if (d.id) {
-        appendMessage(d.id, d.content, d.sender_id,
-          new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
-          true, false);
-        lastId = d.id;
-      } else {
-        showErr(d.error || 'Ошибка загрузки фото');
-      }
-    })
-    .catch(function() { showErr('Нет соединения'); })
-    .finally(function() {
-      if (btn) { btn.disabled = false; btn.innerHTML = _svgIcon; }
-    });
+  // ── Block / Unblock / Report / Unmatch ───────────────────────
+  window.doBlock = function() { document.getElementById('block-modal').style.display='flex'; };
+  window.confirmBlock = function(btn) {
+    btn.disabled=true; btn.textContent='...';
+    fetch('/user/{{ partner.id }}/block',{method:'POST',headers:{'x-csrf-token':getCsrf()}})
+    .then(function(){ window.location.href='/matches'; })
+    .catch(function(){ btn.disabled=false; btn.textContent='Заблокировать'; });
   };
-
-  // ── Edit message ─────────────────────────────────────────────────
-  window.startEdit = function(msgId) {
-    var form = document.getElementById('edit-form-' + msgId);
-    if (form) { form.style.display = 'flex'; }
-    var inp = document.getElementById('edit-input-' + msgId);
-    if (inp) { inp.focus(); inp.select(); }
+  window.doUnblock = function() {
+    fetch('/user/{{ partner.id }}/unblock',{method:'POST',headers:{'x-csrf-token':getCsrf()}})
+    .then(function(){ window.location.reload(); }).catch(function(){});
   };
-  window.cancelEdit = function(msgId) {
-    var form = document.getElementById('edit-form-' + msgId);
-    if (form) form.style.display = 'none';
+  window.openReport = function() { document.getElementById('report-modal').style.display='flex'; };
+  window.confirmReport = function(btn) {
+    var reason = document.querySelector('input[name="report-reason"]:checked'); if (!reason) return;
+    btn.disabled=true; btn.textContent='...';
+    fetch('/user/{{ partner.id }}/report',{method:'POST',headers:{'x-csrf-token':getCsrf(),'Content-Type':'application/json'},body:JSON.stringify({reason:reason.value})})
+    .then(function(){ window.location.href='/matches'; })
+    .catch(function(){ btn.disabled=false; btn.textContent='Отправить'; });
   };
-  window.submitEdit = function(msgId) {
-    var inp = document.getElementById('edit-input-' + msgId);
-    if (!inp) return;
-    var newText = inp.value.trim();
-    if (!newText) return;
-    inp.disabled = true;
-    fetch('/chat/' + MATCH + '/message/' + msgId + '/edit', {
-      method: 'POST',
-      headers: {'x-csrf-token': getCsrf(), 'Content-Type': 'application/json'},
-      body: JSON.stringify({content: newText}),
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      if (d.id) {
-        var bubble = document.getElementById('msg-text-' + msgId);
-        if (bubble) bubble.textContent = d.content;
-        var form = document.getElementById('edit-form-' + msgId);
-        if (form) form.style.display = 'none';
-        // Show "изм." label
-        var row = container.querySelector('[data-msg-id="' + msgId + '"]');
-        if (row) {
-          var meta = row.querySelector('.msg-meta');
-          if (meta && !meta.querySelector('.edited-label')) {
-            var lbl = document.createElement('span');
-            lbl.className = 'edited-label';
-            lbl.textContent = ' {{ t.get("edited","изм.") }}';
-            meta.insertBefore(lbl, meta.firstChild);
-          }
-        }
-      }
-    })
-    .catch(function() { showErr('Ошибка редактирования'); })
-    .finally(function() { inp.disabled = false; });
+  window.confirmUnmatch = function() { document.getElementById('unmatch-modal').style.display='flex'; };
+  window.doUnmatch = function(btn) {
+    btn.disabled=true;
+    fetch('/match/{{ match.id }}/unmatch',{method:'POST',headers:{'x-csrf-token':getCsrf()}})
+    .then(function(){ window.location.href='/matches'; })
+    .catch(function(){ window.location.href='/matches'; });
   };
 
-  // ── Lightbox ─────────────────────────────────────────────────────
+  // ── Lightbox ──────────────────────────────────────────────────
   window.openLightbox = function(src) {
-    var lb = document.getElementById('lightbox');
-    var img = document.getElementById('lightbox-img');
-    if (!lb || !img) return;
-    img.src = src;
-    lb.style.display = 'flex';
-    document.body.style.overflow = 'hidden';
+    var lb=document.getElementById('lightbox'), img=document.getElementById('lightbox-img');
+    if (!lb||!img) return;
+    img.src=src; lb.style.display='flex'; document.body.style.overflow='hidden';
   };
   window.closeLightbox = function() {
-    var lb = document.getElementById('lightbox');
-    if (lb) lb.style.display = 'none';
-    document.body.style.overflow = '';
+    var lb=document.getElementById('lightbox'); if (lb) lb.style.display='none';
+    document.body.style.overflow='';
   };
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') closeLightbox();
-  });
+  document.addEventListener('keydown', function(e){ if (e.key==='Escape') closeLightbox(); });
 
-  // ── Reactions ─────────────────────────────────────────────────────
-  window.toggleReactPicker = function(msgId) {
-    var el = document.getElementById('rpick-' + msgId);
-    if (!el) return;
-    var isVisible = el.style.display !== 'none';
-    // close all open pickers first
-    document.querySelectorAll('.react-picker').forEach(function(p) { p.style.display = 'none'; });
-    if (!isVisible) el.style.display = 'flex';
-  };
-  window.hideReactPicker = function(msgId) {
-    var el = document.getElementById('rpick-' + msgId);
-    if (el) el.style.display = 'none';
-  };
-  document.addEventListener('click', function(e) {
-    if (!e.target.closest('.react-picker') && !e.target.closest('.bubble-own') && !e.target.closest('.bubble-partner')) {
-      document.querySelectorAll('.react-picker').forEach(function(p) { p.style.display = 'none'; });
-    }
-  });
-
-  window.sendReaction = function(msgId, emoji) {
-    fetch('/chat/' + MATCH + '/message/' + msgId + '/react', {
-      method: 'POST',
-      headers: {'x-csrf-token': getCsrf(), 'Content-Type': 'application/json'},
-      body: JSON.stringify({emoji: emoji}),
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      if (d.reactions) updateReactions(msgId, d.reactions);
-    })
-    .catch(function(){});
-  };
-
-  function updateReactions(msgId, reactions) {
-    var row = document.getElementById('reactions-' + msgId);
-    if (!row) return;
-    row.innerHTML = '';
-    Object.keys(reactions).forEach(function(emoji) {
-      var cnt = reactions[emoji];
-      var btn = document.createElement('span');
-      btn.className = 'reaction-badge';
-      btn.textContent = emoji + (cnt > 1 ? ' ' + cnt : '');
-      btn.onclick = function() { sendReaction(msgId, emoji); };
-      row.appendChild(btn);
-    });
-  }
-
+  // ── Init ──────────────────────────────────────────────────────
   connectWS();
   scrollBottom();
-  window.addEventListener('pagehide', function() {
-    if (ws) ws.close();
-    if (sse) sse.close();
-  });
-  window.addEventListener('pageshow', function(e) {
-    if (e.persisted) {
-      wsRetries = 0; sseRetries = 0;
-      if (ws) ws.close();
-      if (sse) sse.close();
-      connectWS();
-    }
+  window.addEventListener('pagehide', function(){ if(ws) ws.close(); if(sse) sse.close(); });
+  window.addEventListener('pageshow', function(e){
+    if (e.persisted){ wsRetries=0; sseRetries=0; if(ws) ws.close(); if(sse) sse.close(); connectWS(); }
   });
 })();
 </script>

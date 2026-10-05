@@ -467,6 +467,15 @@ async def chat_page(match_id: int, request: Request, user: User = Depends(get_cu
             reactions_by_msg.setdefault(r.message_id, {})[r.emoji] = \
                 reactions_by_msg.get(r.message_id, {}).get(r.emoji, 0) + 1
 
+    # Build reply_to map for messages that have replies
+    reply_ids = [m.reply_to_id for m in messages_raw if m.reply_to_id]
+    reply_map: dict = {}
+    if reply_ids:
+        rr = await db.execute(select(Message).where(Message.id.in_(reply_ids)))
+        for rm in rr.scalars().all():
+            reply_map[rm.id] = {"id": rm.id, "content": rm.content[:80],
+                                "sender_id": rm.sender_id, "is_image": rm.is_image}
+
     messages_data = [
         {
             "id": m.id,
@@ -476,8 +485,10 @@ async def chat_page(match_id: int, request: Request, user: User = Depends(get_cu
             "is_read": m.is_read,
             "is_voice": m.is_voice,
             "is_image": m.is_image,
+            "is_deleted": m.is_deleted,
             "edited_at": m.edited_at.isoformat() if m.edited_at else None,
             "reactions": reactions_by_msg.get(m.id, {}),
+            "reply_to": reply_map.get(m.reply_to_id) if m.reply_to_id else None,
         }
         for m in messages_raw
     ]
@@ -509,6 +520,7 @@ async def send_message(
     match_id: int,
     background_tasks: BackgroundTasks,
     content: str = Form(...),
+    reply_to_id: int = Form(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -535,7 +547,18 @@ async def send_message(
     if block.scalar_one_or_none():
         return JSONResponse({"error": "Forbidden"}, status_code=403)
 
-    msg = Message(match_id=match_id, sender_id=user.id, content=content)
+    # Validate reply_to_id belongs to this match
+    reply_preview = None
+    if reply_to_id:
+        rr = await db.execute(select(Message).where(Message.id == reply_to_id, Message.match_id == match_id))
+        reply_msg = rr.scalar_one_or_none()
+        if reply_msg and not reply_msg.is_deleted:
+            reply_preview = {"id": reply_msg.id, "content": reply_msg.content[:80],
+                             "sender_id": reply_msg.sender_id, "is_image": reply_msg.is_image}
+        else:
+            reply_to_id = None
+
+    msg = Message(match_id=match_id, sender_id=user.id, content=content, reply_to_id=reply_to_id)
     db.add(msg)
     _update_streak(match, db)
     await db.commit()
@@ -543,7 +566,8 @@ async def send_message(
 
     _ws_manager.push(match_id, {
         "messages": [{"id": msg.id, "content": msg.content, "sender_id": msg.sender_id,
-                      "created_at": msg.created_at.isoformat(), "is_image": False, "is_voice": False}],
+                      "created_at": msg.created_at.isoformat(), "is_image": False, "is_voice": False,
+                      "reply_to": reply_preview}],
         "partner_read_up_to": 0, "typing": False,
     }, exclude_user_id=user.id)
 
@@ -560,7 +584,35 @@ async def send_message(
         "sender_id": msg.sender_id,
         "created_at": msg.created_at.isoformat(),
         "is_voice": False,
+        "reply_to": reply_preview,
     })
+
+
+@router.post("/chat/{match_id}/message/{msg_id}/delete", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(20, 60))])
+async def delete_message(
+    match_id: int,
+    msg_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Match).where(Match.id == match_id))
+    match = result.scalar_one_or_none()
+    if not match or (match.user1_id != user.id and match.user2_id != user.id):
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
+
+    mr = await db.execute(select(Message).where(Message.id == msg_id, Message.match_id == match_id))
+    msg = mr.scalar_one_or_none()
+    if not msg:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    if msg.sender_id != user.id:
+        return JSONResponse({"error": "Can only delete own messages"}, status_code=403)
+
+    msg.is_deleted = True
+    msg.content = "Сообщение удалено"
+    await db.commit()
+
+    _ws_manager.push(match_id, {"deleted_msg_id": msg_id}, exclude_user_id=user.id)
+    return JSONResponse({"ok": True, "id": msg_id})
 
 
 @router.post("/chat/{match_id}/typing", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(60, 60))])
