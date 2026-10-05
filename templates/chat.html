@@ -12,11 +12,12 @@
     position: fixed;
     top: 0; left: 50%; transform: translateX(-50%);
     width: 100%; max-width: 512px;
-    height: 100vh; height: 100dvh; /* fallback + dvh */
+    height: 100vh;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
     background: white;
-    z-index: 55; /* выше bottom-nav (z-50) */
+    z-index: 55;
   }
   /* Скрываем bottom-nav на странице чата — навигация через кнопку ← */
   #bottom-nav { display: none !important; }
@@ -494,8 +495,8 @@
     <div class="flex-1 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-2.5 focus-within:border-pink-300 transition">
       <textarea id="msg-input" rows="1"
                 placeholder="{{ t.message_placeholder or 'Написать...' }}"
-                class="w-full text-sm text-gray-800 placeholder-gray-400 resize-none bg-transparent"
-                style="max-height:7rem; min-height:1.25rem; outline:none; border:none;"
+                class="w-full text-gray-800 placeholder-gray-400 resize-none bg-transparent"
+                style="font-size:16px; max-height:7rem; min-height:1.25rem; outline:none; border:none;"
                 oninput="this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,112)+'px'; toggleSendBtn()"
                 onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); sendMessage(); }"></textarea>
     </div>
@@ -1055,20 +1056,6 @@
     document.body.style.overflow='';
   };
   document.addEventListener('keydown', function(e){ if (e.key==='Escape') closeLightbox(); });
-
-  // ── Visual Viewport — сдвигаем чат-рут вверх при открытии клавиатуры ──
-  // Меняем только transform, а не height — никаких reflow/прыжков
-  var chatRoot = document.getElementById('chat-root');
-  function applyViewport() {
-    if (!window.visualViewport || !chatRoot) return;
-    var vv = window.visualViewport;
-    var offsetY = window.innerHeight - vv.height - vv.offsetTop;
-    chatRoot.style.transform = 'translateX(-50%) translateY(-' + Math.max(0, offsetY) + 'px)';
-  }
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', applyViewport);
-    window.visualViewport.addEventListener('scroll', applyViewport);
-  }
 
   // ── Init ──────────────────────────────────────────────────────
   connectWS();
