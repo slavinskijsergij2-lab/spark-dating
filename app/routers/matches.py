@@ -148,7 +148,10 @@ async def compute_compatibility_batch(user_id: int, partner_ids: list, db: Async
         out[pid] = score
         if redis:
             key = f"compat:{min(user_id, pid)}:{max(user_id, pid)}"
-            await redis.set(key, _json_mod.dumps(score), ex=_CACHE_TTL)
+            try:
+                await redis.set(key, _json_mod.dumps(score), ex=_CACHE_TTL)
+            except Exception:
+                pass
 
     return out
 
@@ -251,7 +254,10 @@ async def matches_page(
             )
             await db.commit()
         if _redis:
-            await _redis.set(_archive_key, "1", ex=3600)
+            try:
+                await _redis.set(_archive_key, "1", ex=3600)
+            except Exception:
+                pass
 
     count_r = await db.execute(select(func.count(Match.id)).where(active_where))
     total_matches = count_r.scalar() or 0
