@@ -8,11 +8,12 @@
     position: fixed;
     top: 0; left: 50%; transform: translateX(-50%);
     width: 100%; max-width: 512px;
-    bottom: 0;
+    height: 100vh; height: 100dvh; /* fallback + dvh */
     display: flex;
     flex-direction: column;
     background: white;
     z-index: 40;
+    /* bottom: 0 заменён на height через visualViewport JS */
   }
   #messages-container {
     flex: 1;
@@ -1050,12 +1051,30 @@
   };
   document.addEventListener('keydown', function(e){ if (e.key==='Escape') closeLightbox(); });
 
+  // ── Visual Viewport — фикс прыжка при открытии клавиатуры (iOS Safari) ──
+  var chatRoot = document.getElementById('chat-root');
+  function applyViewport() {
+    var vv = window.visualViewport;
+    if (!vv || !chatRoot) return;
+    chatRoot.style.height = vv.height + 'px';
+    chatRoot.style.top    = vv.offsetTop + 'px';
+    // сбросить transform: translateX только на ширину, top теперь через JS
+    chatRoot.style.left      = Math.round((window.innerWidth - Math.min(vv.width, 512)) / 2) + 'px';
+    chatRoot.style.width     = Math.min(vv.width, 512) + 'px';
+    chatRoot.style.transform = 'none';
+  }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', applyViewport);
+    window.visualViewport.addEventListener('scroll', applyViewport);
+    applyViewport();
+  }
+
   // ── Init ──────────────────────────────────────────────────────
   connectWS();
   scrollBottom();
   window.addEventListener('pagehide', function(){ if(ws) ws.close(); if(sse) sse.close(); });
   window.addEventListener('pageshow', function(e){
-    if (e.persisted){ wsRetries=0; sseRetries=0; if(ws) ws.close(); if(sse) sse.close(); connectWS(); }
+    if (e.persisted){ wsRetries=0; sseRetries=0; if(ws) ws.close(); if(sse) sse.close(); connectWS(); applyViewport(); }
   });
 })();
 </script>
