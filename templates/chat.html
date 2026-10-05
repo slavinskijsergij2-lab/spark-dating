@@ -3,6 +3,10 @@
 
 {% block head %}
 <style>
+  /* Убираем transform на <main> — иначе position:fixed дочерние элементы
+     позиционируются относительно <main>, а не viewport */
+  main { animation: none !important; transform: none !important; }
+
   /* ── Fixed chat layout — не ёрзает при открытии клавиатуры ── */
   #chat-root {
     position: fixed;
