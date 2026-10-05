@@ -1,0 +1,102 @@
+name: Auto-Heal
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  heal:
+    runs-on: ubuntu-latest
+    env:
+      NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+    steps:
+      - name: Check health
+        id: check
+        run: |
+          for url in "https://spark-dating.club/health" "https://spark-dating-production.up.railway.app/health"; do
+            response=$(curl -sf --max-time 15 "$url" 2>/dev/null) && code=200 && break || code=0
+          done
+
+          if [ "$code" = "0" ] || [ -z "$response" ]; then
+            echo "state=down"     >> $GITHUB_OUTPUT
+            echo "reason=Сайт не отвечает"  >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          status=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','?'))")
+          db=$(echo "$response"     | python3 -c "import sys,json; print(json.load(sys.stdin).get('db','?'))")
+          redis=$(echo "$response"  | python3 -c "import sys,json; print(json.load(sys.stdin).get('redis','?'))")
+
+          if [ "$status" = "ok" ]; then
+            echo "state=ok" >> $GITHUB_OUTPUT
+          else
+            echo "state=degraded"              >> $GITHUB_OUTPUT
+            echo "reason=db=$db redis=$redis"  >> $GITHUB_OUTPUT
+          fi
+
+      - name: Restart spark-dating (app down or degraded)
+        if: steps.check.outputs.state != 'ok' && env.RAILWAY_TOKEN != ''
+        run: |
+          echo "→ Restarting spark-dating service..."
+          curl -s -X POST "https://backboard.railway.com/graphql/v2" \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "query": "mutation { serviceInstanceRedeploy(environmentId: \"8ce5561d-c672-4617-b8c7-67f38b996da0\", serviceId: \"c9803c33-415a-4891-83a6-087c0126f814\") }"
+            }' | python3 -c "import sys,json; d=json.load(sys.stdin); print('Redeploy:', 'OK' if d.get('data',{}).get('serviceInstanceRedeploy') else d.get('errors','?'))"
+
+      - name: Restart Redis-EU (if redis=False)
+        if: steps.check.outputs.state == 'degraded' && contains(steps.check.outputs.reason, 'redis=False') && env.RAILWAY_TOKEN != ''
+        run: |
+          echo "→ Restarting Redis-EU..."
+          # Get Redis-EU service ID from Railway
+          REDIS_SVC_ID=$(curl -s -X POST "https://backboard.railway.com/graphql/v2" \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"query":"{ project(id:\"02aa4531-33a3-4517-95dd-2a992b112294\") { services { edges { node { id name } } } } }"}' \
+            | python3 -c "import sys,json; svcs=json.load(sys.stdin)['data']['project']['services']['edges']; print(next((s['node']['id'] for s in svcs if s['node']['name']=='Redis-EU'),''))")
+          if [ -n "$REDIS_SVC_ID" ]; then
+            curl -s -X POST "https://backboard.railway.com/graphql/v2" \
+              -H "Authorization: Bearer $RAILWAY_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"query\": \"mutation { serviceInstanceRedeploy(environmentId: \\\"8ce5561d-c672-4617-b8c7-67f38b996da0\\\", serviceId: \\\"$REDIS_SVC_ID\\\") }\"}" \
+              | python3 -c "import sys,json; d=json.load(sys.stdin); print('Redis restart:', 'OK' if d.get('data',{}).get('serviceInstanceRedeploy') else d.get('errors','?'))"
+          fi
+
+      - name: Wait and verify recovery
+        if: steps.check.outputs.state != 'ok'
+        run: |
+          echo "Waiting 90s for services to restart..."
+          sleep 90
+          for i in 1 2 3; do
+            resp=$(curl -sf --max-time 15 "https://spark-dating.club/health" 2>/dev/null)
+            if [ -n "$resp" ]; then
+              st=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','?'))")
+              echo "Check $i: status=$st"
+              [ "$st" = "ok" ] && echo "recovered=true" >> $GITHUB_ENV && break
+            fi
+            sleep 30
+          done
+
+      - name: Notify — healed
+        if: steps.check.outputs.state != 'ok' && env.recovered == 'true' && env.NTFY_TOPIC != ''
+        run: |
+          curl -s \
+            -H "Title: ✅ Spark Dating — авто-восстановление" \
+            -H "Priority: default" \
+            -H "Tags: white_check_mark,robot" \
+            -d "Проблема обнаружена и исправлена автоматически. Сайт снова работает." \
+            "https://ntfy.sh/${NTFY_TOPIC}"
+
+      - name: Notify — still broken
+        if: steps.check.outputs.state != 'ok' && env.recovered != 'true' && env.NTFY_TOPIC != ''
+        run: |
+          curl -s \
+            -H "Title: 🚨 Spark Dating — требуется внимание" \
+            -H "Priority: urgent" \
+            -H "Tags: rotating_light,warning" \
+            -d "Автовосстановление не помогло. Нужна ручная проверка. (${{ steps.check.outputs.reason }})" \
+            "https://ntfy.sh/${NTFY_TOPIC}"

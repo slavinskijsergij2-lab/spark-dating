@@ -759,7 +759,7 @@ async def health():
 
     all_ok = db_ok and (redis_ok is not False)
     return JSONResponse(
-        status_code=200,
+        status_code=200 if all_ok else 503,
         content={
             "status": "ok" if all_ok else "degraded",
             "db": db_ok,
