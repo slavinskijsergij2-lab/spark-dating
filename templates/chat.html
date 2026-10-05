@@ -12,9 +12,10 @@
     display: flex;
     flex-direction: column;
     background: white;
-    z-index: 40;
-    /* bottom: 0 заменён на height через visualViewport JS */
+    z-index: 55; /* выше bottom-nav (z-50) */
   }
+  /* Скрываем bottom-nav на странице чата — навигация через кнопку ← */
+  #bottom-nav { display: none !important; }
   #messages-container {
     flex: 1;
     overflow-y: auto;
@@ -1051,22 +1052,18 @@
   };
   document.addEventListener('keydown', function(e){ if (e.key==='Escape') closeLightbox(); });
 
-  // ── Visual Viewport — фикс прыжка при открытии клавиатуры (iOS Safari) ──
+  // ── Visual Viewport — сдвигаем чат-рут вверх при открытии клавиатуры ──
+  // Меняем только transform, а не height — никаких reflow/прыжков
   var chatRoot = document.getElementById('chat-root');
   function applyViewport() {
+    if (!window.visualViewport || !chatRoot) return;
     var vv = window.visualViewport;
-    if (!vv || !chatRoot) return;
-    chatRoot.style.height = vv.height + 'px';
-    chatRoot.style.top    = vv.offsetTop + 'px';
-    // сбросить transform: translateX только на ширину, top теперь через JS
-    chatRoot.style.left      = Math.round((window.innerWidth - Math.min(vv.width, 512)) / 2) + 'px';
-    chatRoot.style.width     = Math.min(vv.width, 512) + 'px';
-    chatRoot.style.transform = 'none';
+    var offsetY = window.innerHeight - vv.height - vv.offsetTop;
+    chatRoot.style.transform = 'translateX(-50%) translateY(-' + Math.max(0, offsetY) + 'px)';
   }
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', applyViewport);
     window.visualViewport.addEventListener('scroll', applyViewport);
-    applyViewport();
   }
 
   // ── Init ──────────────────────────────────────────────────────
@@ -1074,7 +1071,7 @@
   scrollBottom();
   window.addEventListener('pagehide', function(){ if(ws) ws.close(); if(sse) sse.close(); });
   window.addEventListener('pageshow', function(e){
-    if (e.persisted){ wsRetries=0; sseRetries=0; if(ws) ws.close(); if(sse) sse.close(); connectWS(); applyViewport(); }
+    if (e.persisted){ wsRetries=0; sseRetries=0; if(ws) ws.close(); if(sse) sse.close(); connectWS(); }
   });
 })();
 </script>
