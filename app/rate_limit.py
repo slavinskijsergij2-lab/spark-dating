@@ -54,6 +54,13 @@ async def _get_redis():
                 socket_connect_timeout=2,
                 socket_timeout=2,
             )
+            # Redis holds only short-lived caches. Its volume has no write permission, so a
+            # failing RDB snapshot made Redis reject writes and even PING (MISCONF).
+            try:
+                await _redis_client.config_set("stop-writes-on-bgsave-error", "no")
+                await _redis_client.config_set("save", "")
+            except Exception as exc:
+                logging.warning("rate_limit: could not disable Redis snapshots (%s)", exc)
             await _redis_client.ping()
             logging.info("rate_limit: Redis connected (%s)", _REDIS_URL.split("@")[-1])
         except Exception as exc:

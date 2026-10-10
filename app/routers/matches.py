@@ -34,24 +34,23 @@ class _WsManager:
     """In-process WebSocket registry. Push messages instantly to connected clients."""
 
     def __init__(self):
-        self._queues: dict[int, dict[int, asyncio.Queue]] = {}
+        # match_id -> list of (user_id, queue); one entry per open tab/device
+        self._queues: dict[int, list[tuple[int, asyncio.Queue]]] = {}
 
     def subscribe(self, match_id: int, user_id: int) -> asyncio.Queue:
-        if match_id not in self._queues:
-            self._queues[match_id] = {}
         q: asyncio.Queue = asyncio.Queue(maxsize=100)
-        self._queues[match_id][user_id] = q
+        self._queues.setdefault(match_id, []).append((user_id, q))
         return q
 
-    def unsubscribe(self, match_id: int, user_id: int) -> None:
-        m = self._queues.get(match_id)
-        if m:
-            m.pop(user_id, None)
-            if not m:
-                self._queues.pop(match_id, None)
+    def unsubscribe(self, match_id: int, q: asyncio.Queue) -> None:
+        subs = [entry for entry in self._queues.get(match_id, []) if entry[1] is not q]
+        if subs:
+            self._queues[match_id] = subs
+        else:
+            self._queues.pop(match_id, None)
 
     def push(self, match_id: int, payload: dict, exclude_user_id: int | None = None) -> None:
-        for uid, q in list(self._queues.get(match_id, {}).items()):
+        for uid, q in list(self._queues.get(match_id, [])):
             if uid == exclude_user_id:
                 continue
             try:
@@ -72,6 +71,53 @@ MATCHES_PAGE_SIZE = 20
 LIKED_ME_PREVIEW = 12
 ALLOWED_IMAGE_MIMES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 ARCHIVE_AFTER_DAYS = 7
+
+
+async def _serialize_messages(db: AsyncSession, messages: list) -> list[dict]:
+    msg_ids = [m.id for m in messages]
+    reactions_by_msg: dict = {}
+    if msg_ids:
+        rr = await db.execute(select(MessageReaction).where(MessageReaction.message_id.in_(msg_ids)))
+        for r in rr.scalars().all():
+            per_msg = reactions_by_msg.setdefault(r.message_id, {})
+            per_msg[r.emoji] = per_msg.get(r.emoji, 0) + 1
+
+    reply_ids = {m.reply_to_id for m in messages if m.reply_to_id}
+    reply_map: dict = {}
+    if reply_ids:
+        rr = await db.execute(select(Message).where(Message.id.in_(reply_ids)))
+        for rm in rr.scalars().all():
+            reply_map[rm.id] = {"id": rm.id, "content": rm.content[:80],
+                                "sender_id": rm.sender_id, "is_image": rm.is_image}
+
+    return [{
+        "id": m.id,
+        "content": m.content,
+        "sender_id": m.sender_id,
+        "created_at": m.created_at.isoformat(),
+        "is_read": m.is_read,
+        "is_voice": m.is_voice,
+        "is_image": m.is_image,
+        "is_deleted": m.is_deleted,
+        "edited_at": m.edited_at.isoformat() if m.edited_at else None,
+        "reactions": reactions_by_msg.get(m.id, {}),
+        "reply_to": reply_map.get(m.reply_to_id) if m.reply_to_id else None,
+    } for m in messages]
+
+
+async def _mark_read_and_notify(db: AsyncSession, match_id: int, reader_id: int) -> None:
+    """Mark partner's messages as read and tell the partner's open chat (read ticks)."""
+    res = await db.execute(
+        update(Message)
+        .where(Message.match_id == match_id, Message.sender_id != reader_id, Message.is_read == False)
+        .values(is_read=True)
+    )
+    await db.commit()
+    if res.rowcount:
+        rr = await db.execute(
+            select(func.max(Message.id)).where(Message.match_id == match_id, Message.sender_id != reader_id)
+        )
+        _ws_manager.push(match_id, {"partner_read_up_to": rr.scalar() or 0}, exclude_user_id=reader_id)
 
 
 def _update_streak(match: "Match", db):
@@ -429,21 +475,12 @@ async def chat_page(match_id: int, request: Request, user: User = Depends(get_cu
     if not match or (match.user1_id != user.id and match.user2_id != user.id):
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    await db.execute(
-        update(Message)
-        .where(
-            Message.match_id == match_id,
-            Message.sender_id != user.id,
-            Message.is_read == False,
-        )
-        .values(is_read=True)
-    )
-    await db.commit()
+    await _mark_read_and_notify(db, match_id, user.id)
 
     result = await db.execute(
         select(Message)
         .where(Message.match_id == match_id)
-        .order_by(Message.created_at.desc())
+        .order_by(Message.id.desc())
         .limit(CHAT_PAGE_SIZE)
     )
     messages_raw = list(reversed(result.scalars().all()))
@@ -457,41 +494,7 @@ async def chat_page(match_id: int, request: Request, user: User = Depends(get_cu
     )
     i_blocked_them = block_result.scalar_one_or_none() is not None
 
-    msg_ids = [m.id for m in messages_raw]
-    reactions_by_msg: dict = {}
-    if msg_ids:
-        result = await db.execute(
-            select(MessageReaction).where(MessageReaction.message_id.in_(msg_ids))
-        )
-        for r in result.scalars().all():
-            reactions_by_msg.setdefault(r.message_id, {})[r.emoji] = \
-                reactions_by_msg.get(r.message_id, {}).get(r.emoji, 0) + 1
-
-    # Build reply_to map for messages that have replies
-    reply_ids = [m.reply_to_id for m in messages_raw if m.reply_to_id]
-    reply_map: dict = {}
-    if reply_ids:
-        rr = await db.execute(select(Message).where(Message.id.in_(reply_ids)))
-        for rm in rr.scalars().all():
-            reply_map[rm.id] = {"id": rm.id, "content": rm.content[:80],
-                                "sender_id": rm.sender_id, "is_image": rm.is_image}
-
-    messages_data = [
-        {
-            "id": m.id,
-            "content": m.content,
-            "sender_id": m.sender_id,
-            "created_at": m.created_at.isoformat(),
-            "is_read": m.is_read,
-            "is_voice": m.is_voice,
-            "is_image": m.is_image,
-            "is_deleted": m.is_deleted,
-            "edited_at": m.edited_at.isoformat() if m.edited_at else None,
-            "reactions": reactions_by_msg.get(m.id, {}),
-            "reply_to": reply_map.get(m.reply_to_id) if m.reply_to_id else None,
-        }
-        for m in messages_raw
-    ]
+    messages_data = await _serialize_messages(db, messages_raw)
     lang = get_lang(request, user)
     is_user1 = match.user1_id == user.id
     i_revealed = match.user1_revealed if is_user1 else match.user2_revealed
@@ -547,15 +550,10 @@ async def send_message(
     if block.scalar_one_or_none():
         return JSONResponse({"error": "Forbidden"}, status_code=403)
 
-    # Validate reply_to_id belongs to this match
-    reply_preview = None
     if reply_to_id:
         rr = await db.execute(select(Message).where(Message.id == reply_to_id, Message.match_id == match_id))
         reply_msg = rr.scalar_one_or_none()
-        if reply_msg and not reply_msg.is_deleted:
-            reply_preview = {"id": reply_msg.id, "content": reply_msg.content[:80],
-                             "sender_id": reply_msg.sender_id, "is_image": reply_msg.is_image}
-        else:
+        if not reply_msg or reply_msg.is_deleted:
             reply_to_id = None
 
     msg = Message(match_id=match_id, sender_id=user.id, content=content, reply_to_id=reply_to_id)
@@ -564,12 +562,8 @@ async def send_message(
     await db.commit()
     await db.refresh(msg)
 
-    _ws_manager.push(match_id, {
-        "messages": [{"id": msg.id, "content": msg.content, "sender_id": msg.sender_id,
-                      "created_at": msg.created_at.isoformat(), "is_image": False, "is_voice": False,
-                      "reply_to": reply_preview}],
-        "partner_read_up_to": 0, "typing": False,
-    }, exclude_user_id=user.id)
+    msg_data = (await _serialize_messages(db, [msg]))[0]
+    _ws_manager.push(match_id, {"messages": [msg_data], "typing": False}, exclude_user_id=user.id)
 
     sender_name = user.profile.name if hasattr(user, "profile") and user.profile else "Spark"
     preview = content[:60] + ("…" if len(content) > 60 else "")
@@ -578,14 +572,7 @@ async def send_message(
         f"💬 {sender_name}", preview, f"/chat/{match_id}", "message"
     )
 
-    return JSONResponse({
-        "id": msg.id,
-        "content": msg.content,
-        "sender_id": msg.sender_id,
-        "created_at": msg.created_at.isoformat(),
-        "is_voice": False,
-        "reply_to": reply_preview,
-    })
+    return JSONResponse(msg_data)
 
 
 @router.post("/chat/{match_id}/message/{msg_id}/delete", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(20, 60))])
@@ -632,8 +619,7 @@ async def typing_indicator(
             await redis.set(f"typing:{match_id}:{user.id}", "1", ex=5)
     except Exception:
         pass
-    _ws_manager.push(match_id, {"messages": [], "partner_read_up_to": 0, "typing": True},
-                     exclude_user_id=user.id)
+    _ws_manager.push(match_id, {"typing": True}, exclude_user_id=user.id)
     return JSONResponse({"ok": True})
 
 
@@ -737,23 +723,13 @@ async def send_photo(
     await db.commit()
     await db.refresh(msg)
 
-    _ws_manager.push(match_id, {
-        "messages": [{"id": msg.id, "content": msg.content, "sender_id": msg.sender_id,
-                      "created_at": msg.created_at.isoformat(), "is_image": True, "is_voice": False}],
-        "partner_read_up_to": 0, "typing": False,
-    }, exclude_user_id=user.id)
+    msg_data = (await _serialize_messages(db, [msg]))[0]
+    _ws_manager.push(match_id, {"messages": [msg_data], "typing": False}, exclude_user_id=user.id)
 
     sender_name = user.profile.name if hasattr(user, "profile") and user.profile else "Spark"
     asyncio.create_task(send_push_to_user(partner_id, f"📷 {sender_name}", "Фото", f"/chat/{match_id}", "message"))
 
-    return JSONResponse({
-        "id": msg.id,
-        "content": msg.content,
-        "sender_id": msg.sender_id,
-        "created_at": msg.created_at.isoformat(),
-        "is_image": True,
-        "is_voice": False,
-    })
+    return JSONResponse(msg_data)
 
 
 @router.post("/chat/{match_id}/message/{msg_id}/edit", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(20, 60))])
@@ -775,21 +751,24 @@ async def edit_message(
     msg = result.scalar_one_or_none()
     if not msg:
         return JSONResponse({"error": "Not found"}, status_code=404)
-    if msg.is_voice or msg.is_image:
-        return JSONResponse({"error": "Cannot edit media"}, status_code=400)
+    if msg.is_voice or msg.is_image or msg.is_deleted:
+        return JSONResponse({"error": "Cannot edit this message"}, status_code=400)
 
     try:
         data = await request.json()
     except Exception:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
-    content = data.get("content", "").strip()
+    content = data.get("content") if isinstance(data, dict) else None
+    content = content.strip() if isinstance(content, str) else ""
     if not content or len(content) > MAX_MESSAGE_LENGTH:
         return JSONResponse({"error": "Invalid content"}, status_code=400)
 
     msg.content = content
     msg.edited_at = _utcnow()
     await db.commit()
+
+    _ws_manager.push(match_id, {"edited": {"id": msg.id, "content": msg.content}}, exclude_user_id=user.id)
 
     return JSONResponse({"id": msg.id, "content": msg.content, "edited_at": msg.edited_at.isoformat()})
 
@@ -906,6 +885,8 @@ async def react_to_message(
     for r in result.scalars().all():
         summary[r.emoji] = summary.get(r.emoji, 0) + 1
 
+    _ws_manager.push(match_id, {"reactions_update": {"id": msg_id, "reactions": summary}},
+                     exclude_user_id=user.id)
     return JSONResponse({"reactions": summary})
 
 
@@ -924,43 +905,12 @@ async def get_messages(
     result = await db.execute(
         select(Message)
         .where(Message.match_id == match_id, Message.id > after_id)
-        .order_by(Message.created_at)
+        .order_by(Message.id)
         .limit(POLL_PAGE_SIZE)
     )
     messages = result.scalars().all()
-
-    await db.execute(
-        update(Message)
-        .where(
-            Message.match_id == match_id,
-            Message.sender_id != user.id,
-            Message.is_read == False,
-        )
-        .values(is_read=True)
-    )
-    await db.commit()
-
-    msg_ids = [m.id for m in messages]
-    reactions_by_msg: dict = {}
-    if msg_ids:
-        result = await db.execute(
-            select(MessageReaction).where(MessageReaction.message_id.in_(msg_ids))
-        )
-        for r in result.scalars().all():
-            reactions_by_msg.setdefault(r.message_id, {})[r.emoji] = \
-                reactions_by_msg.get(r.message_id, {}).get(r.emoji, 0) + 1
-
-    return JSONResponse([{
-        "id": m.id,
-        "content": m.content,
-        "sender_id": m.sender_id,
-        "created_at": m.created_at.isoformat(),
-        "is_read": m.is_read,
-        "is_voice": m.is_voice,
-        "is_image": m.is_image,
-        "edited_at": m.edited_at.isoformat() if m.edited_at else None,
-        "reactions": reactions_by_msg.get(m.id, {}),
-    } for m in messages])
+    await _mark_read_and_notify(db, match_id, user.id)
+    return JSONResponse(await _serialize_messages(db, messages))
 
 
 @router.get("/chat/{match_id}/history", dependencies=[Depends(rate_limit(60, 60))])
@@ -983,31 +933,9 @@ async def get_message_history(
 
     result = await db.execute(query)
     messages = list(reversed(result.scalars().all()))
-
-    msg_ids = [m.id for m in messages]
-    reactions_by_msg: dict = {}
-    if msg_ids:
-        result = await db.execute(
-            select(MessageReaction).where(MessageReaction.message_id.in_(msg_ids))
-        )
-        for r in result.scalars().all():
-            reactions_by_msg.setdefault(r.message_id, {})[r.emoji] = \
-                reactions_by_msg.get(r.message_id, {}).get(r.emoji, 0) + 1
-
-    has_more = len(messages) == CHAT_PAGE_SIZE
     return JSONResponse({
-        "messages": [{
-            "id": m.id,
-            "content": m.content,
-            "sender_id": m.sender_id,
-            "created_at": m.created_at.isoformat(),
-            "is_read": m.is_read,
-            "is_voice": m.is_voice,
-            "is_image": m.is_image,
-            "edited_at": m.edited_at.isoformat() if m.edited_at else None,
-            "reactions": reactions_by_msg.get(m.id, {}),
-        } for m in messages],
-        "has_more": has_more,
+        "messages": await _serialize_messages(db, messages),
+        "has_more": len(messages) == CHAT_PAGE_SIZE,
     })
 
 
@@ -1018,7 +946,7 @@ async def _fetch_new_messages(match_id: int, last_id: int, user_id: int) -> tupl
         result = await session.execute(
             select(Message)
             .where(Message.match_id == match_id, Message.id > last_id)
-            .order_by(Message.created_at)
+            .order_by(Message.id)
             .limit(POLL_PAGE_SIZE)
         )
         msgs = result.scalars().all()
@@ -1036,15 +964,7 @@ async def _fetch_new_messages(match_id: int, last_id: int, user_id: int) -> tupl
             )
             await session.commit()
 
-        msg_ids = [m.id for m in msgs]
-        reactions_by_msg: dict = {}
-        if msg_ids:
-            rr = await session.execute(
-                select(MessageReaction).where(MessageReaction.message_id.in_(msg_ids))
-            )
-            for r in rr.scalars().all():
-                reactions_by_msg.setdefault(r.message_id, {})[r.emoji] = \
-                    reactions_by_msg.get(r.message_id, {}).get(r.emoji, 0) + 1
+        msgs_data = await _serialize_messages(session, msgs)
 
         # Max ID of current user's own messages that partner has already read
         rr2 = await session.execute(
@@ -1055,16 +975,6 @@ async def _fetch_new_messages(match_id: int, last_id: int, user_id: int) -> tupl
             )
         )
         partner_read_up_to = rr2.scalar() or 0
-
-        msgs_data = [{
-            "id": m.id,
-            "content": m.content,
-            "sender_id": m.sender_id,
-            "created_at": m.created_at.isoformat(),
-            "is_read": m.is_read,
-            "is_voice": m.is_voice,
-            "reactions": reactions_by_msg.get(m.id, {}),
-        } for m in msgs]
 
         return msgs_data, new_last_id, partner_read_up_to
 
@@ -1211,4 +1121,4 @@ async def chat_websocket(match_id: int, websocket: WebSocket):
         pass
     finally:
         sender_task.cancel()
-        _ws_manager.unsubscribe(match_id, user_id)
+        _ws_manager.unsubscribe(match_id, q)
