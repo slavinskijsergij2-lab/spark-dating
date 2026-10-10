@@ -49,10 +49,16 @@ def test_csp_blocks_framing():
     assert "frame-ancestors 'none'" in csp
 
 
-def test_csp_allows_tailwind_cdn():
+def test_csp_allows_no_third_party_scripts():
     r = make_client().get("/")
     csp = r.headers.get("content-security-policy", "")
-    assert "cdn.tailwindcss.com" in csp
+    assert "script-src 'self' 'unsafe-inline';" in csp
+
+
+def test_pages_use_local_stylesheet():
+    r = make_client().get("/welcome")
+    assert "cdn.tailwindcss.com" not in r.text
+    assert "/static/css/app.css?v=" in r.text
 
 
 def test_permissions_policy_disables_sensors():
@@ -69,3 +75,9 @@ def test_no_hsts_without_railway_env(monkeypatch):
     monkeypatch.delenv("RAILWAY_ENVIRONMENT", raising=False)
     r = make_client().get("/")
     assert "strict-transport-security" not in {k.lower() for k in r.headers}
+
+
+def test_versioned_static_is_cached_long():
+    r = make_client().get("/static/css/app.css?v=abc")
+    assert r.status_code == 200
+    assert "immutable" in r.headers.get("cache-control", "")

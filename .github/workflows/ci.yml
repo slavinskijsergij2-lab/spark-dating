@@ -22,6 +22,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
+      - name: Check static/css/app.css is up to date
+        run: |
+          ./scripts/build_css.sh
+          git diff --exit-code static/css/app.css || { echo "::error::Run ./scripts/build_css.sh and commit static/css/app.css"; exit 1; }
+
       - name: Lint (ruff)
         run: python -m ruff check app/ main.py --select=E9,F,B,W --ignore=B008,B904,S105,S110,S311,S608,S704
 

@@ -549,7 +549,7 @@ async def security_middleware(request: Request, call_next):
     # Security headers
     csp = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; "
+        "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data: blob:; "
@@ -557,6 +557,9 @@ async def security_middleware(request: Request, call_next):
         "frame-ancestors 'none';"
     )
     response.headers.setdefault("Content-Security-Policy", csp)
+    # Versioned assets (static_url adds ?v=<hash>) never change under the same URL
+    if request.url.path.startswith("/static/") and request.query_params.get("v") and response.status_code == 200:
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     # Prevent HTML pages from being cached — critical for Alpine.js state freshness
     if response.headers.get("content-type", "").startswith("text/html"):
         response.headers.setdefault("Cache-Control", "no-cache, no-store, must-revalidate")
@@ -578,6 +581,21 @@ async def security_middleware(request: Request, call_next):
 templates.env.filters["tojson"] = tojson_filter
 templates.env.globals["online_status"] = _online_status
 templates.env.globals["now"] = _utcnow
+
+
+_static_hashes: dict[str, str] = {}
+
+
+def _static_url(path: str) -> str:
+    """URL with a content hash so browsers re-download the file only when it changes."""
+    if path not in _static_hashes:
+        import hashlib
+        with open(os.path.join("static", path), "rb") as fh:
+            _static_hashes[path] = hashlib.sha256(fh.read()).hexdigest()[:10]
+    return f"/static/{path}?v={_static_hashes[path]}"
+
+
+templates.env.globals["static_url"] = _static_url
 
 app.include_router(auth.router)
 app.include_router(premium.router)   # before profile.router: /profile/who-viewed must not be caught by /profile/{user_id}
