@@ -149,3 +149,24 @@ def test_root_passthrough_returns_response():
     c = make_client()
     r = c.get("/")
     assert r.status_code in (200, 302)
+
+
+def _csrf_post(cookie_header: str, token: str):
+    from fastapi.testclient import TestClient
+    import main
+    c = TestClient(main.app)
+    return c.post("/chat/999999/typing", headers={"cookie": cookie_header, "x-csrf-token": token})
+
+
+def test_csrf_accepts_any_duplicate_cookie_value():
+    # Two csrftoken cookies (different path/domain): JS may read either one.
+    r = _csrf_post("csrftoken=first; csrftoken=second", "first")
+    assert r.status_code != 403 or r.json().get("detail") != "CSRF validation failed"
+    r = _csrf_post("csrftoken=first; csrftoken=second", "second")
+    assert r.status_code != 403 or r.json().get("detail") != "CSRF validation failed"
+
+
+def test_csrf_rejects_wrong_or_missing_token():
+    assert _csrf_post("csrftoken=first", "other").json().get("detail") == "CSRF validation failed"
+    assert _csrf_post("csrftoken=first", "").json().get("detail") == "CSRF validation failed"
+    assert _csrf_post("", "first").json().get("detail") == "CSRF validation failed"

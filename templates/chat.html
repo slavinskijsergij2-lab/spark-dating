@@ -381,13 +381,18 @@
   function isMediaPath(s) { return typeof s === 'string' && /^\/[\w\/.\-]+$/.test(s); }
   function nearBottom() { return container.scrollHeight - container.scrollTop - container.clientHeight < 120; }
   function scrollBottom() { container.scrollTop = container.scrollHeight; }
-  function api(url, opts) {
+  function api(url, opts, retried) {
     opts = opts || {};
-    opts.headers = Object.assign({'x-csrf-token': getCsrf()}, opts.headers || {});
+    opts.headers = Object.assign({}, opts.headers || {}, {'x-csrf-token': getCsrf()});
     opts.credentials = 'same-origin';
     return fetch(url, opts).then(function(r) {
       if (r.status === 401) { window.location.href = '/login'; throw new Error('auth'); }
       return r.json().catch(function(){ return {}; }).then(function(d) {
+        // Expired/missing CSRF cookie: any GET makes the server issue a fresh one, then retry once.
+        if (r.status === 403 && d.detail === 'CSRF validation failed' && !retried) {
+          return fetch('/healthz', { credentials: 'same-origin', cache: 'no-store' })
+            .then(function() { return api(url, opts, true); });
+        }
         if (!r.ok) {
           var err = new Error(d.detail || d.error || ('HTTP ' + r.status));
           err.status = r.status;
