@@ -304,7 +304,14 @@
     <button type="button" id="reply-cancel" class="text-gray-400 hover:text-pink-500 text-lg flex-shrink-0">✕</button>
   </div>
 
-  <div id="input-bar" class="flex items-end gap-2">
+  {% if they_blocked_me or i_blocked_them %}
+  <div class="flex-shrink-0 bg-white border-t border-gray-100 px-4 py-4 text-center text-sm text-gray-500"
+       style="padding-bottom: max(16px, env(safe-area-inset-bottom));">
+    {% if i_blocked_them %}🚫 Ты заблокировал этого пользователя. Разблокировать можно в меню «⋯» сверху.
+    {% else %}🚫 Пользователь ограничил переписку — отправить сообщение нельзя.{% endif %}
+  </div>
+  {% endif %}
+  <div id="input-bar" class="flex items-end gap-2"{% if they_blocked_me or i_blocked_them %} style="display:none"{% endif %}>
     <input type="file" id="photo-file" accept="image/*" style="display:none" />
     <button type="button" id="photo-btn"
             class="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-gray-400 hover:bg-pink-50 hover:text-pink-400 transition">

@@ -196,3 +196,22 @@ def test_unmatch_requires_csrf(db):
     client_a, _, _, _, _, _, mid = _setup_match(db)
     r = client_a.post(f"/match/{mid}/unmatch")
     assert r.status_code == 403
+
+
+def test_chat_page_shows_notice_when_partner_blocked_me(db):
+    client_a, csrf_a, _, client_b, _, uid_b, mid = _setup_match(db)
+    client_a.post(f"/user/{uid_b}/block", headers={"x-csrf-token": csrf_a})
+
+    page_b = client_b.get(f"/chat/{mid}").text
+    assert "Пользователь ограничил переписку" in page_b
+    assert 'id="input-bar" class="flex items-end gap-2" style="display:none"' in page_b
+
+    page_a = client_a.get(f"/chat/{mid}").text
+    assert "Ты заблокировал этого пользователя" in page_a
+
+
+def test_chat_page_has_input_without_block(db):
+    _, _, _, client_b, _, _, mid = _setup_match(db)
+    page = client_b.get(f"/chat/{mid}").text
+    assert "ограничил переписку" not in page
+    assert 'id="input-bar" class="flex items-end gap-2">' in page

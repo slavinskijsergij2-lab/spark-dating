@@ -501,6 +501,9 @@ async def chat_page(match_id: int, request: Request, user: User = Depends(get_cu
         select(Block).where(Block.blocker_id == user.id, Block.blocked_id == partner_id)
     )
     i_blocked_them = block_result.scalar_one_or_none() is not None
+    they_blocked_me = (await db.execute(
+        select(Block.id).where(Block.blocker_id == partner_id, Block.blocked_id == user.id)
+    )).first() is not None
 
     messages_data = await _serialize_messages(db, messages_raw)
     lang = get_lang(request, user)
@@ -523,6 +526,7 @@ async def chat_page(match_id: int, request: Request, user: User = Depends(get_cu
         "i_revealed": i_revealed,
         "partner_revealed": partner_revealed,
         "i_blocked_them": i_blocked_them,
+        "they_blocked_me": they_blocked_me,
     })
 
 
