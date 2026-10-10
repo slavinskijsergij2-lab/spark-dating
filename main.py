@@ -157,7 +157,14 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Spark — сайт знакомств", lifespan=lifespan)
+_IS_PROD = bool(os.getenv("RAILWAY_ENVIRONMENT"))
+app = FastAPI(
+    title="Spark — сайт знакомств",
+    lifespan=lifespan,
+    docs_url=None if _IS_PROD else "/docs",
+    redoc_url=None if _IS_PROD else "/redoc",
+    openapi_url=None if _IS_PROD else "/openapi.json",
+)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ── Simple in-process metrics ─────────────────────────────────────────────────
@@ -585,49 +592,6 @@ app.include_router(push_router.router)
 app.include_router(admin_router.router)
 app.include_router(billing_router.router)
 app.include_router(geo_router.router)
-
-
-@app.get("/debug/swipe-info")
-async def debug_swipe_info(
-    request: Request,
-    user=Depends(_get_current_user),
-):
-    """Temporary debug endpoint — shows swipe state for current user."""
-    from app.database import AsyncSessionLocal
-    async with AsyncSessionLocal() as s:
-        r1 = await s.execute(_text("SELECT count(*) FROM users WHERE is_active = true"))
-        total_active = r1.scalar()
-        r2 = await s.execute(_text("SELECT count(*) FROM likes WHERE liker_id = :uid"), {"uid": user.id})
-        total_my_likes = r2.scalar()
-        r3 = await s.execute(_text(
-            "SELECT liked_id, is_like FROM likes WHERE liker_id = :uid ORDER BY id DESC LIMIT 10"
-        ), {"uid": user.id})
-        my_likes = r3.fetchall()
-        r4 = await s.execute(_text(
-            "SELECT u.id, p.name, p.gender, p.looking_for, p.age "
-            "FROM users u JOIN profiles p ON p.user_id = u.id "
-            "WHERE u.is_active = true AND u.id != :uid LIMIT 20"
-        ), {"uid": user.id})
-        candidates = r4.fetchall()
-        r5 = await s.execute(_text("SELECT name, gender, looking_for FROM profiles WHERE user_id = :uid"), {"uid": user.id})
-        my_profile = r5.fetchone()
-
-    lines = [
-        f"<b>My user id:</b> {user.id}<br>",
-        f"<b>My name:</b> {my_profile.name if my_profile else 'no profile'}<br>",
-        f"<b>My gender:</b> {my_profile.gender if my_profile else '-'}<br>",
-        f"<b>My looking_for:</b> {my_profile.looking_for if my_profile else '-'}<br>",
-        f"<b>Total active users:</b> {total_active}<br>",
-        f"<b>My total swipes:</b> {total_my_likes}<br>",
-        "<br><b>My last 10 swipes:</b><br>",
-    ]
-    for like_row in my_likes:
-        lines.append(f"&nbsp;&nbsp;liked_id={like_row.liked_id} is_like={like_row.is_like}<br>")
-    lines.append("<br><b>All other active users:</b><br>")
-    for c in candidates:
-        lines.append(f"&nbsp;&nbsp;id={c.id} name={c.name} gender={c.gender} looking_for={c.looking_for} age={c.age}<br>")
-
-    return HTMLResponse("<html><body style='font-family:monospace;padding:20px'>" + "".join(lines) + "</body></html>")
 
 
 @app.exception_handler(HTTPException)

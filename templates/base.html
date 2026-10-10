@@ -493,9 +493,11 @@ function closeMoreMenu() {
     }
   }
 
+  var _pollTimer = null;
   async function poll() {
     try {
       var r = await fetch('/api/notifications');
+      if (r.status === 401) { clearInterval(_pollTimer); return; }
       var d = await r.json();
       var m = d.new_matches || 0, msg = d.unread_messages || 0;
       _setBadge(m, msg);
@@ -508,8 +510,10 @@ function closeMoreMenu() {
     } catch(e) {}
   }
 
+  {% if request.cookies.get('access_token') %}
   poll();
-  setInterval(poll, 30000);
+  _pollTimer = setInterval(poll, 30000);
+  {% endif %}
 })();
 
 // ── Service Worker + Web Push ─────────────────────────────────────────────────

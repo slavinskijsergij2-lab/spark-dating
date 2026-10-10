@@ -10,3 +10,5 @@ static/uploads/*.jpeg
 static/uploads/*.png
 static/uploads/*.webp
 static/photos/
+*.db.*
+*.db-journal

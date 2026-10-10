@@ -53,7 +53,8 @@ async def admin_login(key: str = Form(...)):
     if not _ADMIN_KEY or not secrets.compare_digest(key, _ADMIN_KEY):
         return RedirectResponse("/admin/login", status_code=302)
     resp = RedirectResponse("/admin", status_code=302)
-    resp.set_cookie("admin_key", key, httponly=True, samesite="strict", max_age=86400 * 7)
+    resp.set_cookie("admin_key", key, httponly=True, samesite="strict", max_age=86400 * 7,
+                    secure=bool(os.getenv("RAILWAY_ENVIRONMENT")))
     return resp
 
 

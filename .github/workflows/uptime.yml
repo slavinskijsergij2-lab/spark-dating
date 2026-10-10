@@ -16,7 +16,10 @@ jobs:
         id: health
         run: |
           for url in "https://spark-dating.club/health" "https://spark-dating-production.up.railway.app/health"; do
-            response=$(curl -sf --max-time 15 "$url" 2>/dev/null) && break || response=""
+            # /health answers 503 with a JSON body when degraded, so don't use curl -f
+            response=$(curl -s --max-time 15 "$url" 2>/dev/null)
+            echo "$response" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null && break
+            response=""
           done
 
           if [ -z "$response" ]; then
@@ -30,12 +33,13 @@ jobs:
           photo_wr=$(echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('photos',{}).get('writable','?'))")
           photo_ps=$(echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('photos',{}).get('persistent','?'))")
           sentry=$(echo "$response"   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sentry','?'))")
+          redis=$(echo "$response"    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('redis','?'))")
 
           echo "db=$db photo_wr=$photo_wr sentry=$sentry"
           FAIL=0; REASON=""
 
           if [ "$status" != "ok" ]; then
-            REASON="Сервер нездоров (status=$status, db=$db)"
+            REASON="Сервер нездоров (status=$status, db=$db, redis=$redis)"
             echo "::error::$REASON"
             FAIL=1
           fi

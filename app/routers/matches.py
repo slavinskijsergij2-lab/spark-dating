@@ -167,13 +167,16 @@ async def compute_compatibility_batch(user_id: int, partner_ids: list, db: Async
     # Check Redis cache for each pair
     _CACHE_TTL = 3600  # 1 hour
     if redis:
-        for pid in partner_ids:
-            key = f"compat:{min(user_id, pid)}:{max(user_id, pid)}"
-            cached = await redis.get(key)
-            if cached is not None:
-                out[pid] = _json_mod.loads(cached) if cached != "null" else None
-            else:
-                missing_ids.append(pid)
+        try:
+            for pid in partner_ids:
+                key = f"compat:{min(user_id, pid)}:{max(user_id, pid)}"
+                cached = await redis.get(key)
+                if cached is not None:
+                    out[pid] = _json_mod.loads(cached) if cached != "null" else None
+                else:
+                    missing_ids.append(pid)
+        except Exception:
+            out, missing_ids = {}, list(partner_ids)
     else:
         missing_ids = list(partner_ids)
 
@@ -278,7 +281,10 @@ async def matches_page(
     from datetime import timedelta
     _archive_key = f"arch_done:{user.id}"
     _redis = await _get_redis_client()
-    _already_ran = _redis and await _redis.get(_archive_key)
+    try:
+        _already_ran = _redis and await _redis.get(_archive_key)
+    except Exception:
+        _already_ran = False
     if not _already_ran:
         archive_cutoff = _utcnow() - timedelta(days=ARCHIVE_AFTER_DAYS)
         stale_ids_q = (
