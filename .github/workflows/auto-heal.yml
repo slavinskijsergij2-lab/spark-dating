@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "*/10 * * * *"
   workflow_dispatch:
+    inputs:
+      check_token:
+        description: "Only verify that RAILWAY_TOKEN can reach the Railway API (no restarts)"
+        type: boolean
+        default: false
 
 jobs:
   heal:
@@ -16,7 +21,21 @@ jobs:
       APP_SERVICE_ID: c9803c33-415a-4891-83a6-087c0126f814
 
     steps:
+      - name: Verify Railway token
+        if: inputs.check_token
+        run: |
+          [ -z "$RAILWAY_TOKEN" ] && { echo "::error::RAILWAY_TOKEN secret is not set"; exit 1; }
+          for hdr in "Project-Access-Token: $RAILWAY_TOKEN" "Authorization: Bearer $RAILWAY_TOKEN"; do
+            out=$(curl -s -X POST "https://backboard.railway.com/graphql/v2" -H "$hdr" -H "Content-Type: application/json" \
+              -d "{\"query\":\"{ project(id: \\\"$PROJECT_ID\\\") { name } }\"}")
+            if echo "$out" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if (d.get('data') or {}).get('project') else 1)" 2>/dev/null; then
+              echo "Token OK via '${hdr%%:*}'"; exit 0
+            fi
+          done
+          echo "::error::Railway API rejected the token: $out"; exit 1
+
       - name: Check health
+        if: ${{ !inputs.check_token }}
         id: check
         run: |
           response=""
@@ -45,7 +64,7 @@ jobs:
           exit 0
 
       - name: Restart services
-        if: steps.check.outputs.state != 'ok' && env.RAILWAY_TOKEN != ''
+        if: ${{ !inputs.check_token && steps.check.outputs.state != 'ok' && env.RAILWAY_TOKEN != '' }}
         run: |
           # Project tokens use the Project-Access-Token header, account/team tokens use Bearer.
           gql() {
@@ -74,7 +93,7 @@ jobs:
           fi
 
       - name: Wait and verify recovery
-        if: steps.check.outputs.state != 'ok'
+        if: ${{ !inputs.check_token && steps.check.outputs.state != 'ok' }}
         run: |
           sleep 90
           for i in 1 2 3; do
@@ -85,13 +104,13 @@ jobs:
           done
 
       - name: Notify — healed
-        if: steps.check.outputs.state != 'ok' && env.recovered == 'true' && env.NTFY_TOPIC != ''
+        if: ${{ !inputs.check_token && steps.check.outputs.state != 'ok' && env.recovered == 'true' && env.NTFY_TOPIC != '' }}
         run: |
           curl -s -H "Title: Spark Dating — авто-восстановление" -H "Priority: default" -H "Tags: white_check_mark,robot" \
             -d "Проблема обнаружена и исправлена автоматически. Сайт снова работает." "https://ntfy.sh/${NTFY_TOPIC}"
 
       - name: Notify — still broken
-        if: steps.check.outputs.state != 'ok' && env.recovered != 'true' && env.NTFY_TOPIC != ''
+        if: ${{ !inputs.check_token && steps.check.outputs.state != 'ok' && env.recovered != 'true' && env.NTFY_TOPIC != '' }}
         run: |
           curl -s -H "Title: Spark Dating — требуется внимание" -H "Priority: urgent" -H "Tags: rotating_light,warning" \
             -d "Автовосстановление не помогло. Нужна ручная проверка. (${{ steps.check.outputs.reason }})" "https://ntfy.sh/${NTFY_TOPIC}"
