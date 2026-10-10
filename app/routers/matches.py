@@ -8,7 +8,9 @@ from sqlalchemy import and_, func, or_, select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
-from app.auth import get_current_user
+import logging
+
+from app.auth import get_current_user, get_optional_user
 from app.csrf import validate_csrf_header
 from app.database import get_db, AsyncSessionLocal
 from app.utils.time import utcnow as _utcnow
@@ -542,6 +544,7 @@ async def send_message(
     result = await db.execute(select(Match).where(Match.id == match_id))
     match = result.scalar_one_or_none()
     if not match or (match.user1_id != user.id and match.user2_id != user.id):
+        logging.warning("send refused: user %s not in match %s", user.id, match_id)
         return JSONResponse({"error": "Forbidden"}, status_code=403)
 
     partner_id = match.user2_id if match.user1_id == user.id else match.user1_id
@@ -553,8 +556,9 @@ async def send_message(
             )
         )
     )
-    if block.scalar_one_or_none():
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+    if block.scalars().first():
+        logging.warning("send refused: block between %s and %s (match %s)", user.id, partner_id, match_id)
+        return JSONResponse({"error": "blocked"}, status_code=403)
 
     if reply_to_id:
         rr = await db.execute(select(Message).where(Message.id == reply_to_id, Message.match_id == match_id))
@@ -579,6 +583,20 @@ async def send_message(
     )
 
     return JSONResponse(msg_data)
+
+
+@router.post("/api/client-log", include_in_schema=False, dependencies=[Depends(rate_limit(20, 60))])
+async def client_log(request: Request, user: User | None = Depends(get_optional_user)):
+    """Chat page reports failed sends / JS errors so problems on real phones are visible in logs.
+    No CSRF check on purpose: it must work even when CSRF is what's broken; it only writes a log line."""
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    msg = str(data.get("msg", ""))[:500] if isinstance(data, dict) else ""
+    ua = request.headers.get("user-agent", "")[:160]
+    logging.warning("CLIENT uid=%s %s | ua=%s", user.id if user else None, msg, ua)
+    return JSONResponse({"ok": True})
 
 
 @router.post("/chat/{match_id}/message/{msg_id}/delete", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(20, 60))])

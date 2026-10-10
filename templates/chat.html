@@ -402,8 +402,25 @@
       });
     });
   }
+  var reported = 0;
+  function report(msg) {
+    if (reported++ > 10) return;
+    try {
+      fetch('/api/client-log', { method: 'POST', credentials: 'same-origin', keepalive: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ msg: '[chat ' + MATCH + '] ' + msg }) }).catch(function(){});
+    } catch (_) {}
+  }
+  window.addEventListener('error', function(e) {
+    report('js error: ' + e.message + ' @' + (e.filename || '').split('/').pop() + ':' + e.lineno);
+  });
+  window.addEventListener('unhandledrejection', function(e) {
+    report('unhandled: ' + (e.reason && (e.reason.message || e.reason)));
+  });
+
   function errText(e) {
     if (e && e.status === 429) return 'Слишком часто — подожди немного';
+    if (e && e.status === 403 && e.message === 'blocked') return 'Переписка с этим пользователем недоступна';
     if (e && e.status === 403) return 'Нельзя отправить: доступ запрещён. Обнови страницу';
     if (e && e.name === 'AbortError') return 'Сервер не ответил — попробуй ещё раз';
     if (e && e.status) return 'Ошибка отправки (' + e.status + ')';
@@ -649,6 +666,8 @@
         if (e.message === 'auth') return;
         if (!input.value) { input.value = text; autosize(); syncSendBtn(); }
         if (savedReply) { replyToId = savedReply.id; replyToText = savedReply.content; openBar('↩ Ответить:', replyToText); }
+        report('send failed: status=' + (e.status || '-') + ' name=' + e.name + ' msg=' + e.message +
+               ' csrfCookies=' + (document.cookie.match(/(^|; )csrftoken=/g) || []).length);
         showErr(errText(e));
       })
       .finally(function() { clearTimeout(tid); sending = false; });
