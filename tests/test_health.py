@@ -48,3 +48,11 @@ def test_readiness_passthrough_for_root():
     """Root page bypasses readiness check."""
     r = make_client().get("/")
     assert r.status_code in (200, 302)
+
+
+def test_healthz_ok():
+    from fastapi.testclient import TestClient
+    import main
+    r = TestClient(main.app).get("/healthz")
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}

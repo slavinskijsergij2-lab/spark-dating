@@ -1,0 +1,6 @@
+[deploy]
+# New deployments only receive traffic once the app answers and the database is reachable.
+healthcheckPath = "/healthz"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

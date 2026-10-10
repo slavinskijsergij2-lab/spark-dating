@@ -702,15 +702,26 @@ def service_worker():
     )
 
 
-@app.get("/health")
-async def health():
-    db_ok = False
+def _db_ping() -> bool:
     try:
         with engine.connect() as conn:
             conn.execute(_text("SELECT 1"))
-        db_ok = True
+        return True
     except Exception as e:
         logging.warning("Health check: DB not ready — %s", e)
+        return False
+
+
+@app.get("/healthz", include_in_schema=False)
+async def healthz():
+    """Deploy gate for Railway: app is up and the database answers (Redis is optional)."""
+    ok = await asyncio.to_thread(_db_ping)
+    return JSONResponse({"ok": ok}, status_code=200 if ok else 503)
+
+
+@app.get("/health")
+async def health():
+    db_ok = await asyncio.to_thread(_db_ping)
 
     redis_ok: bool | None = None
     try:
