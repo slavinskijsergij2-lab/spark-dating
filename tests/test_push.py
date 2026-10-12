@@ -144,3 +144,15 @@ def test_unsubscribe_removes_from_db():
         assert sub_db is None
     finally:
         db.close()
+
+
+def test_templates_send_csrf_under_the_header_name_the_server_reads():
+    """The push toggle used 'X-CSRFToken', so no subscription was ever stored."""
+    import glob
+    import re
+    bad = []
+    for path in glob.glob("templates/*.html"):
+        for name in re.findall(r"['\"]([Xx]-[A-Za-z-]*[Cc][Ss][Rr][Ff][A-Za-z-]*)['\"]\s*:", open(path, encoding="utf-8").read()):
+            if name != "x-csrf-token":
+                bad.append(f"{path}: {name}")
+    assert not bad, bad

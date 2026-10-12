@@ -655,8 +655,22 @@ async function _initSW() {
     }
 
     var existing = await _swReg.pushManager.getSubscription();
+    // Re-send an existing browser subscription: the server may not have it (it was never
+    // stored while the CSRF header name was wrong) and endpoints can rotate.
+    if (existing) existing = (await _savePushSub(existing)) ? existing : null;
     _updatePushIcon(!!existing);
   } catch(e) { console.warn('SW init:', e); }
+}
+
+async function _savePushSub(sub) {
+  try {
+    var r = await fetch('/push/subscribe', {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json', 'x-csrf-token': getCsrfToken()},
+      body: JSON.stringify(sub.toJSON()),
+    });
+    return r.ok;
+  } catch (e) { return false; }
 }
 
 function _updatePushIcon(subscribed) {
@@ -673,8 +687,8 @@ async function togglePush() {
     if (existing) {
       // Unsubscribe
       await fetch('/push/unsubscribe', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken()},
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json', 'x-csrf-token': getCsrfToken()},
         body: JSON.stringify({endpoint: existing.endpoint}),
       });
       await existing.unsubscribe();
@@ -687,13 +701,13 @@ async function togglePush() {
         userVisibleOnly: true,
         applicationServerKey: _urlBase64ToUint8Array(_vapidKey),
       });
-      var subJson = sub.toJSON();
-      await fetch('/push/subscribe', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken()},
-        body: JSON.stringify(subJson),
-      });
-      _updatePushIcon(true);
+      if (await _savePushSub(sub)) {
+        _updatePushIcon(true);
+      } else {
+        await sub.unsubscribe();
+        _updatePushIcon(false);
+        alert('Не удалось включить уведомления. Попробуй ещё раз.');
+      }
     }
   } catch(e) { console.warn('togglePush:', e); }
 }
