@@ -10,11 +10,12 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app import play_billing
 from app.auth import get_current_user, invalidate_user_cache
 from app.csrf import validate_csrf_header
 from app.database import get_db
 from app.i18n import get_lang, get_translations, is_rtl
-from app.models.models import ProfileView, User
+from app.models.models import PlayPurchase, ProfileView, User
 from app.rate_limit import rate_limit
 from app.templates import templates
 from app.utils.time import utcnow as _utcnow
@@ -34,6 +35,14 @@ async def premium_page(request: Request, user: User = Depends(get_current_user),
     boost_remaining = 0
     if boost_active:
         boost_remaining = int((user.boost_until - now).total_seconds() / 60)
+    # Play subscriptions can only be cancelled in Google Play, not from our "deactivate" button.
+    has_play_subscription = bool((await db.execute(
+        select(PlayPurchase.id).where(
+            PlayPurchase.user_id == user.id,
+            PlayPurchase.kind == "subscription",
+            PlayPurchase.expires_at > now,
+        ).limit(1)
+    )).scalar())
     return templates.TemplateResponse(request, "premium.html", {
         "user": user,
         "t": get_translations(lang),
@@ -45,6 +54,11 @@ async def premium_page(request: Request, user: User = Depends(get_current_user),
         "stripe_enabled": _stripe_enabled,
         "stripe_price_monthly": os.getenv("STRIPE_PRICE_MONTHLY", ""),
         "stripe_price_lifetime": os.getenv("STRIPE_PRICE_LIFETIME", ""),
+        "play_enabled": play_billing.play_enabled,
+        "play_package": play_billing.PACKAGE_NAME,
+        "play_sku_monthly": play_billing.SKU_MONTHLY,
+        "play_sku_lifetime": play_billing.SKU_LIFETIME,
+        "has_play_subscription": has_play_subscription,
     })
 
 
