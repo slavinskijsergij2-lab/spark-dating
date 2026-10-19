@@ -328,6 +328,19 @@ class PushSubscription(Base):
     created_at = Column(DateTime, default=_utcnow)
 
 
+class PlayPurchase(Base):
+    """A Google Play purchase (from the Android TWA) bound to the user who verified it first."""
+    __tablename__ = "play_purchases"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    purchase_token = Column(String(512), nullable=False, unique=True)
+    product_id = Column(String(100), nullable=False)
+    kind = Column(String(20), nullable=False)  # "subscription" | "product"
+    expires_at = Column(DateTime, nullable=True)  # subscriptions only
+    created_at = Column(DateTime, default=_utcnow)
+
+
 class ErrorLog(Base):
     __tablename__ = "error_logs"
 

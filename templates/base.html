@@ -423,6 +423,16 @@
   {% endif %}
 
 <script nonce="{{ request.state.csp_nonce }}">
+// The Android app (TWA) opens its first page with an android-app:// referrer.
+// Remember that for the tab: inside the Play app, payments must go through Google Play.
+// sessionStorage, not localStorage — the TWA shares storage with the user's Chrome.
+function isAndroidApp() {
+  try {
+    if (document.referrer.indexOf('android-app://') === 0) sessionStorage.setItem('android_app', '1');
+    return sessionStorage.getItem('android_app') === '1';
+  } catch (e) { return document.referrer.indexOf('android-app://') === 0; }
+}
+isAndroidApp();
 function getCsrfToken() {
   const c = document.cookie.split('; ').find(r => r.startsWith('csrftoken='));
   return c ? c.slice('csrftoken='.length) : '';

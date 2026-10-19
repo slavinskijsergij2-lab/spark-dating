@@ -863,6 +863,19 @@ def security_txt():
     )
 
 
+@app.get("/.well-known/assetlinks.json", include_in_schema=False)
+def assetlinks():
+    """Digital Asset Links: lets the Android TWA open the site full-screen (no URL bar)."""
+    package = os.getenv("PLAY_PACKAGE_NAME", "")
+    fingerprints = [f.strip() for f in os.getenv("ANDROID_CERT_SHA256", "").split(",") if f.strip()]
+    if not package or not fingerprints:
+        return JSONResponse([])
+    return JSONResponse([{
+        "relation": ["delegate_permission/common.handle_all_urls"],
+        "target": {"namespace": "android_app", "package_name": package, "sha256_cert_fingerprints": fingerprints},
+    }])
+
+
 @app.get("/sitemap.xml", include_in_schema=False)
 def sitemap(request: Request):
     from fastapi.responses import Response

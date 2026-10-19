@@ -1,18 +1,23 @@
 import asyncio
+import base64
+import json
 import logging
 import os
+import secrets
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user, invalidate_user_cache
 from app.csrf import validate_csrf_header
 from app.database import get_db, AsyncSessionLocal
 from app.i18n import get_lang, get_translations, is_rtl
-from app.models.models import User
+from app import play_billing
+from app.models.models import PlayPurchase, User
 from app.rate_limit import rate_limit
 from app.templates import templates
 from app.utils.time import utcnow as _utcnow
@@ -287,3 +292,151 @@ async def _cancel_subscription(sub_id: str, db: AsyncSession):
     user.premium_until = None
     user.stripe_subscription_id = None
     await db.commit()
+
+
+# ── Google Play Billing (Android TWA) ────────────────────────────────────────
+# The TWA buys through the Digital Goods API + Payment Request; the page then
+# posts the purchase token here. Renewals, cancellations and refunds arrive via
+# Real-time developer notifications (Pub/Sub push → /billing/play/rtdn).
+
+_PLAY_RTDN_TOKEN = os.getenv("PLAY_RTDN_TOKEN", "")
+
+
+@router.post("/play/verify", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(20, 60))])
+async def play_verify(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not play_billing.play_enabled:
+        raise HTTPException(400, "Google Play billing not configured")
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    product_id = str(data.get("product_id") or "")
+    token = str(data.get("purchase_token") or "")
+    if not token or len(token) > 512:
+        raise HTTPException(400, "Invalid purchase token")
+    if product_id not in (play_billing.SKU_MONTHLY, play_billing.SKU_LIFETIME) or not product_id:
+        raise HTTPException(400, "Unknown product")
+
+    # A token belongs to whoever verified it first — stops a token being replayed onto other accounts.
+    result = await db.execute(select(PlayPurchase).where(PlayPurchase.purchase_token == token))
+    record = result.scalar_one_or_none()
+    if record and record.user_id != user.id:
+        logging.warning("play_verify: token already bound to user %d, current user %d", record.user_id, user.id)
+        raise HTTPException(409, "Purchase belongs to another account")
+
+    is_sub = product_id == play_billing.SKU_MONTHLY
+    try:
+        if is_sub:
+            purchase = await play_billing.get_subscription(token)
+            if product_id not in play_billing.subscription_product_ids(purchase):
+                raise HTTPException(400, "Product mismatch")
+            expiry = play_billing.subscription_expiry(purchase)
+            if purchase.get("subscriptionState") not in play_billing.ENTITLED_STATES or not expiry or expiry <= _utcnow():
+                raise HTTPException(400, "Subscription is not active")
+            needs_ack = purchase.get("acknowledgementState") == "ACKNOWLEDGEMENT_STATE_PENDING"
+        else:
+            purchase = await play_billing.get_product(product_id, token)
+            if purchase.get("purchaseState") == 2:
+                raise HTTPException(402, "Payment pending")
+            if purchase.get("purchaseState") != 0:
+                raise HTTPException(400, "Purchase was cancelled")
+            expiry = None
+            needs_ack = purchase.get("acknowledgementState") == 0
+    except play_billing.PurchaseNotFound:
+        raise HTTPException(400, "Purchase not found")
+    except play_billing.PlayError as e:
+        logging.error("play_verify: %s", e)
+        raise HTTPException(502, "Could not reach Google Play")
+
+    if not record:
+        record = PlayPurchase(user_id=user.id, purchase_token=token, product_id=product_id,
+                              kind="subscription" if is_sub else "product")
+        db.add(record)
+    record.expires_at = expiry
+
+    db_user = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
+    if is_sub:
+        db_user.premium_until = max(db_user.premium_until or expiry, expiry)
+    else:
+        db_user.is_premium = True
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Same token verified concurrently — the other request wins.
+        await db.rollback()
+        raise HTTPException(409, "Purchase is being processed")
+    invalidate_user_cache(user.id)
+
+    # Unacknowledged purchases are refunded by Google after 3 days. If this fails,
+    # the premium page re-verifies owned purchases on its next load and retries.
+    if needs_ack:
+        try:
+            if is_sub:
+                await play_billing.acknowledge_subscription(product_id, token)
+            else:
+                await play_billing.acknowledge_product(product_id, token)
+        except play_billing.PlayError as e:
+            logging.error("play_verify: acknowledge failed: %s", e)
+
+    return JSONResponse({"success": True})
+
+
+@router.post("/play/rtdn", include_in_schema=False)
+async def play_rtdn(request: Request, token: str = ""):
+    """Pub/Sub push endpoint for Google Play real-time developer notifications."""
+    if not _PLAY_RTDN_TOKEN or not secrets.compare_digest(token, _PLAY_RTDN_TOKEN):
+        raise HTTPException(403, "Forbidden")
+    try:
+        envelope = await request.json()
+        note = json.loads(base64.b64decode(envelope["message"]["data"]))
+    except Exception:
+        # Malformed messages would be redelivered forever — ack them.
+        logging.warning("play_rtdn: malformed message")
+        return JSONResponse({"ok": True})
+
+    if note.get("packageName") != play_billing.PACKAGE_NAME:
+        return JSONResponse({"ok": True})
+
+    sub_note = note.get("subscriptionNotification")
+    voided = note.get("voidedPurchaseNotification")
+    purchase_token = (sub_note or voided or {}).get("purchaseToken")
+    if not purchase_token:
+        return JSONResponse({"ok": True})  # test / one-time-product notifications: verify handles those
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(PlayPurchase).where(PlayPurchase.purchase_token == purchase_token))
+        record = result.scalar_one_or_none()
+        if not record:
+            # Not verified by the app yet; /billing/play/verify will pick it up.
+            return JSONResponse({"ok": True})
+        db_user = (await db.execute(select(User).where(User.id == record.user_id))).scalar_one_or_none()
+        if not db_user:
+            return JSONResponse({"ok": True})
+
+        if voided:
+            if record.kind == "product":
+                db_user.is_premium = False
+            else:
+                db_user.premium_until = None
+            record.expires_at = None
+        else:
+            try:
+                sub = await play_billing.get_subscription(purchase_token)
+                expiry = play_billing.subscription_expiry(sub)
+                entitled = sub.get("subscriptionState") in play_billing.ENTITLED_STATES and expiry and expiry > _utcnow()
+            except play_billing.PurchaseNotFound:
+                expiry, entitled = None, False
+            except play_billing.PlayError as e:
+                logging.error("play_rtdn: %s", e)
+                raise HTTPException(500, "Play API error")  # Pub/Sub retries
+            record.expires_at = expiry
+            db_user.premium_until = expiry if entitled else None
+
+        await db.commit()
+        invalidate_user_cache(db_user.id)
+
+    return JSONResponse({"ok": True})

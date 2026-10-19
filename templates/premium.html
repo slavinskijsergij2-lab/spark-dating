@@ -127,13 +127,19 @@
   {% endif %}
 </div>
 
-{% if user.stripe_customer_id and user.stripe_subscription_id %}
-<button id="prem-portal-btn" onclick="openBillingPortal(this)"
+{% if has_play_subscription %}
+<a href="https://play.google.com/store/account/subscriptions?sku={{ play_sku_monthly|urlencode }}&package={{ play_package|urlencode }}"
+   class="block text-center w-full bg-white border-2 border-pink-200 text-pink-600 py-3 rounded-2xl text-sm font-semibold hover:bg-pink-50 transition mb-3 card-shadow">
+  ▶️ {{ t.get('play_manage', 'Управление подпиской в Google Play') }}
+</a>
+<p class="text-xs text-gray-400 text-center mb-4">{{ t.get('play_manage_hint', 'Отменить или изменить подписку можно в Google Play') }}</p>
+{% elif user.stripe_customer_id and user.stripe_subscription_id %}
+<button id="prem-portal-btn" onclick="openBillingPortal(this)" data-web-billing
         class="w-full bg-white border-2 border-pink-200 text-pink-600 py-3 rounded-2xl text-sm font-semibold hover:bg-pink-50 transition disabled:opacity-50 mb-3 card-shadow">
   <span data-default>💳 {{ t.get('billing_manage', 'Управление подпиской и история платежей') }}</span>
   <span data-loading style="display:none">...</span>
 </button>
-<p class="text-xs text-gray-400 text-center mb-4">{{ t.get('billing_portal_hint', 'Изменить, отменить подписку или скачать квитанции') }}</p>
+<p class="text-xs text-gray-400 text-center mb-4" data-web-billing>{{ t.get('billing_portal_hint', 'Изменить, отменить подписку или скачать квитанции') }}</p>
 {% else %}
 <button id="prem-deactivate-btn" onclick="deactivatePremium(this)"
         class="w-full bg-white border-2 border-gray-200 text-gray-500 py-3 rounded-2xl text-sm font-medium hover:border-red-200 hover:text-red-400 transition disabled:opacity-50 mb-4">
@@ -163,9 +169,64 @@
   </p>
 </div>
 
+{% if play_enabled %}
+<!-- ══ ТАРИФЫ GOOGLE PLAY (только в Android-приложении) ══ -->
+<div id="play-plans" class="flex flex-col gap-6 mb-6" style="display:none">
+
+  {% if play_sku_monthly %}
+  <div class="plan-card plan-monthly" style="margin-top: 14px;" data-play-sku="{{ play_sku_monthly }}">
+    <div class="badge-popular">🔥 {{ t.get('plan_popular', 'Популярный выбор') }}</div>
+    <div class="flex items-end justify-between mb-4 mt-1">
+      <div>
+        <p class="font-extrabold text-gray-800 text-lg">{{ t.get('plan_monthly', 'Ежемесячно') }}</p>
+        <p class="text-xs text-gray-400 mt-0.5">{{ t.get('plan_monthly_sub', 'Отмена в любой момент') }}</p>
+      </div>
+      <div class="text-right">
+        <p class="text-3xl font-black text-pink-500 leading-none" data-play-price>…</p>
+        <p class="text-xs text-gray-400 mt-0.5">/ {{ t.get('per_month', 'месяц') }}</p>
+      </div>
+    </div>
+    <button onclick="startPlayPurchase('{{ play_sku_monthly }}', this)"
+            class="w-full gradient-pink text-white py-3.5 rounded-2xl font-extrabold text-base shadow-lg hover:opacity-90 active:scale-[.97] transition disabled:opacity-50">
+      <span data-default>▶️ {{ t.get('btn_subscribe', 'Оформить подписку') }}</span>
+      <span data-loading style="display:none" class="opacity-70">...</span>
+    </button>
+  </div>
+  {% endif %}
+
+  {% if play_sku_lifetime %}
+  <div class="plan-card plan-lifetime" style="margin-top: 14px;" data-play-sku="{{ play_sku_lifetime }}">
+    <div class="badge-save">💜 {{ t.get('plan_save', 'Выгоднее на 66%') }}</div>
+    <div class="flex items-end justify-between mb-4 mt-1">
+      <div>
+        <p class="font-extrabold text-gray-800 text-lg">{{ t.get('plan_lifetime', 'Навсегда') }}</p>
+        <p class="text-xs text-gray-400 mt-0.5">{{ t.get('plan_lifetime_sub', 'Один платёж — Premium навсегда') }}</p>
+      </div>
+      <div class="text-right">
+        <p class="text-3xl font-black text-purple-500 leading-none" data-play-price>…</p>
+        <p class="text-xs text-gray-400 mt-0.5">{{ t.get('one_time', 'разово') }}</p>
+      </div>
+    </div>
+    <button onclick="startPlayPurchase('{{ play_sku_lifetime }}', this)"
+            class="w-full text-white py-3.5 rounded-2xl font-extrabold text-base shadow-lg hover:opacity-90 active:scale-[.97] transition disabled:opacity-50"
+            style="background: linear-gradient(135deg, #a855f7, #ec4899);">
+      <span data-default>✨ {{ t.get('btn_lifetime', 'Купить навсегда') }}</span>
+      <span data-loading style="display:none" class="opacity-70">...</span>
+    </button>
+  </div>
+  {% endif %}
+  <p id="play-error" style="display:none" class="text-red-500 text-xs text-center"></p>
+</div>
+{% endif %}
+
+<!-- В Android-приложении без Google Play Billing покупать нельзя -->
+<div id="play-unavailable" class="bg-white rounded-2xl p-5 card-shadow mb-4 text-center text-sm text-gray-500" style="display:none">
+  {{ t.get('play_unavailable', 'Покупка Premium в приложении сейчас недоступна. Попробуйте позже.') }}
+</div>
+
 {% if stripe_enabled %}
 <!-- ══ ТАРИФЫ ══ -->
-<div class="flex flex-col gap-6 mb-6">
+<div class="flex flex-col gap-6 mb-6" data-web-billing>
 
   {% if stripe_price_monthly %}
   <div class="plan-card plan-monthly" style="margin-top: 14px;">
@@ -212,7 +273,7 @@
 </div>
 
 <!-- Trust signals -->
-<div class="trust-row mb-6">
+<div class="trust-row mb-6" data-web-billing>
   <span class="trust-badge">🔒 {{ t.get('trust_secure', 'Безопасная оплата') }}</span>
   <span class="trust-badge">↩️ {{ t.get('trust_cancel', 'Отмена в любой момент') }}</span>
   <span class="trust-badge">💳 Stripe</span>
@@ -406,6 +467,99 @@ function openBillingPortal(btn) {
     })
     .catch(function() { btn.disabled = false; setBtnState(btn, 'default'); });
 }
+
+// ── Google Play Billing (Android app) ──────────────────────────────────────
+// In the Play app every purchase goes through Google Play: web (Stripe) buttons
+// are hidden, plans are bought via the Digital Goods API + Payment Request.
+var PLAY_BILLING = 'https://play.google.com/billing';
+var _playService = null;
+
+function _showPlayError(msg) {
+  var el = document.getElementById('play-error');
+  if (el) { el.textContent = msg; el.style.display = ''; }
+}
+
+function _formatPrice(price) {
+  try {
+    return new Intl.NumberFormat(document.documentElement.lang || undefined,
+      {style: 'currency', currency: price.currency}).format(Number(price.value));
+  } catch (e) { return price.value + ' ' + price.currency; }
+}
+
+function _verifyPlayPurchase(sku, token) {
+  return fetch('/billing/play/verify', {
+    method: 'POST',
+    headers: {'x-csrf-token': getCsrfToken(), 'Content-Type': 'application/json'},
+    body: JSON.stringify({product_id: sku, purchase_token: token})
+  }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); });
+}
+
+async function initPlayBilling() {
+  if (!isAndroidApp()) return;
+  document.querySelectorAll('[data-web-billing]').forEach(function(el) { el.style.display = 'none'; });
+  var plans = document.getElementById('play-plans');
+  try {
+    if (!plans || !('getDigitalGoodsService' in window)) throw new Error('no digital goods');
+    _playService = await window.getDigitalGoodsService(PLAY_BILLING);
+    if (!_playService) throw new Error('no play service');
+
+    // Restore: re-send purchases Google says we own (covers failed verify/acknowledge).
+    var owned = await _playService.listPurchases();
+    var restored = false;
+    for (var i = 0; i < owned.length; i++) {
+      var res = await _verifyPlayPurchase(owned[i].itemId, owned[i].purchaseToken);
+      if (res.ok) restored = true;
+    }
+    if (restored && !{{ 'true' if user.is_premium_active else 'false' }}) { window.location.reload(); return; }
+
+    var cards = plans.querySelectorAll('[data-play-sku]');
+    var skus = Array.prototype.map.call(cards, function(c) { return c.dataset.playSku; });
+    var details = await _playService.getDetails(skus);
+    var bySku = {};
+    details.forEach(function(d) { bySku[d.itemId] = d; });
+    var shown = 0;
+    cards.forEach(function(card) {
+      var d = bySku[card.dataset.playSku];
+      if (!d) { card.style.display = 'none'; return; }
+      card.querySelector('[data-play-price]').textContent = _formatPrice(d.price);
+      shown++;
+    });
+    if (!shown) throw new Error('no products');
+    plans.style.display = '';
+  } catch (e) {
+    console.warn('play billing unavailable:', e);
+    if (plans) plans.style.display = 'none';
+    var na = document.getElementById('play-unavailable');
+    if (na && !{{ 'true' if user.is_premium_active else 'false' }}) na.style.display = '';
+  }
+}
+
+async function startPlayPurchase(sku, btn) {
+  if (!_playService) return;
+  btn.disabled = true;
+  setBtnState(btn, 'loading');
+  var errText = '{{ t.get("error_try_again", "Попробуйте позже") }}';
+  try {
+    var request = new PaymentRequest(
+      [{supportedMethods: PLAY_BILLING, data: {sku: sku}}],
+      {total: {label: 'Total', amount: {currency: 'EUR', value: '0'}}}
+    );
+    var response = await request.show();
+    var token = response.details.purchaseToken;
+    var res = await _verifyPlayPurchase(sku, token);
+    await response.complete(res.ok ? 'success' : 'fail');
+    if (res.ok) { window.location.reload(); return; }
+    _showPlayError((res.data && res.data.detail) || errText);
+  } catch (e) {
+    // AbortError = the user closed the Google Play sheet; not an error worth showing.
+    if (e && e.name !== 'AbortError') _showPlayError(errText);
+  }
+  btn.disabled = false;
+  setBtnState(btn, 'default');
+}
+
+// isAndroidApp() lives in base.html's script, which comes after this block.
+document.addEventListener('DOMContentLoaded', initPlayBilling);
 
 function updateActivateBtn() {
   var code = document.getElementById('prem-code');
