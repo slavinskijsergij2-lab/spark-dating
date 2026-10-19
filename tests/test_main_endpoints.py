@@ -253,3 +253,10 @@ def test_api_reverse_geo_returns_city():
     data = r.json()
     assert "city" in data
     assert isinstance(data["city"], str)
+
+
+def test_account_deletion_page_is_public():
+    c = make_client()
+    r = c.get("/account-deletion")
+    assert r.status_code == 200
+    assert "Удалить аккаунт" in r.text
