@@ -159,3 +159,18 @@ def test_blocked_list_shows_blocked_user(db):
     client_a.post(f"/user/{uid_b}/block", headers={"x-csrf-token": csrf_a})
     r = client_a.get("/settings/blocks")
     assert r.status_code == 200
+
+
+def test_report_underage_reason_is_kept(db):
+    from app.models.models import Report
+    client_a, csrf_a, _, _, _, email_b = _two_users()
+    uid_b = _get_user_id(db, email_b)
+
+    r = client_a.post(
+        f"/user/{uid_b}/report",
+        json={"reason": "underage"},
+        headers={"x-csrf-token": csrf_a},
+    )
+    assert r.status_code == 200
+    db.expire_all()
+    assert db.query(Report).filter_by(reported_id=uid_b).one().reason == "underage"

@@ -15,7 +15,7 @@ from app.templates import templates
 
 router = APIRouter()
 
-REPORT_REASONS = ["spam", "fake", "harassment", "inappropriate", "other"]
+REPORT_REASONS = ["spam", "fake", "harassment", "inappropriate", "underage", "other"]
 
 
 @router.post("/user/{target_id}/block", dependencies=[Depends(rate_limit(20, 60)), Depends(validate_csrf_header)])

@@ -880,7 +880,7 @@ def assetlinks():
 def sitemap(request: Request):
     from fastapi.responses import Response
     base = str(request.base_url).rstrip("/")
-    urls = ["/", "/login", "/register", "/privacy", "/account-deletion", "/forgot-password"]
+    urls = ["/", "/login", "/register", "/privacy", "/account-deletion", "/child-safety", "/forgot-password"]
     xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
     xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
     for u in urls:
@@ -898,6 +898,12 @@ def privacy(request: Request):
 def account_deletion(request: Request):
     """Public account-deletion instructions (Google Play requires a web link)."""
     return templates.TemplateResponse(request, "account_deletion.html", {})
+
+
+@app.get("/child-safety", response_class=HTMLResponse)
+def child_safety(request: Request):
+    """Public child-safety (CSAE) standards (required by Google Play for dating apps)."""
+    return templates.TemplateResponse(request, "child_safety.html", {})
 
 
 @app.get("/welcome", response_class=HTMLResponse)

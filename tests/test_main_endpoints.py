@@ -260,3 +260,10 @@ def test_account_deletion_page_is_public():
     r = c.get("/account-deletion")
     assert r.status_code == 200
     assert "Удалить аккаунт" in r.text
+
+
+def test_child_safety_page_is_public():
+    c = make_client()
+    r = c.get("/child-safety")
+    assert r.status_code == 200
+    assert "CSAE" in r.text
