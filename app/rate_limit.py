@@ -100,6 +100,22 @@ if os.getenv("TESTING") and os.getenv("RAILWAY_ENVIRONMENT"):
     logging.critical("TESTING=1 is set in a Railway environment — rate limiting is DISABLED globally!")
 
 
+def client_ip(request: Request) -> str:
+    """Real client IP behind Railway's edge.
+
+    Railway's edge sets X-Real-IP to the connecting client. The rightmost
+    X-Forwarded-For entry is the edge node itself (shared by many users), and the
+    leftmost one is whatever the client sent, so neither identifies the user.
+    """
+    real_ip = (request.headers.get("X-Real-IP") or "").strip()
+    if real_ip:
+        return real_ip
+    forwarded = request.headers.get("X-Forwarded-For") or ""
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else ""
+
+
 def rate_limit(max_calls: int, window_seconds: int = 60) -> Callable:
     """Returns a FastAPI async dependency that enforces a rate limit per IP + path."""
     from fastapi import Response
@@ -108,14 +124,7 @@ def rate_limit(max_calls: int, window_seconds: int = 60) -> Callable:
         if os.getenv("TESTING"):
             return
 
-        # Railway's trusted proxy appends the real client IP as the rightmost entry.
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            ip = forwarded.split(",")[-1].strip()
-        else:
-            real_ip = request.headers.get("X-Real-IP")
-            ip = real_ip or (request.client.host if request.client else None) or "unknown"
-
+        ip = client_ip(request) or "unknown"
         key = f"rl:{request.url.path}:{ip}"
 
         if not _RATE_LIMIT_INMEMORY:

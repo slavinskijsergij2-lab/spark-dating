@@ -48,7 +48,7 @@ from app.utils.maintenance import fix_broken_photo_urls, do_cleanup
 from app.utils.template_filters import tojson_filter, online_status as _online_status
 from app.routers import features, premium, social, stories, referral, push as push_router, admin as admin_router, billing as billing_router
 from app.templates import templates
-from app.rate_limit import rate_limit
+from app.rate_limit import client_ip, rate_limit
 
 logging.info("startup: all app modules imported")
 
@@ -917,13 +917,7 @@ async def welcome(request: Request):
 async def api_geo(request: Request):
     """Return city/country/lat/lon for the requester's IP."""
     from app.utils.ip_geo import get_geo_from_ip
-    # Railway's proxy appends the real client IP as the rightmost entry; the leftmost
-    # one is client-controlled, so trusting it let anyone geolocate arbitrary IPs.
-    forwarded = request.headers.get("x-forwarded-for", "")
-    ip = forwarded.split(",")[-1].strip() if forwarded else (
-        request.client.host if request.client else ""
-    )
-    data = await get_geo_from_ip(ip)
+    data = await get_geo_from_ip(client_ip(request))
     return JSONResponse(data)
 
 
