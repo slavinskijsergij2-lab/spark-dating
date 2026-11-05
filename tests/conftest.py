@@ -121,3 +121,10 @@ def _create_match(db: Session, user1_id: int, user2_id: int) -> int:
     db.commit()
     db.refresh(m)
     return m.id
+
+
+def pytest_collection_modifyitems(config, items):
+    """Run Playwright e2e tests last: the sync Playwright API leaves an event loop
+    running in the main thread, which breaks later tests that call
+    loop.run_until_complete()."""
+    items.sort(key=lambda item: "/e2e/" in str(item.fspath))

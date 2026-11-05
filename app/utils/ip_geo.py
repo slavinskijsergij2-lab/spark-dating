@@ -1,23 +1,44 @@
+import ipaddress
 import logging
+import time
+
 import httpx
 
 _log = logging.getLogger(__name__)
 
+# ip-api.com free tier allows 45 requests/min per server, so cache results per IP.
+_CACHE_TTL = 6 * 3600
+_CACHE_MAX = 5000
+_cache: dict[str, tuple[float, dict]] = {}
+
+
 async def get_geo_from_ip(ip: str) -> dict:
     """Return {city, country, lat, lon} from IP. Returns {} on failure."""
-    if not ip or ip in ("127.0.0.1", "::1", "testclient"):
+    try:
+        ip = str(ipaddress.ip_address(ip))
+    except ValueError:
         return {}
+    if ipaddress.ip_address(ip).is_private or ipaddress.ip_address(ip).is_loopback:
+        return {}
+    now = time.monotonic()
+    hit = _cache.get(ip)
+    if hit and now - hit[0] < _CACHE_TTL:
+        return hit[1]
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             r = await client.get(f"http://ip-api.com/json/{ip}?fields=status,city,country,lat,lon&lang=ru")
             data = r.json()
             if data.get("status") == "success":
-                return {
+                result = {
                     "city": data.get("city", ""),
                     "country": data.get("country", ""),
                     "lat": data.get("lat"),
                     "lon": data.get("lon"),
                 }
+                if len(_cache) >= _CACHE_MAX:
+                    _cache.clear()
+                _cache[ip] = (now, result)
+                return result
     except Exception as exc:
         _log.debug("ip_geo: failed for %s: %s", ip, exc)
     return {}

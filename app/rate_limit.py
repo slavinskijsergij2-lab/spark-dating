@@ -11,6 +11,7 @@ Set TESTING=1 to disable limiting in the test suite.
 import asyncio
 import logging
 import os
+import threading
 import time
 from collections import defaultdict
 from collections.abc import Callable
@@ -19,7 +20,9 @@ from fastapi import HTTPException, Request
 
 # ── in-memory fallback ────────────────────────────────────────────────────────
 _store: dict[str, list[float]] = defaultdict(list)
-_lock = asyncio.Lock()
+# threading.Lock: the critical section never awaits, and an asyncio.Lock would bind
+# to whichever event loop touched it first.
+_lock = threading.Lock()
 
 # ── Redis backend (optional) ──────────────────────────────────────────────────
 _REDIS_URL = os.getenv("REDIS_URL")
@@ -129,7 +132,7 @@ def rate_limit(max_calls: int, window_seconds: int = 60) -> Callable:
 
         # ── in-memory (default for single-instance deployments) ───────────────
         now = time.monotonic()
-        async with _lock:
+        with _lock:
             cutoff = now - window_seconds
             calls = [t for t in _store[key] if t > cutoff]
             remaining = max(0, max_calls - len(calls) - 1)

@@ -48,6 +48,7 @@ from app.utils.maintenance import fix_broken_photo_urls, do_cleanup
 from app.utils.template_filters import tojson_filter, online_status as _online_status
 from app.routers import features, premium, social, stories, referral, push as push_router, admin as admin_router, billing as billing_router
 from app.templates import templates
+from app.rate_limit import rate_limit
 
 logging.info("startup: all app modules imported")
 
@@ -912,18 +913,21 @@ async def welcome(request: Request):
     return templates.TemplateResponse(request, "welcome.html", {})
 
 
-@app.get("/api/geo")
+@app.get("/api/geo", dependencies=[Depends(rate_limit(10, 60))])
 async def api_geo(request: Request):
     """Return city/country/lat/lon for the requester's IP."""
     from app.utils.ip_geo import get_geo_from_ip
-    ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (
+    # Railway's proxy appends the real client IP as the rightmost entry; the leftmost
+    # one is client-controlled, so trusting it let anyone geolocate arbitrary IPs.
+    forwarded = request.headers.get("x-forwarded-for", "")
+    ip = forwarded.split(",")[-1].strip() if forwarded else (
         request.client.host if request.client else ""
     )
     data = await get_geo_from_ip(ip)
     return JSONResponse(data)
 
 
-@app.post("/api/reverse-geo")
+@app.post("/api/reverse-geo", dependencies=[Depends(rate_limit(10, 60))])
 async def api_reverse_geo(request: Request, _user=Depends(_get_current_user)):
     """Convert GPS lat/lon to city name (requires auth to prevent abuse)."""
     from app.utils.ip_geo import reverse_geocode
