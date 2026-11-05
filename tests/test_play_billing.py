@@ -180,6 +180,59 @@ def test_rtdn_renewal_extends_and_expiry_revokes(play, db):
     assert not _user(db, email).is_premium_active
 
 
+def _give_bonus(db, email, days):
+    u = _user(db, email)
+    u.premium_until = utcnow() + timedelta(days=days)
+    db.commit()
+
+
+def _days_left(db, email):
+    until = _user(db, email).premium_until
+    return (until - utcnow()).total_seconds() / 86400 if until else 0
+
+
+def test_verify_adds_subscription_on_top_of_bonus_days(play, db):
+    c, email, csrf = make_auth_client("play_bonus_verify")
+    _give_bonus(db, email, 10)
+    play["subs"]["sub-tok-bonus-v"] = _sub(days=30)
+    assert _verify(c, csrf, SKU_SUB, "sub-tok-bonus-v").status_code == 200
+    assert 39.9 < _days_left(db, email) < 40.1
+    # The premium page re-verifies owned purchases on every load: must not stack again.
+    assert _verify(c, csrf, SKU_SUB, "sub-tok-bonus-v").status_code == 200
+    assert 39.9 < _days_left(db, email) < 40.1
+
+
+def test_rtdn_renewal_and_expiry_keep_bonus_days(play, db):
+    c, email, csrf = make_auth_client("play_bonus_rtdn")
+    play["subs"]["sub-tok-bonus-r"] = _sub(days=3)
+    assert _verify(c, csrf, SKU_SUB, "sub-tok-bonus-r").status_code == 200
+    # Referral bonus granted while subscribed stacks on top of the Play expiry.
+    u = _user(db, email)
+    u.premium_until = u.premium_until + timedelta(days=5)
+    db.commit()
+
+    note = {"packageName": "club.test.app",
+            "subscriptionNotification": {"notificationType": 2, "purchaseToken": "sub-tok-bonus-r"}}
+    play["subs"]["sub-tok-bonus-r"] = _sub(days=33)
+    assert _rtdn(note).status_code == 200
+    assert 37.9 < _days_left(db, email) < 38.1
+
+    play["subs"]["sub-tok-bonus-r"] = _sub(state="SUBSCRIPTION_STATE_EXPIRED", days=-1)
+    assert _rtdn(note).status_code == 200
+    assert 4.9 < _days_left(db, email) < 5.1
+
+
+def test_rtdn_refund_removes_only_play_time(play, db):
+    c, email, csrf = make_auth_client("play_bonus_void")
+    _give_bonus(db, email, 7)
+    play["subs"]["sub-tok-bonus-x"] = _sub(days=30)
+    assert _verify(c, csrf, SKU_SUB, "sub-tok-bonus-x").status_code == 200
+    note = {"packageName": "club.test.app",
+            "voidedPurchaseNotification": {"purchaseToken": "sub-tok-bonus-x", "productType": 1}}
+    assert _rtdn(note).status_code == 200
+    assert 6.9 < _days_left(db, email) < 7.1
+
+
 def test_rtdn_voided_lifetime_revokes_premium(play, db):
     c, email, csrf = make_auth_client("play_void")
     play["products"]["life-tok-void"] = {"purchaseState": 0, "acknowledgementState": 1}

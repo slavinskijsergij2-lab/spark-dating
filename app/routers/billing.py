@@ -302,6 +302,27 @@ async def _cancel_subscription(sub_id: str, db: AsyncSession):
 _PLAY_RTDN_TOKEN = os.getenv("PLAY_RTDN_TOKEN", "")
 
 
+def _apply_play_expiry(user: User, old_expiry, new_expiry) -> None:
+    """Set premium_until from a Play subscription without touching time from other sources.
+
+    premium_until is shared with Stripe and referral bonuses. Time stacked on top of the
+    previous Play expiry (or still left before the first Play purchase) is kept and moved
+    onto the new expiry, so a renewal doesn't swallow bonus days and an expiry or refund
+    removes only the Play part. Re-applying the same expiry is a no-op, which keeps the
+    restore-on-page-load re-verification idempotent.
+    """
+    now = _utcnow()
+    current = user.premium_until
+    anchor = old_expiry if old_expiry and old_expiry > now else now
+    extra = current - anchor if current and current > anchor else timedelta(0)
+    if new_expiry and new_expiry > now:
+        user.premium_until = new_expiry + extra
+    elif extra:
+        user.premium_until = now + extra
+    else:
+        user.premium_until = None
+
+
 @router.post("/play/verify", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(20, 60))])
 async def play_verify(
     request: Request,
@@ -356,13 +377,13 @@ async def play_verify(
         record = PlayPurchase(user_id=user.id, purchase_token=token, product_id=product_id,
                               kind="subscription" if is_sub else "product")
         db.add(record)
-    record.expires_at = expiry
 
     db_user = (await db.execute(select(User).where(User.id == user.id))).scalar_one()
     if is_sub:
-        db_user.premium_until = max(db_user.premium_until or expiry, expiry)
+        _apply_play_expiry(db_user, record.expires_at, expiry)
     else:
         db_user.is_premium = True
+    record.expires_at = expiry
     try:
         await db.commit()
     except IntegrityError:
@@ -421,7 +442,7 @@ async def play_rtdn(request: Request, token: str = ""):
             if record.kind == "product":
                 db_user.is_premium = False
             else:
-                db_user.premium_until = None
+                _apply_play_expiry(db_user, record.expires_at, None)
             record.expires_at = None
         else:
             try:
@@ -433,8 +454,8 @@ async def play_rtdn(request: Request, token: str = ""):
             except play_billing.PlayError as e:
                 logging.error("play_rtdn: %s", e)
                 raise HTTPException(500, "Play API error")  # Pub/Sub retries
+            _apply_play_expiry(db_user, record.expires_at, expiry if entitled else None)
             record.expires_at = expiry
-            db_user.premium_until = expiry if entitled else None
 
         await db.commit()
         invalidate_user_cache(db_user.id)
