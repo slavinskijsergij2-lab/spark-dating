@@ -53,7 +53,8 @@ async def create_checkout(
     import stripe as _stripe
     _stripe.api_key = _STRIPE_SK
 
-    base_url = str(request.base_url).rstrip("/")
+    # request.base_url is http:// behind Railway's proxy; Stripe must redirect to https.
+    base_url = _SITE_URL.rstrip("/")
     mode = "subscription" if plan == "monthly" else "payment"
     price_id = _PRICE_MONTHLY if plan == "monthly" else _PRICE_LIFETIME
 
@@ -188,7 +189,8 @@ async def billing_portal(
 
     import stripe as _stripe
     _stripe.api_key = _STRIPE_SK
-    base_url = str(request.base_url).rstrip("/")
+    # request.base_url is http:// behind Railway's proxy; Stripe must redirect to https.
+    base_url = _SITE_URL.rstrip("/")
 
     try:
         # Use env-var config first; fall back to auto-create via API

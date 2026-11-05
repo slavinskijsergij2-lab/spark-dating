@@ -880,7 +880,7 @@ def assetlinks():
 @app.get("/sitemap.xml", include_in_schema=False)
 def sitemap(request: Request):
     from fastapi.responses import Response
-    base = str(request.base_url).rstrip("/")
+    base = (os.getenv("SITE_URL") or str(request.base_url)).rstrip("/")
     urls = ["/", "/login", "/register", "/privacy", "/account-deletion", "/child-safety", "/forgot-password"]
     xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
     xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
