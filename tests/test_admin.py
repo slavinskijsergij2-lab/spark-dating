@@ -166,3 +166,16 @@ def test_admin_delete_gallery_photo_removes_record(db):
 
     db.expire_all()
     assert db.query(ProfilePhoto).filter(ProfilePhoto.id == pid).first() is None
+
+
+def test_admin_key_in_url_is_not_accepted():
+    from tests.conftest import make_client
+    r = make_client().get(f"/admin?key={ADMIN_KEY}", follow_redirects=False)
+    assert r.status_code == 403
+
+
+def test_admin_login_non_ascii_key_does_not_crash():
+    from tests.conftest import make_client
+    r = make_client().post("/admin/login", data={"key": "пароль"}, follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["location"].endswith("/admin/login")

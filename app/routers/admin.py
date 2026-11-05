@@ -23,9 +23,10 @@ _ADMIN_PAGE_SIZE = 100
 
 
 def _check_admin(request: Request) -> None:
-    key = request.cookies.get("admin_key") or request.query_params.get("key", "")
+    # Only the cookie set by /admin/login: a ?key= URL leaks the key into logs and history.
+    key = request.cookies.get("admin_key", "")
     # FIX High #4: constant-time comparison to prevent admin key timing attack.
-    if not _ADMIN_KEY or not secrets.compare_digest(key, _ADMIN_KEY):
+    if not _ADMIN_KEY or not secrets.compare_digest(key.encode(), _ADMIN_KEY.encode()):
         raise HTTPException(403, "Forbidden")
 
 
@@ -50,7 +51,7 @@ button:hover{opacity:.9}</style></head>
 @router.post("/login", include_in_schema=False, dependencies=[Depends(rate_limit(5, 60))])
 async def admin_login(key: str = Form(...)):
     # FIX High #4: constant-time comparison on login too.
-    if not _ADMIN_KEY or not secrets.compare_digest(key, _ADMIN_KEY):
+    if not _ADMIN_KEY or not secrets.compare_digest(key.encode(), _ADMIN_KEY.encode()):
         return RedirectResponse("/admin/login", status_code=302)
     resp = RedirectResponse("/admin", status_code=302)
     resp.set_cookie("admin_key", key, httponly=True, samesite="strict", max_age=86400 * 7,
