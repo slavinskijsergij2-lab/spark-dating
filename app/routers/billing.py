@@ -71,18 +71,28 @@ async def create_checkout(
         user.stripe_customer_id = customer_id
         await db.commit()
 
-    session = await asyncio.to_thread(
-        _stripe.checkout.Session.create,
-        mode=mode,
-        customer=customer_id,
-        payment_method_types=["card"],
-        line_items=[{"price": price_id, "quantity": 1}],
-        success_url=f"{base_url}/billing/success?session_id={{CHECKOUT_SESSION_ID}}",
-        cancel_url=f"{base_url}/billing/cancel",
-        metadata={"user_id": str(user.id), "plan": plan},
-        allow_promotion_codes=True,
-        locale="auto",
-    )
+    # payment_method_types is rejected by current Stripe API versions: payment
+    # methods are configured in the Dashboard (dynamic payment methods).
+    try:
+        session = await asyncio.to_thread(
+            _stripe.checkout.Session.create,
+            mode=mode,
+            customer=customer_id,
+            line_items=[{"price": price_id, "quantity": 1}],
+            success_url=f"{base_url}/billing/success?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{base_url}/billing/cancel",
+            metadata={"user_id": str(user.id), "plan": plan},
+            allow_promotion_codes=True,
+            locale="auto",
+        )
+    except _stripe.StripeError:
+        logging.getLogger(__name__).exception(
+            "Stripe checkout session creation failed (plan=%s)", plan
+        )
+        return JSONResponse(
+            {"detail": "Payment service is temporarily unavailable. Please try again later."},
+            status_code=502,
+        )
 
     return JSONResponse({"url": session.url})
 
