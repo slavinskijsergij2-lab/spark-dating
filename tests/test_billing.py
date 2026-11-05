@@ -82,3 +82,75 @@ def test_webhook_empty_body_rejected():
         headers={"Content-Type": "application/json"},
     )
     assert r.status_code in (400, 422)
+
+
+# ── Stripe activation / renewal idempotency ──────────────────────────────────
+
+def _run(coro):
+    import asyncio
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+def _stripe_user(email_prefix):
+    from app.database import SessionLocal
+    from app.models.models import User
+    _c, email, _ = make_auth_client(email_prefix)
+    with SessionLocal() as s:
+        return s.query(User).filter(User.email == email).one().id
+
+
+def _premium_until(uid):
+    from app.database import SessionLocal
+    from app.models.models import User
+    with SessionLocal() as s:
+        return s.get(User, uid).premium_until
+
+
+async def _activate(uid, plan, sub_id):
+    from app.database import AsyncSessionLocal
+    from app.routers.billing import _activate_premium
+    async with AsyncSessionLocal() as db:
+        await _activate_premium(uid, plan, sub_id, db)
+
+
+async def _extend(sub_id, period_end):
+    from app.database import AsyncSessionLocal
+    from app.routers.billing import _extend_subscription
+    async with AsyncSessionLocal() as db:
+        await _extend_subscription(sub_id, db, period_end)
+
+
+def test_monthly_activation_is_granted_once_per_subscription():
+    """Success page reloads + the webhook must not stack extra months."""
+    from datetime import timedelta
+    from app.utils.time import utcnow
+    uid = _stripe_user("stripe_once")
+    _run(_activate(uid, "monthly", "sub_once"))
+    first = _premium_until(uid)
+    assert first > utcnow() + timedelta(days=30)
+    _run(_activate(uid, "monthly", "sub_once"))
+    _run(_activate(uid, "monthly", "sub_once"))
+    assert _premium_until(uid) == first
+
+
+def test_renewal_uses_invoice_period_and_is_idempotent():
+    from datetime import timedelta
+    from app.utils.time import utcnow
+    uid = _stripe_user("stripe_renew")
+    _run(_activate(uid, "monthly", "sub_renew"))
+    period_end = utcnow() + timedelta(days=62)
+    _run(_extend("sub_renew", period_end))
+    _run(_extend("sub_renew", period_end))  # webhook redelivery
+    assert _premium_until(uid) == period_end + timedelta(days=1)
+
+
+def test_invoice_period_end_parsing():
+    from app.routers.billing import _invoice_period_end
+    inv = {"lines": {"data": [{"period": {"start": 1700000000, "end": 1702592000}}]}}
+    end = _invoice_period_end(inv)
+    assert end.tzinfo is None and end.year == 2023
+    assert _invoice_period_end({}) is None

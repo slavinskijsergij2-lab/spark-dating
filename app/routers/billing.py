@@ -237,9 +237,12 @@ async def stripe_webhook(request: Request):
                     await _activate_premium(uid, plan, obj.get("subscription"), db)
 
             elif etype == "invoice.payment_succeeded":
-                sub_id = obj.get("subscription")
-                if sub_id:
-                    await _extend_subscription(sub_id, db)
+                sub_id = obj.get("subscription") or (
+                    ((obj.get("parent") or {}).get("subscription_details") or {}).get("subscription")
+                )
+                # The first invoice is paid by the checkout itself, which already granted the month.
+                if sub_id and obj.get("billing_reason") != "subscription_create":
+                    await _extend_subscription(sub_id, db, _invoice_period_end(obj))
 
             elif etype in ("customer.subscription.deleted", "customer.subscription.paused"):
                 sub_id = obj.get("id")
@@ -256,12 +259,17 @@ async def stripe_webhook(request: Request):
 
 
 async def _activate_premium(user_id: int, plan: str, subscription_id, db: AsyncSession):
-    result = await db.execute(select(User).where(User.id == user_id))
+    # Both the success page and the webhook activate the same checkout, and the success
+    # page can be reloaded — lock the row and grant each subscription only once.
+    result = await db.execute(select(User).where(User.id == user_id).with_for_update())
     user = result.scalar_one_or_none()
     if not user:
         return
     if plan == "lifetime":
         user.is_premium = True
+    elif subscription_id and user.stripe_subscription_id == subscription_id:
+        await db.rollback()
+        return
     else:
         now = _utcnow()
         # FIX Low #35: use dateutil or relativedelta for real calendar month;
@@ -274,14 +282,31 @@ async def _activate_premium(user_id: int, plan: str, subscription_id, db: AsyncS
     invalidate_user_cache(user.id)
 
 
-async def _extend_subscription(sub_id: str, db: AsyncSession):
-    result = await db.execute(select(User).where(User.stripe_subscription_id == sub_id))
+def _invoice_period_end(invoice):
+    """End of the billing period an invoice pays for (naive UTC, like the DB columns)."""
+    from datetime import datetime, timezone
+    try:
+        ends = [line["period"]["end"] for line in invoice["lines"]["data"] if line.get("period")]
+        return datetime.fromtimestamp(max(ends), tz=timezone.utc).replace(tzinfo=None) if ends else None
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+async def _extend_subscription(sub_id: str, db: AsyncSession, period_end=None):
+    result = await db.execute(select(User).where(User.stripe_subscription_id == sub_id).with_for_update())
     user = result.scalar_one_or_none()
     if not user:
         return
     now = _utcnow()
-    user.premium_until = max(user.premium_until or now, now) + timedelta(days=31)
+    if period_end is not None:
+        # Idempotent: a redelivered webhook for the same invoice changes nothing.
+        target = period_end + timedelta(days=1)
+        if user.premium_until is None or user.premium_until < target:
+            user.premium_until = target
+    else:
+        user.premium_until = max(user.premium_until or now, now) + timedelta(days=31)
     await db.commit()
+    invalidate_user_cache(user.id)
 
 
 async def _cancel_subscription(sub_id: str, db: AsyncSession):
@@ -292,6 +317,7 @@ async def _cancel_subscription(sub_id: str, db: AsyncSession):
     user.premium_until = None
     user.stripe_subscription_id = None
     await db.commit()
+    invalidate_user_cache(user.id)
 
 
 # ── Google Play Billing (Android TWA) ────────────────────────────────────────
