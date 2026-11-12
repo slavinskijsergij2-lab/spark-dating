@@ -27,6 +27,25 @@ _PREMIUM_CODES: set[str] = set(
 )
 
 
+async def _paid_premium(user: User, db: AsyncSession) -> bool:
+    """True if the user's premium comes from a purchase we can see.
+
+    "Turn off Premium" only clears our own flags. It cannot cancel a Stripe or Google
+    Play subscription (billing would simply continue) and it would throw away a
+    lifetime purchase, so it is refused for these users.
+    """
+    if user.stripe_subscription_id:
+        return True
+    rows = (await db.execute(
+        select(PlayPurchase.kind, PlayPurchase.expires_at).where(PlayPurchase.user_id == user.id)
+    )).all()
+    now = _utcnow()
+    return any(
+        (kind == "product" and user.is_premium) or (expires_at is not None and expires_at > now)
+        for kind, expires_at in rows
+    )
+
+
 @router.get("/premium", response_class=HTMLResponse, dependencies=[Depends(rate_limit(30, 60))])
 async def premium_page(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     lang = get_lang(request, user)
@@ -48,6 +67,7 @@ async def premium_page(request: Request, user: User = Depends(get_current_user),
         "t": get_translations(lang),
         "rtl": is_rtl(lang),
         "lang": lang,
+        "can_deactivate": not await _paid_premium(user, db),
         "boost_active": boost_active,
         "boost_remaining": boost_remaining,
         "requires_code": bool(_PREMIUM_CODES),
@@ -98,6 +118,8 @@ async def activate_premium(
 
 @router.post("/premium/deactivate", dependencies=[Depends(validate_csrf_header), Depends(rate_limit(5, 60))])
 async def deactivate_premium(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if await _paid_premium(user, db):
+        return JSONResponse({"error": "paid_premium"}, status_code=409)
     db_user = await db.merge(user)
     db_user.is_premium = False
     db_user.premium_until = None

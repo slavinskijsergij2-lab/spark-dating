@@ -119,11 +119,11 @@
     <span class="star" style="bottom:15%;left:40%;animation-delay:1s">★</span>
   </div>
   <div style="font-size:52px;margin-bottom:8px;filter:drop-shadow(0 4px 16px rgba(255,255,255,.4))">⭐</div>
-  <h1 style="color:white;font-size:22px;font-weight:900;margin-bottom:4px;">Premium активен!</h1>
+  <h1 style="color:white;font-size:22px;font-weight:900;margin-bottom:4px;">{{ t.get('premium_active', 'Premium активен') }}!</h1>
   {% if user.is_premium %}
-  <p style="color:rgba(255,255,255,.85);font-size:13px;">Навсегда — все функции разблокированы</p>
+  <p style="color:rgba(255,255,255,.85);font-size:13px;">{{ t.get('premium_active_sub', 'Все функции разблокированы') }}</p>
   {% elif user.premium_until %}
-  <p style="color:rgba(255,255,255,.85);font-size:13px;">Действует до {{ user.premium_until.strftime('%d.%m.%Y') }}</p>
+  <p style="color:rgba(255,255,255,.85);font-size:13px;">{{ t.get('premium_valid_until', 'Действует до') }} {{ user.premium_until.strftime('%d.%m.%Y') }}</p>
   {% endif %}
 </div>
 
@@ -140,8 +140,9 @@
   <span data-loading style="display:none">...</span>
 </button>
 <p class="text-xs text-gray-400 text-center mb-4" data-web-billing>{{ t.get('billing_portal_hint', 'Изменить, отменить подписку или скачать квитанции') }}</p>
-{% else %}
+{% elif can_deactivate %}
 <button id="prem-deactivate-btn" onclick="deactivatePremium(this)"
+        data-confirm="{{ t.get('premium_cancel_confirm', 'Отключить Premium? Оставшееся время Premium пропадёт, вернуть его будет нельзя.') }}"
         class="w-full bg-white border-2 border-gray-200 text-gray-500 py-3 rounded-2xl text-sm font-medium hover:border-red-200 hover:text-red-400 transition disabled:opacity-50 mb-4">
   <span data-default>{{ t.get('premium_cancel', 'Деактивировать Premium') }}</span>
   <span data-loading style="display:none">...</span>
@@ -448,11 +449,15 @@ function startCheckout(plan, btn) {
 }
 
 function deactivatePremium(btn) {
+  if (!confirm(btn.dataset.confirm)) return;
   btn.disabled = true;
   setBtnState(btn, 'loading');
   fetch('/premium/deactivate', {method:'POST', headers:{'x-csrf-token': getCsrfToken()}})
     .then(function(r){ return r.json(); })
-    .then(function(d){ if (d.success) window.location.reload(); })
+    .then(function(d){
+      if (d.success) { window.location.reload(); return; }
+      btn.disabled = false; setBtnState(btn, 'default');
+    })
     .catch(function() { btn.disabled = false; setBtnState(btn, 'default'); });
 }
 
