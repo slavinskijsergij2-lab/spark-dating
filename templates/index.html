@@ -8,7 +8,7 @@
     100% { transform: translateY(-100vh) scale(1.4); opacity: 0; }
   }
   .floating-heart {
-    position: fixed;
+    position: absolute; /* inside #hearts-container, which clips them: no sideways scroll */
     pointer-events: none;
     animation: heartFloat linear forwards;
     z-index: 0;
