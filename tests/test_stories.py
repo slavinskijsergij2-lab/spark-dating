@@ -128,3 +128,61 @@ def test_delete_other_users_story_is_noop(db):
     feed = client_a.get("/stories/feed").json()
     my_story_ids = [s["id"] for e in feed if e["is_me"] for s in e["stories"]]
     assert story_id in my_story_ids
+
+
+# ── Expiry ───────────────────────────────────────────────────────────────────
+
+def _age_story(db, story_id, hours_old, hours_left):
+    from datetime import timedelta
+    from app.models.models import Story
+    from app.utils.time import utcnow
+    story = db.get(Story, story_id)
+    story.created_at = utcnow() - timedelta(hours=hours_old)
+    story.expires_at = utcnow() + timedelta(hours=hours_left)
+    db.commit()
+
+
+def _hours_left(db, story_id):
+    from app.models.models import Story
+    from app.utils.time import utcnow
+    db.expire_all()
+    return (db.get(Story, story_id).expires_at - utcnow()).total_seconds() / 3600
+
+
+def test_replacing_a_story_gives_it_a_fresh_24_hours(db):
+    client, _, csrf = make_auth_client(f"st_fresh_{_tag()}")
+    story_id = client.post("/stories", data={"text": "Old", "csrftoken": csrf}).json()["id"]
+    _age_story(db, story_id, hours_old=23, hours_left=1)
+
+    client.post("/stories", data={"text": "New", "csrftoken": csrf})
+
+    assert _hours_left(db, story_id) > 23
+
+
+def test_story_posted_after_the_old_one_expired_survives_cleanup(db):
+    from app.models.models import Story
+    from app.utils.maintenance import do_cleanup
+    client, _, csrf = make_auth_client(f"st_reuse_{_tag()}")
+    story_id = client.post("/stories", data={"text": "Old", "csrftoken": csrf}).json()["id"]
+    # Expired, but the hourly cleanup hasn't removed the row yet.
+    _age_story(db, story_id, hours_old=24.5, hours_left=-0.5)
+
+    new_id = client.post("/stories", data={"text": "New", "csrftoken": csrf}).json()["id"]
+    do_cleanup()
+
+    db.expire_all()
+    story = db.get(Story, new_id)
+    assert story is not None and story.content == "New"
+
+
+def test_cleanup_removes_expired_stories(db):
+    from app.models.models import Story
+    from app.utils.maintenance import do_cleanup
+    client, _, csrf = make_auth_client(f"st_gone_{_tag()}")
+    story_id = client.post("/stories", data={"text": "Old", "csrftoken": csrf}).json()["id"]
+    _age_story(db, story_id, hours_old=25, hours_left=-1)
+
+    do_cleanup()
+
+    db.expire_all()
+    assert db.get(Story, story_id) is None

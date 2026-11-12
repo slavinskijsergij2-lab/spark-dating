@@ -108,10 +108,9 @@ def do_cleanup() -> None:
                 logging.info("cleanup: deleted %d stale unverified accounts", r.rowcount)
 
             try:
-                cutoff_stories = now - timedelta(hours=24)
                 r = conn.execute(_t(
-                    "DELETE FROM stories WHERE created_at < :cutoff"
-                ), {"cutoff": cutoff_stories})
+                    "DELETE FROM stories WHERE expires_at < :now"
+                ), {"now": now})
                 if r.rowcount:
                     logging.info("cleanup: deleted %d expired stories", r.rowcount)
             except Exception:

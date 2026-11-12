@@ -73,8 +73,12 @@ async def create_story(
     )
     existing = result.scalar_one_or_none()
     if existing:
+        # A replacement is a new story: it gets its own 24 hours instead of
+        # disappearing when the one it replaced would have.
         existing.content = content
         existing.media_type = media_type
+        existing.expires_at = expires
+        existing.created_at = _utcnow()
         await db.commit()
         await db.refresh(existing)
         return JSONResponse({"success": True, "id": existing.id})
@@ -91,6 +95,7 @@ async def create_story(
         story.content = content
         story.media_type = media_type
         story.expires_at = expires
+        story.created_at = _utcnow()
         await db.commit()
         await db.refresh(story)
     return JSONResponse({"success": True, "id": story.id})
