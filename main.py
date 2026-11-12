@@ -470,8 +470,13 @@ async def security_middleware(request: Request, call_next):
 
     response = await call_next(request)
 
-    # Set cookie on first visit (httponly=False — JS needs to read it for AJAX)
-    if not request.cookies.get(_CSRF_COOKIE):
+    # Set cookie on first visit (httponly=False — JS needs to read it for AJAX).
+    # Only pages hand out the token. Assets and JSON fetched alongside a first page
+    # load (the service worker update check, icons, API polls) arrive without the
+    # cookie too; if each set its own token, whichever landed last replaced the one
+    # baked into the page's forms and the next form post failed CSRF validation.
+    _is_page = response.headers.get("content-type", "").startswith("text/html")
+    if _is_page and not request.cookies.get(_CSRF_COOKIE):
         _secure = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("SECURE_COOKIES"))
         response.set_cookie(
             _CSRF_COOKIE, csrf_token,

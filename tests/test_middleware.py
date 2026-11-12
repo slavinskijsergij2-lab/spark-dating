@@ -170,3 +170,22 @@ def test_csrf_rejects_wrong_or_missing_token():
     assert _csrf_post("csrftoken=first", "other").json().get("detail") == "CSRF validation failed"
     assert _csrf_post("csrftoken=first", "").json().get("detail") == "CSRF validation failed"
     assert _csrf_post("", "first").json().get("detail") == "CSRF validation failed"
+
+
+def test_only_pages_issue_the_csrf_cookie():
+    """An asset loaded in parallel with a first page visit must not replace the token
+    the page's forms were rendered with (login then failed CSRF validation)."""
+    from tests.conftest import make_client
+
+    for path in ("/sw.js", "/static/manifest.json", "/health", "/robots.txt"):
+        r = make_client().get(path)
+        assert r.status_code == 200, path
+        assert "csrftoken" not in r.headers.get("set-cookie", ""), path
+
+    client = make_client()
+    r = client.get("/login")
+    assert "csrftoken=" in r.headers.get("set-cookie", "")
+    token = client.cookies.get("csrftoken")
+    assert f'name="csrftoken" value="{token}"' in r.text
+    client.get("/sw.js")
+    assert client.cookies.get("csrftoken") == token
