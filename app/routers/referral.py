@@ -45,7 +45,9 @@ async def referral_page(request: Request, user: User = Depends(get_current_user)
         await db.commit()
 
     result = await db.execute(
-        select(_func.count(User.id)).where(User.referred_by_id == user.id)
+        select(_func.count(User.id)).where(
+            User.referred_by_id == user.id, User.email_verified == True
+        )
     )
     referred_count = result.scalar() or 0
     days_earned = referred_count * REFERRAL_BONUS_DAYS

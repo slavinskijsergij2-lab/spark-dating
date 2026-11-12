@@ -157,3 +157,57 @@ def test_referral_code_unique_per_user(db):
     code_a = db.query(User.referral_code).filter(User.email == email_a).scalar()
     code_b = db.query(User.referral_code).filter(User.email == email_b).scalar()
     assert code_a != code_b
+
+
+# ── Bonus is paid when the invited email is confirmed ────────────────────────
+
+def _register_unverified(monkeypatch, ref_code):
+    """Register the way production does: the account starts unverified."""
+    from app import email_utils
+    monkeypatch.delenv("TESTING", raising=False)
+    monkeypatch.setattr(email_utils, "RESEND_API_KEY", "")
+    client = make_client()
+    csrf = get_csrf(client)
+    email = f"ref_unv_{_tag()}@test.com"
+    r = client.post(
+        "/register",
+        data={"email": email, "password": "TestPass123!", "csrftoken": csrf, "ref": ref_code},
+        follow_redirects=False,
+    )
+    assert r.status_code == 302 and r.headers["location"].endswith("/register/check-email")
+    return client, email
+
+
+def _fresh(db, user_id):
+    from app.models.models import User
+    db.expire_all()
+    return db.get(User, user_id)
+
+
+def test_no_bonus_until_invited_email_is_confirmed(db, monkeypatch):
+    from app.models.models import User
+    referrer_client, referrer_email, _ = make_auth_client(f"ref_wait_{_tag()}")
+    referrer_id = _get_user_id(db, referrer_email)
+    ref_code = _fresh(db, referrer_id).referral_code
+
+    client, email = _register_unverified(monkeypatch, ref_code)
+
+    assert _fresh(db, referrer_id).premium_until is None
+    assert "0" in referrer_client.get("/referral").text
+
+    token = db.query(User.email_verify_token).filter(User.email == email).scalar()
+    r = client.post(f"/verify-email/{token}", follow_redirects=False)
+    assert r.status_code == 302
+
+    assert _fresh(db, referrer_id).premium_until is not None
+
+
+def test_many_unconfirmed_signups_earn_nothing(db, monkeypatch):
+    _c, referrer_email, _ = make_auth_client(f"ref_farm_{_tag()}")
+    referrer_id = _get_user_id(db, referrer_email)
+    ref_code = _fresh(db, referrer_id).referral_code
+
+    for _ in range(2):  # stays under the 5/min registration limit, which is live here
+        _register_unverified(monkeypatch, ref_code)
+
+    assert _fresh(db, referrer_id).premium_until is None

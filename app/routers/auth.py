@@ -202,7 +202,10 @@ async def register(
         }, status_code=400)
     await db.refresh(user)
 
-    if referrer:
+    # The referrer is rewarded once the invited address is confirmed (see
+    # _confirm_email): paying out at registration let anyone farm premium
+    # days by registering made-up emails with their own code.
+    if referrer and user.email_verified:
         from app.routers.referral import apply_referral_bonus
         await apply_referral_bonus(referrer, db)
 
@@ -226,6 +229,23 @@ def check_email_page(request: Request):
         "t": get_translations(lang),
         "rtl": is_rtl(lang),
     })
+
+
+async def _confirm_email(user: User, db: AsyncSession) -> None:
+    """Mark the address as confirmed and reward whoever invited this user."""
+    user.email_verified = True
+    user.email_verify_token = None
+    user.email_verify_created_at = None
+    await db.commit()
+
+    if user.referred_by_id:
+        referrer = (await db.execute(
+            select(User).where(User.id == user.referred_by_id, User.is_active == True)
+        )).scalar_one_or_none()
+        if referrer:
+            from app.routers.referral import apply_referral_bonus
+            await apply_referral_bonus(referrer, db)
+            invalidate_user_cache(referrer.id)
 
 
 async def _check_verify_token(token: str, request: Request, db: AsyncSession):
@@ -275,10 +295,7 @@ async def verify_email_confirm(token: str, request: Request, db: AsyncSession = 
     if err:
         return err
 
-    user.email_verified = True
-    user.email_verify_token = None
-    user.email_verify_created_at = None
-    await db.commit()
+    await _confirm_email(user, db)
 
     access_token = create_access_token(user.id, token_version=user.token_version or 0)
     lang = user.language or "en"
@@ -401,6 +418,11 @@ async def reset_password(
     user.password_reset_expires = None
     user.token_version = (user.token_version or 0) + 1
     await db.commit()
+    # The reset link was sent to this address, so using it proves ownership. Without
+    # this the user is logged in but still "unverified": the next login is refused
+    # and the cleanup job deletes the account 7 days after registration.
+    if not user.email_verified:
+        await _confirm_email(user, db)
     invalidate_user_cache(user.id)
 
     access_token = create_access_token(user.id, token_version=user.token_version)

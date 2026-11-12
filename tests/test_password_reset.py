@@ -247,3 +247,44 @@ def test_reset_password_token_unusable_twice(db):
     r2 = c2.post(f"/reset-password/{token}",
                  data={"password": "Second2Pass!", "csrftoken": csrf2})
     assert r2.status_code == 400
+
+
+# ── Reset proves the address: account becomes verified ───────────────────────
+
+def test_reset_password_verifies_unverified_account(db):
+    """Someone who never clicked the confirmation link but reset the password by email
+    must end up verified — otherwise the cleanup job deletes the account they now use."""
+    from datetime import timedelta
+    from app.models.models import User
+    from app.utils.maintenance import do_cleanup
+    from app.utils.time import utcnow
+
+    _, email, _ = make_auth_client(f"rp_unv_{_tag()}")
+    user = db.query(User).filter(User.email == email).first()
+    user.email_verified = False
+    user.email_verify_token = "pending-" + _tag()
+    user.created_at = utcnow() - timedelta(days=8)
+    db.commit()
+
+    token = _get_reset_token(db, email)
+    fresh = make_client()
+    csrf = get_csrf(fresh)
+    r = fresh.post(f"/reset-password/{token}",
+                   data={"password": "NewPass999!", "csrftoken": csrf},
+                   follow_redirects=False)
+    assert r.status_code == 302
+
+    do_cleanup()
+
+    db.expire_all()
+    user = db.query(User).filter(User.email == email).first()
+    assert user is not None, "account was deleted as 'never verified'"
+    assert user.email_verified is True
+    assert user.email_verify_token is None
+
+    # And the next ordinary login works instead of bouncing to "confirm your email".
+    again = make_client()
+    csrf = get_csrf(again)
+    r = again.post("/login", data={"email": email, "password": "NewPass999!", "csrftoken": csrf},
+                   follow_redirects=False)
+    assert r.headers["location"].endswith("/swipe")
