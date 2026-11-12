@@ -8,7 +8,6 @@ Backend selection:
 
 Set TESTING=1 to disable limiting in the test suite.
 """
-import asyncio
 import logging
 import os
 import threading
