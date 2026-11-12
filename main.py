@@ -364,17 +364,27 @@ async def _self_monitor() -> None:
     if not own_url.startswith("http"):
         own_url = f"https://{own_url}"
     own_url = own_url.rstrip("/") + "/health"
+    failures = 0
     while True:
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 r = await client.get(own_url)
+            try:
                 data = r.json()
-                healthy = r.status_code == 200 and data.get("status") == "ok"
+            except ValueError:
+                # Not our app answering (Railway edge error page, empty body): say what came back.
+                raise RuntimeError(f"HTTP {r.status_code}, not JSON: {r.text[:80]!r}")
+            healthy = r.status_code == 200 and data.get("status") == "ok"
+            if not healthy:
+                logging.warning("self_monitor: unhealthy — HTTP %s %s", r.status_code, str(data)[:200])
         except Exception as _e:
             healthy = False
             logging.warning("self_monitor: health check failed — %s", _e)
+        failures = 0 if healthy else failures + 1
 
-        if not healthy:
+        # One failed request is usually a network blip between the container and the
+        # edge proxy; alert only when two checks in a row fail.
+        if failures >= 2:
             now = time.time()
             if now - _last_alert_sent > _ALERT_COOLDOWN:
                 _last_alert_sent = now
@@ -406,88 +416,9 @@ async def _reactivation_email_loop() -> None:
     await asyncio.sleep(3600)
     while True:
         try:
-            from app.database import AsyncSessionLocal
-            from app.models.models import User, Profile
-            from app.email_utils import send_reactivation_email
-            from sqlalchemy import select
-            from datetime import timedelta
-
-            # FIX Low #25: use project-standard utcnow() instead of deprecated datetime.utcnow()
-            from app.utils.time import utcnow as _utcnow_reactivation
-            now = _utcnow_reactivation()
-            cutoff_min = now - timedelta(days=4)
-            cutoff_max = now - timedelta(days=3)
-
-            async with AsyncSessionLocal() as session:
-                result = await session.execute(
-                    select(User, Profile)
-                    .join(Profile, Profile.user_id == User.id)
-                    .where(
-                        User.email_verified == True,
-                        User.is_active == True,
-                        User.notif_matches == True,
-                        User.last_seen >= cutoff_min,
-                        User.last_seen < cutoff_max,
-                    )
-                )
-                rows = result.all()
-                sent = 0
-
-                if rows:
-                    user_ids = [u.id for u, _p in rows]
-                    last_seens = {u.id: u.last_seen for u, _p in rows}
-
-                    # FIX Medium #20: replace N+1 per-user queries with 2 bulk queries.
-                    # Bulk match counts (each user can appear as user1 or user2)
-                    match_counts_raw = await session.execute(
-                        _text("""
-                            SELECT uid, COUNT(*) AS cnt FROM (
-                                SELECT user1_id AS uid FROM matches WHERE user1_id = ANY(:ids)
-                                UNION ALL
-                                SELECT user2_id AS uid FROM matches WHERE user2_id = ANY(:ids)
-                            ) sub GROUP BY uid
-                        """),
-                        {"ids": user_ids},
-                    )
-                    match_counts: dict[int, int] = {row.uid: row.cnt for row in match_counts_raw}
-
-                    # Bulk like counts with per-user cutoffs via CASE WHEN.
-                    # uid values are DB integers — no injection risk; int() enforces that.
-                    cutoff_cases = " ".join(
-                        f"WHEN liked_id = {int(uid)} THEN :ls_{int(uid)}" for uid in user_ids  # noqa: S608
-                    )
-                    cutoff_params = {f"ls_{int(uid)}": last_seens[uid] for uid in user_ids}
-                    like_counts_raw = await session.execute(
-                        _text(f"""
-                            SELECT liked_id, COUNT(*) AS cnt FROM likes
-                            WHERE liked_id = ANY(:ids)
-                              AND is_like = TRUE
-                              AND created_at >= CASE {cutoff_cases} END
-                            GROUP BY liked_id
-                        """),  # noqa: S608
-                        {"ids": user_ids, **cutoff_params},
-                    )
-                    like_counts: dict[int, int] = {row.liked_id: row.cnt for row in like_counts_raw}
-
-                    for user, profile in rows:
-                        match_count = match_counts.get(user.id, 0)
-                        new_likes = like_counts.get(user.id, 0)
-
-                        if match_count == 0 and new_likes == 0:
-                            continue
-
-                        ok = await asyncio.to_thread(
-                            send_reactivation_email,
-                            user.email,
-                            profile.name,
-                            match_count,
-                            new_likes,
-                            user.language or "ru",
-                        )
-                        if ok:
-                            sent += 1
-
-            logging.info("reactivation_emails: sent %d/%d", sent, len(rows))
+            from app.reactivation import send_reactivation_emails
+            sent, candidates = await send_reactivation_emails()
+            logging.info("reactivation_emails: sent %d/%d", sent, candidates)
         except Exception as _e:
             logging.error("reactivation_email_loop: %s", _e, exc_info=True)
         await asyncio.sleep(86400)
